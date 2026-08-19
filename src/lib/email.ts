@@ -4,11 +4,13 @@ import 'server-only'
  * Transactional email via Resend.
  *
  * Two distinct paths, and it matters which is which:
- *   • AUTH email (confirm signup, password reset) is sent by SUPABASE, using
- *     Resend as its SMTP provider. Those templates live in the Supabase
- *     dashboard — see SETUP.md §4. This module never sends them.
- *   • PRODUCT email (employee credentials, visa reminders) is sent from here,
- *     with the Resend API.
+ *   • AUTH email (confirm signup, password reset) is sent from here too, but
+ *     triggered by Supabase's "Send Email" Auth Hook rather than a direct
+ *     caller — see src/lib/auth-email.ts and
+ *     src/app/api/auth/send-email-hook/route.ts. Supabase's own SMTP sender
+ *     never fires once that hook is enabled (SETUP.md §4).
+ *   • PRODUCT email (employee credentials, visa reminders) is sent from here
+ *     directly, with the Resend API.
  *
  * Sending NEVER throws into a business flow. If an employee's credential email
  * bounces, the account still exists and the org still has the password on screen
@@ -76,7 +78,7 @@ export async function sendEmail({ to, subject, html, text, replyTo }: SendArgs):
 // Branded layout
 // ---------------------------------------------------------------------------
 
-function esc(value: string): string {
+export function esc(value: string): string {
   return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -94,7 +96,7 @@ function stripHtml(html: string): string {
     .trim()
 }
 
-interface LayoutOptions {
+export interface LayoutOptions {
   brandName?: string
   brandColor?: string
   preheader?: string
@@ -105,7 +107,7 @@ interface LayoutOptions {
  * across Outlook, Gmail and Apple Mail. `brandColor` lets an org's email carry
  * its own colour, defaulting to Oneclickhr crimson.
  */
-function layout(bodyHtml: string, opts: LayoutOptions = {}): string {
+export function layout(bodyHtml: string, opts: LayoutOptions = {}): string {
   const brandName = esc(opts.brandName || 'Oneclickhr')
   const brand = /^#[0-9a-fA-F]{6}$/.test(opts.brandColor || '') ? opts.brandColor! : '#C41E33'
   const preheader = opts.preheader ? esc(opts.preheader) : ''
@@ -146,7 +148,7 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;"
 </html>`
 }
 
-function button(href: string, label: string, brand = '#C41E33'): string {
+export function button(href: string, label: string, brand = '#C41E33'): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
   <tr><td style="border-radius:10px;background:${brand};">
     <a href="${esc(href)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:10px;">${esc(label)}</a>

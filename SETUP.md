@@ -13,7 +13,7 @@ in a state you can verify before moving on.
 1. [Create the Supabase project](#1-create-the-supabase-project)
 2. [Run the SQL migrations](#2-run-the-sql-migrations)
 3. [Enable the auth token hook](#3-enable-the-auth-token-hook)
-4. [Configure email — Resend via Supabase SMTP](#4-configure-email--resend-via-supabase-smtp)
+4. [Configure email — Resend via an Auth Hook](#4-configure-email--resend-via-an-auth-hook)
 5. [Seed the super admin](#5-seed-the-super-admin)
 6. [Cloudflare R2](#6-cloudflare-r2)
 7. [Google Cloud OAuth for Calendar](#7-google-cloud-oauth-for-calendar)
@@ -134,14 +134,18 @@ to a table lookup — but every policy check costs an extra query.
 
 ---
 
-## 4. Configure email — Resend via Supabase SMTP
+## 4. Configure email — Resend, via an Auth Hook
 
-There are **two separate email paths**, and the split matters:
+**All** transactional email — auth (confirm signup, password reset) and
+product (employee credentials, visa reminders, announcements) — is sent by
+**the app**, through the Resend API. Supabase's built-in sender/SMTP relay is
+not used for any of it, which is what gets around its default 4-per-hour
+(even with custom SMTP, dashboard-configured) rate limit.
 
-| Path | Sent by | Configured |
+| Path | Sent by | Template lives in |
 |---|---|---|
-| Confirm signup, password reset | **Supabase**, using Resend as its SMTP provider | Supabase dashboard (this section) |
-| Employee credentials, visa reminders, announcements | **The app**, using the Resend API | `RESEND_API_KEY` + `EMAIL_FROM` in the environment |
+| Confirm signup, password reset | The app (`src/lib/auth-email.ts`), triggered by a Supabase Auth Hook | Code |
+| Employee credentials, visa reminders, announcements | The app (`src/lib/email.ts`), called directly | Code |
 
 ### 4a. Resend account
 
@@ -153,28 +157,12 @@ There are **two separate email paths**, and the split matters:
 4. Set `EMAIL_FROM` to a verified address, e.g.
    `Oneclickhr <no-reply@oneclickhr.app>`.
 
-### 4b. Point Supabase SMTP at Resend
+### 4b. Enable the "Send Email" Auth Hook
 
-**Project Settings → Authentication → SMTP Settings** → *Enable Custom SMTP*:
+This is what stops Supabase from sending the confirm/reset email itself and
+routes the request to the app instead.
 
-| Field | Value |
-|---|---|
-| Host | `smtp.resend.com` |
-| Port | `465` |
-| Username | `resend` |
-| Password | your Resend API key |
-| Sender email | the same verified address as `EMAIL_FROM` |
-| Sender name | `Oneclickhr` |
-
-Save. Then under **Rate Limits**, raise *Emails per hour* from the default 4 —
-that default exists for Supabase's built-in sender and will throttle real
-signups.
-
-### 4c. The confirmation and reset templates — the critical part
-
-Go to **Authentication → Email Templates** and edit **two** templates.
-
-> #### Why the default link does not work
+> #### Why the link still isn't the default one
 >
 > Supabase's default confirmation link uses the PKCE `code` flow. Exchanging
 > that code requires a `code_verifier` that was generated in the browser which
@@ -187,49 +175,35 @@ Go to **Authentication → Email Templates** and edit **two** templates.
 > them.
 >
 > The `token_hash` flow carries everything the server needs inside the link
-> itself. `/auth/confirm` verifies it **server-side**, with no browser state, so
-> the link works from any device, any browser, even a webmail preview fetch.
+> itself. Supabase still generates that token — the hook only intercepts how
+> the *email* gets sent — and `src/app/api/auth/send-email-hook/route.ts`
+> builds the same `/auth/confirm?token_hash=...` link the app has always used.
+> `/auth/confirm` verifies it **server-side**, with no browser state, so the
+> link works from any device, any browser, even a webmail preview fetch.
 
-**Confirm signup** — replace the body with:
+**Authentication → Hooks → Send Email**:
 
-```html
-<h2>Confirm your Oneclickhr workspace</h2>
-<p>Click below to activate your organization's workspace.</p>
-<p>
-  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup"
-     style="display:inline-block;padding:12px 22px;background:#C41E33;color:#ffffff;
-            text-decoration:none;border-radius:10px;font-weight:600;">
-    Confirm my email
-  </a>
-</p>
-<p style="color:#6B7280;font-size:13px;">
-  This link works on any device — open it on your phone if that is where your
-  email is. It expires in 24 hours.
-</p>
-```
+1. Toggle it **on**.
+2. **Hook type**: *HTTPS*.
+3. **URL**: `https://your-domain.com/api/auth/send-email-hook` (in local dev,
+   Supabase must be able to reach this — use a tunnel like `ngrok`/`cloudflared`
+   pointed at `localhost:3000`, or just test signup against a deployed
+   preview).
+4. Click **Generate Secret** (or paste your own), then copy the value — it
+   starts with `v1,whsec_...` — into `SUPABASE_SEND_EMAIL_HOOK_SECRET`.
+5. Save.
 
-**Reset password** — replace the body with:
+Once this is on, the **Email Templates** page and the **SMTP Settings** page
+under Authentication no longer matter for signup/reset — leave them as
+defaults, or don't touch them at all.
 
-```html
-<h2>Reset your password</h2>
-<p>Click below to choose a new password.</p>
-<p>
-  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery"
-     style="display:inline-block;padding:12px 22px;background:#C41E33;color:#ffffff;
-            text-decoration:none;border-radius:10px;font-weight:600;">
-    Choose a new password
-  </a>
-</p>
-<p style="color:#6B7280;font-size:13px;">
-  This link works on any device. If you did not request it, you can ignore this
-  email — your password will not change.
-</p>
-```
+Test it: sign up with a real address. If the hook URL is wrong or the secret
+doesn't match, Supabase surfaces an error on signup itself (the hook aborts
+the auth action rather than failing silently) — check the app logs for
+`[send-email-hook]` and the Supabase dashboard's **Logs → Auth** for the hook
+delivery attempt.
 
-The only part that must be exact is the `href`. Everything else is yours to
-brand.
-
-### 4d. URL configuration
+### 4c. URL configuration
 
 **Authentication → URL Configuration:**
 
@@ -539,9 +513,9 @@ the system is supposed to guarantee.
 - [ ] It confirms and redirects to the login page — no `code_verifier` error.
 - [ ] Return to the desktop and sign in. You land on `/onboarding`, then `/org`.
 
-*If this fails, the email template is still using the default `?code=` link.
-Re-check §4c — the `href` must be
-`{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup`.*
+*If this fails, either the Send Email hook isn't enabled (Supabase is still
+sending its own default `?code=` link) or `SUPABASE_SEND_EMAIL_HOOK_SECRET`
+doesn't match the dashboard's Signing Secret. Re-check §4b.*
 
 ### Cross-tenant isolation
 
@@ -698,7 +672,9 @@ registered and what kind of account they are). The credentials email and the
 "employee created" screen both quote `/employee-login`.
 
 **Confirmation link fails with a `code_verifier` error**
-The email template is still the default. See §4c.
+The Send Email Auth Hook isn't enabled, or its URL/secret is wrong, so
+Supabase is sending its own default `?code=` link instead of routing through
+`/api/auth/send-email-hook`. See §4b.
 
 **Uploads fail — "Could not reach file storage", or nothing but a network error
 in the console**

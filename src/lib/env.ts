@@ -31,6 +31,7 @@ const optionalSchema = z.object({
 
   RESEND_API_KEY: z.string().min(10).optional(),
   EMAIL_FROM: z.string().min(3).optional(),
+  SUPABASE_SEND_EMAIL_HOOK_SECRET: z.string().min(10).optional(),
 
   R2_ACCOUNT_ID: z.string().min(4).optional(),
   R2_ACCESS_KEY_ID: z.string().min(8).optional(),
@@ -112,6 +113,14 @@ function strengthProblems(env: NodeJS.ProcessEnv): { errors: string[]; warnings:
 
   if (env.RESEND_API_KEY && !env.EMAIL_FROM) {
     warnings.push('RESEND_API_KEY is set but EMAIL_FROM is not — transactional email will not send.')
+  }
+
+  if (!env.SUPABASE_SEND_EMAIL_HOOK_SECRET) {
+    warnings.push(
+      'SUPABASE_SEND_EMAIL_HOOK_SECRET is not set — /api/auth/send-email-hook will reject every ' +
+        'call, so unless the Supabase "Send Email" Auth Hook is left disabled, confirmation and ' +
+        'password-reset email will fail to send. See SETUP.md §4.'
+    )
   }
 
   if (!env.CRON_SECRET) {
