@@ -11,7 +11,7 @@ import type { AppContext } from '@/lib/auth/context'
  * CSS variables on this wrapper. Because every `bg-brand-600` in the app reads
  * `hsl(var(--brand-600))`, overriding the variable re-themes the entire
  * workspace — no conditional classes, no runtime class generation, and the
- * NextKinLife crimson stays the default when an org has not chosen one.
+ * Oneclickhr crimson stays the default when an org has not chosen one.
  *
  * The 50/700 shades are DERIVED from the chosen hue rather than left at the
  * crimson defaults; mixing a custom primary with a crimson tint would look like
@@ -49,13 +49,13 @@ export function AppShell({
   }
 
   const brand: ShellBrand = {
-    name: ctx.role === 'super_admin' ? 'NextKinLife' : (ctx.tenant?.name ?? 'Workspace'),
+    name: ctx.role === 'super_admin' ? 'Oneclickhr' : (ctx.tenant?.name ?? 'Workspace'),
     logoUrl: ctx.tenant?.logoUrl
       ? `/api/files/view?key=${encodeURIComponent(ctx.tenant.logoUrl)}`
       : null,
   }
 
-  // The platform console always wears NextKinLife crimson — it is our product,
+  // The platform console always wears Oneclickhr crimson — it is our product,
   // not a customer's workspace.
   const style = ctx.role === 'super_admin' ? undefined : brandVariables(ctx.tenant?.primaryColor)
 

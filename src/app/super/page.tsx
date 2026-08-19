@@ -78,7 +78,7 @@ export default async function SuperDashboard() {
     <div className="space-y-6">
       <PageHeader
         title="Platform overview"
-        description="Every organization on NextKinLife EMS."
+        description="Every organization on Oneclickhr."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -16,8 +16,8 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'NextKinLife EMS',
-    template: '%s · NextKinLife EMS',
+    default: 'Oneclickhr',
+    template: '%s · Oneclickhr',
   },
   description: 'Employee management for modern care organizations.',
   robots: { index: false, follow: false },

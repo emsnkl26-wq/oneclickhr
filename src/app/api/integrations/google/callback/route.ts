@@ -80,7 +80,7 @@ async function handleGET(request: NextRequest) {
    */
   if (!tokens.refresh_token) {
     return failed(
-      'Google did not return a refresh token. Remove NextKinLife EMS from your ' +
+      'Google did not return a refresh token. Remove Oneclickhr from your ' +
         'Google account permissions (myaccount.google.com/permissions) and connect again.'
     )
   }

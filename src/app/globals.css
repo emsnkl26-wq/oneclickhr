@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /**
- * Brand palette, derived from the NextKinLife logo (crimson on near-black) and
+ * Brand palette, derived from the Oneclickhr logo (crimson on near-black) and
  * refined to premium shades. Stored as raw HSL triples so Tailwind can compose
  * them with opacity modifiers (`bg-brand-600/10`) and so a per-org colour can be
  * swapped in at runtime by overriding just these three variables.

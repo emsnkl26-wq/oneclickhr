@@ -1,7 +1,7 @@
 {
-  "name": "nextkinlife-ems",
+  "name": "oneclickhr-ems",
   "version": "1.0.0",
-  "description": "NextKinLife EMS — multi-tenant Employee Management System (SaaS)",
+  "description": "Oneclickhr — multi-tenant Employee Management System (SaaS)",
   "private": true,
   "engines": {
     "node": ">=20.9.0"

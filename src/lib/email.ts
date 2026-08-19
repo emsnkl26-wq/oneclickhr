@@ -103,10 +103,10 @@ interface LayoutOptions {
 /**
  * Table-based layout with inline styles — the only thing that renders reliably
  * across Outlook, Gmail and Apple Mail. `brandColor` lets an org's email carry
- * its own colour, defaulting to NextKinLife crimson.
+ * its own colour, defaulting to Oneclickhr crimson.
  */
 function layout(bodyHtml: string, opts: LayoutOptions = {}): string {
-  const brandName = esc(opts.brandName || 'NextKinLife EMS')
+  const brandName = esc(opts.brandName || 'Oneclickhr')
   const brand = /^#[0-9a-fA-F]{6}$/.test(opts.brandColor || '') ? opts.brandColor! : '#C41E33'
   const preheader = opts.preheader ? esc(opts.preheader) : ''
 

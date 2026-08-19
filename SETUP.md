@@ -1,4 +1,4 @@
-# NextKinLife EMS — Setup Guide
+# Oneclickhr — Setup Guide
 
 Everything needed to take this repository from nothing to a running,
 multi-tenant production deployment. Follow the sections in order; each one ends
@@ -151,7 +151,7 @@ There are **two separate email paths**, and the split matters:
 3. **API Keys → Create API Key** with *Sending access*. Copy it into
    `RESEND_API_KEY`.
 4. Set `EMAIL_FROM` to a verified address, e.g.
-   `NextKinLife EMS <no-reply@yourdomain.com>`.
+   `Oneclickhr <no-reply@oneclickhr.app>`.
 
 ### 4b. Point Supabase SMTP at Resend
 
@@ -164,7 +164,7 @@ There are **two separate email paths**, and the split matters:
 | Username | `resend` |
 | Password | your Resend API key |
 | Sender email | the same verified address as `EMAIL_FROM` |
-| Sender name | `NextKinLife EMS` |
+| Sender name | `Oneclickhr` |
 
 Save. Then under **Rate Limits**, raise *Emails per hour* from the default 4 —
 that default exists for Supabase's built-in sender and will throttle real
@@ -193,7 +193,7 @@ Go to **Authentication → Email Templates** and edit **two** templates.
 **Confirm signup** — replace the body with:
 
 ```html
-<h2>Confirm your NextKinLife EMS workspace</h2>
+<h2>Confirm your Oneclickhr workspace</h2>
 <p>Click below to activate your organization's workspace.</p>
 <p>
   <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup"
@@ -403,8 +403,8 @@ with `ngrok http 3000` and set `APP_URL` to the tunnel address.
 ## 8. Run locally
 
 ```bash
-git clone <your-repo-url> nextkinlife-ems
-cd nextkinlife-ems
+git clone <your-repo-url> oneclickhr-ems
+cd oneclickhr-ems
 npm install
 
 cp .env.example .env.local

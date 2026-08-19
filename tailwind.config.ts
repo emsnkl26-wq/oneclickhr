@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss'
 
 /**
- * NextKinLife EMS design tokens.
+ * Oneclickhr design tokens.
  *
  * Every colour is declared as an HSL triple on :root in globals.css and read
  * through `hsl(var(--token))` here. That indirection is what makes per-org

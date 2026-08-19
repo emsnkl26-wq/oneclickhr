@@ -45,7 +45,7 @@ export function createAdminClient(): SupabaseClient {
       detectSessionInUrl: false,
     },
     global: {
-      headers: { 'x-client-info': 'nextkinlife-ems/admin' },
+      headers: { 'x-client-info': 'oneclickhr-ems/admin' },
     },
   })
   return cached

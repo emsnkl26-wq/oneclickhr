@@ -23,10 +23,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         <Link href="/" className="relative flex items-center gap-2.5">
           <span className="grid size-8 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            N
+            O
           </span>
           <span className="text-[17px] font-semibold tracking-[-0.01em] text-white">
-            NextKinLife
+            Oneclickhr
           </span>
         </Link>
 
@@ -53,7 +53,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         <p className="relative text-xs text-sidebar-muted">
-          © {new Date().getFullYear()} NextKinLife. All rights reserved.
+          © {new Date().getFullYear()} Oneclickhr. All rights reserved.
         </p>
       </aside>
 
@@ -61,9 +61,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="w-full max-w-[400px]">
           <Link href="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
             <span className="grid size-8 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-              N
+              O
             </span>
-            <span className="text-[17px] font-semibold tracking-[-0.01em]">NextKinLife</span>
+            <span className="text-[17px] font-semibold tracking-[-0.01em]">Oneclickhr</span>
           </Link>
           {children}
         </div>
