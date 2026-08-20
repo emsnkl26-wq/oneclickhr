@@ -28,6 +28,13 @@ const PUBLIC_PATHS = [
   '/api/auth/signup',
   '/api/auth/forgot-password',
   '/api/auth/signout',
+  // Machine callers. None of these carry a session cookie, so without an entry
+  // here middleware answers the POST with a 307 to /login — and a webhook sender
+  // that follows a redirect re-issues it as a GET, which the handler cannot
+  // answer. For the Supabase Send Email hook that failure is not cosmetic: a
+  // non-2xx aborts the auth action, so every sign-up dies at 'Error sending
+  // confirmation email'.
+  '/api/auth/send-email-hook',
   '/api/cron',
   '/api/integrations/google/webhook',
 ]

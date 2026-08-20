@@ -120,6 +120,17 @@ async function handlePOST(request: NextRequest) {
         )
       }
 
+      // A 5xx from GoTrue is never the caller's fault, and its message is often
+      // empty (a failing Send Email hook surfaces as literally ' { }'). Answering
+      // 400 blamed the form for a server-side outage.
+      if (typeof error.status === 'number' && error.status >= 500) {
+        return jsonError(
+          'We could not send the confirmation email just now. Please try again in a few ' +
+            'minutes — your details were not saved.',
+          503
+        )
+      }
+
       return jsonError('We could not complete your sign-up. Please try again.', 400)
     }
   }
