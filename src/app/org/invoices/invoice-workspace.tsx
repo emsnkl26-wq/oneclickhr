@@ -2,11 +2,14 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Receipt, Search, Trash2, Pencil, Printer } from 'lucide-react'
+import { Plus, Receipt, Trash2, Pencil, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
 import { Input, Select, Textarea } from '@/components/ui/input'
+import { SearchField } from '@/components/ui/search-field'
+import { FilterSelect } from '@/components/ui/filter-select'
+import { Pagination } from '@/components/ui/pagination'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter,
@@ -25,33 +28,24 @@ interface DraftItem {
 
 const EMPTY_ITEM: DraftItem = { description: '', quantity: '1', rate: '0' }
 
+/** `invoices` is one page; the search and status filter live in the URL. */
 export function InvoiceWorkspace({
-  invoices, suggestedNumber, orgName, timezone,
+  invoices, total, page, perPage, filtered, suggestedNumber, orgName, timezone,
 }: {
   invoices: Invoice[]
+  total: number
+  page: number
+  perPage: number
+  filtered: boolean
   suggestedNumber: string
   orgName: string
   timezone: string
 }) {
   const router = useRouter()
-  const [query, setQuery] = React.useState('')
-  const [status, setStatus] = React.useState('all')
   const [editing, setEditing] = React.useState<Invoice | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [deleting, setDeleting] = React.useState<Invoice | null>(null)
   const [busy, setBusy] = React.useState(false)
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return invoices.filter((invoice) => {
-      if (status !== 'all' && invoice.status !== status) return false
-      if (!q) return true
-      return (
-        invoice.invoice_number.toLowerCase().includes(q) ||
-        (invoice.bill_to?.name ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [invoices, query, status])
 
   async function onDelete() {
     if (!deleting) return
@@ -160,32 +154,24 @@ export function InvoiceWorkspace({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by number or client"
-            className="pl-9"
-            aria-label="Search invoices"
-          />
-        </div>
-        <Select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          aria-label="Filter by status"
+        <SearchField
+          param="q"
+          placeholder="Search by number or client"
+          label="Search invoices"
+        />
+        <FilterSelect
+          param="status"
+          label="Filter by status"
           className="sm:w-44"
-        >
-          <option value="all">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="sent">Sent</option>
-          <option value="paid">Paid</option>
-          <option value="overdue">Overdue</option>
-          <option value="cancelled">Cancelled</option>
-        </Select>
+          options={[
+            { value: '', label: 'All statuses' },
+            { value: 'draft', label: 'Draft' },
+            { value: 'sent', label: 'Sent' },
+            { value: 'paid', label: 'Paid' },
+            { value: 'overdue', label: 'Overdue' },
+            { value: 'cancelled', label: 'Cancelled' },
+          ]}
+        />
         <Button onClick={() => setCreating(true)}>
           <Plus />
           New invoice
@@ -194,25 +180,27 @@ export function InvoiceWorkspace({
 
       <DataTable
         columns={columns}
-        rows={filtered}
+        rows={invoices}
         rowKey={(row) => row.id}
         empty={
           <EmptyState
             icon={Receipt}
-            title={invoices.length ? 'No matches' : 'No invoices yet'}
+            title={filtered ? 'No matches' : 'No invoices yet'}
             description={
-              invoices.length
+              filtered
                 ? 'Try a different search or clear the filter.'
                 : 'Create your first invoice to start tracking what you are owed.'
             }
             action={
-              invoices.length ? undefined : (
+              filtered ? undefined : (
                 <Button onClick={() => setCreating(true)}>Create an invoice</Button>
               )
             }
           />
         }
       />
+
+      <Pagination page={page} perPage={perPage} total={total} />
 
       <InvoiceDialog
         open={creating || !!editing}

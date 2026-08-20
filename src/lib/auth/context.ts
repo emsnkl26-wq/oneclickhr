@@ -13,7 +13,12 @@ import 'server-only'
  *
  * 2. `is_active` is read from the database on every request, not from the JWT.
  *    A token lives for an hour; deactivation has to bite now (§3).
+ *
+ * 3. It is memoized per request. A single navigation asks "who is calling?" from
+ *    the layout guard, the page guard and sometimes a nested helper; without
+ *    `cache()` each of those repeated the whole round trip.
  */
+import { cache } from 'react'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { UserRole, TenantStatus } from '@/types/db'
 
@@ -60,18 +65,38 @@ export type ContextResult =
  * Returns the context even for a DEACTIVATED user or a SUSPENDED tenant — the
  * callers below are what turn those states into the right redirect, and the UI
  * needs to know which of the two happened to explain itself.
+ *
+ * THREE STEPS, and the order of them is the whole performance story:
+ *
+ *   1. `getSession()` — no network when the cookie is fresh. A signed-out
+ *      visitor is answered here without touching Supabase at all, and an
+ *      expired token is refreshed ONCE, before anything else can race on it.
+ *   2. `getUser()` and `current_profile` in PARALLEL. They used to run in
+ *      series, which put two sequential round trips in front of every single
+ *      page render for no reason: neither one's input depends on the other's
+ *      output. Step 1 is what makes racing them safe.
+ *   3. The verification still gates the result — a profile fetched alongside a
+ *      `getUser()` that comes back rejected is thrown away, so this is faster
+ *      without being one bit more trusting.
  */
-export async function resolveContext(): Promise<ContextResult> {
+async function loadContextUncached(): Promise<ContextResult> {
   const supabase = await createSupabaseServerClient()
 
+  // Local: decodes the cookie, and refreshes only if the token has expired.
   const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser()
+    data: { session },
+  } = await supabase.auth.getSession()
 
+  if (!session) return { status: 'anonymous' }
+
+  const [{ data: userData, error }, { data, error: rpcError }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.rpc('current_profile'),
+  ])
+
+  const user = userData?.user
   if (error || !user) return { status: 'anonymous' }
 
-  const { data, error: rpcError } = await supabase.rpc('current_profile')
   const row = Array.isArray(data) ? data[0] : data
 
   if (rpcError || !row) {
@@ -113,6 +138,13 @@ export async function resolveContext(): Promise<ContextResult> {
 
   return { status: 'ok', ctx }
 }
+
+/**
+ * The request-scoped entry point. Every guard goes through this, so a page that
+ * checks authorization in its layout AND in its body pays for exactly one
+ * resolution.
+ */
+export const resolveContext = cache(loadContextUncached)
 
 /**
  * Convenience wrapper for callers that only care whether there is a usable

@@ -60,6 +60,14 @@ Run, confirm it succeeds, then move to the next.
 | 5 | `005_seed.sql` | Super admin + two demo tenants for the isolation test |
 | 6 | `006_backfill_missing_profiles.sql` | Repairs accounts that signed up before `003` was applied |
 | 7 | `007_fix_employee_provisioning.sql` | **Required.** Closes the escalation described below and repairs accounts it already affected |
+| 8 | `008_employee_onboarding.sql` | The onboarding wizard: the `employee_onboarding` draft table and the profile columns it fills in |
+| 9 | `009_performance.sql` | **Required.** Hoists the RLS session helpers out of the per-row loop, adds the missing indexes, and creates the two functions the app now calls |
+
+`009` is not optional either — `/org/documents` and `/super/organizations` call
+`search_documents()` and `platform_tenant_stats()`, and both pages error without
+them. It changes no permissions: the policies keep the predicates `002` wrote,
+rewritten as `(select app.is_org())` so Postgres evaluates them once per
+statement instead of once per row. It is idempotent, so re-running it is safe.
 
 `007` is not optional. `admin.createUser({ app_metadata })` writes the auth row
 *first* and the metadata *second*, so the `AFTER INSERT` trigger from `003` ran

@@ -97,6 +97,24 @@ function roleFromToken(accessToken: string | undefined): string | null {
 }
 
 export async function middleware(request: NextRequest) {
+  /*
+   * PREFETCHES GET OUT EARLY.
+   *
+   * Now that every route has a `loading.tsx`, Next prefetches the sidebar's
+   * links as they enter the viewport — a dozen or more speculative requests per
+   * page, each one previously paying for a cookie decode and, at the edge of an
+   * hour, a token refresh. None of that work has anywhere to go: a redirect
+   * returned to a prefetch is discarded, and a rotated cookie set on a response
+   * the browser never navigates to is thrown away with it.
+   *
+   * Skipping them costs nothing in safety. This function was never the
+   * authorization boundary (see the note above) — the page guards and RLS are —
+   * and the real navigation that follows runs the full path.
+   */
+  if (request.headers.get('next-router-prefetch') === '1') {
+    return NextResponse.next({ request })
+  }
+
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(

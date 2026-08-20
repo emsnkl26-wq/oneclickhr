@@ -83,19 +83,37 @@
     @apply outline-none ring-offset-2 ring-offset-page focus-visible:ring-2 focus-visible:ring-brand-600/70;
   }
 
-  /* Skeleton shimmer — used by every loading state so they all feel like one app. */
+  /*
+   * Skeleton shimmer — used by every loading state so they all feel like one app.
+   *
+   * The highlight is a variable rather than a literal because a 65%-white sweep
+   * that reads as a soft gleam on a light placeholder reads as a strobe on a
+   * dark one. Same animation, appropriate intensity in each theme.
+   */
   .skeleton {
+    --skeleton-sheen: rgba(255, 255, 255, 0.65);
     @apply relative overflow-hidden rounded-md bg-line/70;
+  }
+  .dark .skeleton {
+    --skeleton-sheen: rgba(255, 255, 255, 0.06);
   }
   .skeleton::after {
     content: '';
     @apply absolute inset-0 -translate-x-full animate-shimmer;
     background-image: linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0) 0,
-      rgba(255, 255, 255, 0.65) 50%,
-      rgba(255, 255, 255, 0) 100%
+      transparent 0,
+      var(--skeleton-sheen) 50%,
+      transparent 100%
     );
+  }
+
+  /* Respect a reduced-motion preference: the placeholder still reads as busy. */
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton::after {
+      @apply animate-none;
+      background-image: none;
+    }
   }
 }
 

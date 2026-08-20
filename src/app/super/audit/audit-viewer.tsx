@@ -1,10 +1,42 @@
 'use client'
 
 import * as React from 'react'
-import { Search, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { DataTable, EmptyState, type Column } from '@/components/ui/patterns'
-import { Input, Select } from '@/components/ui/input'
+import { SearchField } from '@/components/ui/search-field'
+import { FilterSelect } from '@/components/ui/filter-select'
+import { Pagination } from '@/components/ui/pagination'
 import { formatLocal } from '@/lib/time'
+
+/**
+ * The action namespaces this product writes — the prefix before the dot in
+ * "employee.deactivated".
+ *
+ * Declared rather than derived. The groups used to be collected from whatever
+ * happened to be in the loaded page, which meant the filter's options changed
+ * as you paged and a namespace with no recent activity vanished from it. This
+ * list is the actual vocabulary: every `audit()` call in the codebase uses one
+ * of these prefixes, so a new one belongs here alongside the call that emits it.
+ */
+export const ACTION_GROUPS = [
+  'attendance',
+  'auth',
+  'board_column',
+  'calendar',
+  'department',
+  'employee',
+  'file',
+  'invoice',
+  'leave',
+  'meeting',
+  'notification',
+  'onboarding',
+  'payslip',
+  'profile',
+  'task',
+  'tenant',
+  'work_auth',
+] as const
 
 interface AuditRow {
   id: string
@@ -19,28 +51,16 @@ interface AuditRow {
   created_at: string
 }
 
-export function AuditViewer({ logs }: { logs: AuditRow[] }) {
-  const [query, setQuery] = React.useState('')
-  const [action, setAction] = React.useState('all')
-
-  // The action namespace ("employee.created", "tenant.suspended") gives a
-  // natural filter dimension without a separate category column.
-  const actionGroups = React.useMemo(() => {
-    const groups = new Set<string>()
-    for (const log of logs) groups.add(log.action.split('.')[0])
-    return Array.from(groups).sort()
-  }, [logs])
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return logs.filter((log) => {
-      if (action !== 'all' && !log.action.startsWith(`${action}.`)) return false
-      if (!q) return true
-      return [log.action, log.actor_email, log.tenantName, log.entity]
-        .filter(Boolean)
-        .some((field) => field!.toLowerCase().includes(q))
-    })
-  }, [logs, query, action])
+/** `logs` is one page; the URL carries the filter and the server applies it. */
+export function AuditViewer({
+  logs, total, page, perPage, filtered,
+}: {
+  logs: AuditRow[]
+  total: number
+  page: number
+  perPage: number
+  filtered: boolean
+}) {
 
   const columns: Column<AuditRow>[] = [
     {
@@ -102,44 +122,32 @@ export function AuditViewer({ logs }: { logs: AuditRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by action, actor, organization or entity"
-            className="pl-9"
-            aria-label="Search audit log"
-          />
-        </div>
-        <Select
-          value={action}
-          onChange={(e) => setAction(e.target.value)}
-          aria-label="Filter by action group"
+        <SearchField
+          param="q"
+          placeholder="Search by action, actor or entity"
+          label="Search audit log"
+        />
+        <FilterSelect
+          param="action"
+          label="Filter by action group"
           className="sm:w-48"
-        >
-          <option value="all">All actions</option>
-          {actionGroups.map((group) => (
-            <option key={group} value={group}>
-              {group}
-            </option>
-          ))}
-        </Select>
+          options={[
+            { value: '', label: 'All actions' },
+            ...ACTION_GROUPS.map((group) => ({ value: group, label: group })),
+          ]}
+        />
       </div>
 
       <DataTable
         columns={columns}
-        rows={filtered}
+        rows={logs}
         rowKey={(row) => row.id}
         empty={
           <EmptyState
             icon={ShieldCheck}
-            title={logs.length ? 'No matches' : 'Nothing recorded yet'}
+            title={filtered ? 'No matches' : 'Nothing recorded yet'}
             description={
-              logs.length
+              filtered
                 ? 'Try a different search term or clear the filter.'
                 : 'Actions across the platform are recorded here as they happen.'
             }
@@ -147,9 +155,7 @@ export function AuditViewer({ logs }: { logs: AuditRow[] }) {
         }
       />
 
-      <p className="px-1 text-xs text-ink-muted">
-        Showing the {filtered.length} most recent of {logs.length} loaded entries.
-      </p>
+      <Pagination page={page} perPage={perPage} total={total} />
     </div>
   )
 }

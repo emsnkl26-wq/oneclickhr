@@ -1,13 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useProgressRouter } from '@/lib/use-progress-router'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
 
 export function AttendanceFilter({ from, to }: { from: string; to: string }) {
-  const router = useRouter()
+  const router = useProgressRouter()
   const [start, setStart] = React.useState(from)
   const [end, setEnd] = React.useState(to)
 

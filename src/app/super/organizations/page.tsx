@@ -11,31 +11,35 @@ export default async function OrganizationsPage() {
   await requireSuperAdmin()
   const admin = createAdminClient()
 
-  const [{ data: tenants }, { data: profiles }] = await Promise.all([
+  /*
+   * The counts are aggregated BY POSTGRES.
+   *
+   * This page used to `select tenant_id, role, is_active from profiles` with no
+   * filter at all — every account on the platform, streamed into this function
+   * to be tallied in a for-loop. It was already the single largest query in the
+   * product and it grows with total customers, so it gets slower precisely as
+   * the business succeeds. `platform_tenant_stats()` returns one row per
+   * tenant instead: a grouped aggregate, service-role only, defined in
+   * 009_performance.sql.
+   */
+  const [{ data: tenants }, { data: stats }] = await Promise.all([
     admin
       .from('tenants')
       .select('id, name, slug, status, primary_color, timezone, created_at, onboarded_at')
       .order('created_at', { ascending: false }),
-    // One pass over profiles rather than a count query per tenant, which would
-    // be N+1 across the whole platform.
-    admin.from('profiles').select('tenant_id, role, is_active'),
+    admin.rpc('platform_tenant_stats'),
   ])
 
-  const counts = new Map<string, { employees: number; orgs: number; inactive: number }>()
-  for (const profile of profiles ?? []) {
-    if (!profile.tenant_id) continue
-    const entry = counts.get(profile.tenant_id) ?? { employees: 0, orgs: 0, inactive: 0 }
-    if (profile.role === 'employee') entry.employees += 1
-    if (profile.role === 'org') entry.orgs += 1
-    if (!profile.is_active) entry.inactive += 1
-    counts.set(profile.tenant_id, entry)
-  }
+  type TenantStat = { tenant_id: string; employees: number; orgs: number; inactive: number }
+  const counts = new Map(
+    ((stats ?? []) as TenantStat[]).map((row) => [row.tenant_id, row])
+  )
 
   const rows = (tenants ?? []).map((tenant) => ({
     ...tenant,
-    employeeCount: counts.get(tenant.id)?.employees ?? 0,
-    orgCount: counts.get(tenant.id)?.orgs ?? 0,
-    inactiveCount: counts.get(tenant.id)?.inactive ?? 0,
+    employeeCount: Number(counts.get(tenant.id)?.employees ?? 0),
+    orgCount: Number(counts.get(tenant.id)?.orgs ?? 0),
+    inactiveCount: Number(counts.get(tenant.id)?.inactive ?? 0),
   }))
 
   return (

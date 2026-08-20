@@ -12,14 +12,23 @@ export default async function MeetingsPage() {
   const ctx = await requireOrg()
   const supabase = await createSupabaseServerClient()
 
-  // Explicit columns — the encrypted token column is not readable by the
-  // `authenticated` role, so `select('*')` on this table would fail.
+  /*
+   * A 30-day window, forwards. `google_event_id`, `cancelled_at` and the
+   * timestamps are not named because nothing on this screen renders them — and
+   * on `calendar_connections` the explicit columns are load-bearing rather than
+   * tidy, since the encrypted token column is not readable by the
+   * `authenticated` role at all and `select('*')` there would fail outright.
+   */
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
+
   const [{ data: meetings }, { data: connection }] = await Promise.all([
     supabase
       .from('meetings')
-      .select('*')
+      .select(
+        'id, title, description, location, meet_link, start_time, end_time, organizer_id, attendees, source, read_only'
+      )
+      .gte('start_time', since)
       .order('start_time', { ascending: true })
-      .gte('start_time', new Date(Date.now() - 30 * 86_400_000).toISOString())
       .limit(300),
     supabase.from('calendar_connections').select('id, status, google_email').maybeSingle(),
   ])

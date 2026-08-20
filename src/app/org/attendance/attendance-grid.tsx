@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useProgressRouter } from '@/lib/use-progress-router'
 import { ChevronLeft, ChevronRight, Search, CalendarCheck } from 'lucide-react'
 import { EmptyState } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -48,7 +48,7 @@ export function AttendanceGrid({
   anchor: string
   timezone: string
 }) {
-  const router = useRouter()
+  const router = useProgressRouter()
   const [query, setQuery] = React.useState('')
   const [department, setDepartment] = React.useState('all')
 

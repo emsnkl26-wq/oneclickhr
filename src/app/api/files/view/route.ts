@@ -18,10 +18,34 @@ export const dynamic = 'force-dynamic'
  * `<img src>` follows the redirect transparently, and a 25MB PDF never passes
  * through a lambda.
  *
- * `noindex` and `no-store` are belt and braces: the redirect target is
- * short-lived anyway, but a cached signed URL in a shared proxy would outlive
- * the authorization check that produced it.
+ * CACHING. This is the most-requested authenticated route in the product: a
+ * table of two hundred employees is two hundred calls to it, each one a session
+ * verification plus up to five authorization queries plus a signature — and
+ * with `no-store` the browser repeated every one of them on the next page view,
+ * and again on the one after that.
+ *
+ * The redirect is now cached PRIVATELY for a little less than the signature's
+ * own lifetime. Three properties make that safe, and all three matter:
+ *
+ *   • `private` — only the requesting browser may store it. A shared proxy
+ *     holding a signed URL would outlive the authorization check that minted it,
+ *     which is exactly the hole `no-store` was closing.
+ *   • The window is SHORTER than the signature, so a cached redirect can never
+ *     point at an expired URL.
+ *   • `Vary: Cookie` — sign out, or sign in as someone else, and the cache key
+ *     changes with the session cookie rather than serving the previous user's
+ *     entry.
+ *
+ * Revocation is bounded by that window: a file unshared in the next few minutes
+ * stays reachable to a browser that already holds the redirect. That is already
+ * true of the signed URL itself, so the caching adds no exposure the presign
+ * did not.
  */
+
+/** Signature lifetime. */
+const SIGNED_URL_TTL_SECONDS = 15 * 60
+/** How long a browser may reuse the redirect. Deliberately below the TTL. */
+const REDIRECT_CACHE_SECONDS = 10 * 60
 async function handleGET(request: NextRequest) {
   const gate = await apiRequireUser()
   if (!gate.ok) return gate.response
@@ -54,10 +78,11 @@ async function handleGET(request: NextRequest) {
     if (!allowed) return jsonError('Not found', 404)
   }
 
-  const url = await presignGet(key, 15 * 60, download ? download : undefined)
+  const url = await presignGet(key, SIGNED_URL_TTL_SECONDS, download ? download : undefined)
 
   const response = NextResponse.redirect(url, { status: 302 })
-  response.headers.set('Cache-Control', 'private, no-store, max-age=0')
+  response.headers.set('Cache-Control', `private, max-age=${REDIRECT_CACHE_SECONDS}`)
+  response.headers.set('Vary', 'Cookie')
   response.headers.set('X-Robots-Tag', 'noindex, nofollow')
   return response
 }
@@ -73,46 +98,37 @@ async function handleGET(request: NextRequest) {
 async function employeeMayRead(key: string, userId: string): Promise<boolean> {
   const supabase = await createSupabaseServerClient()
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('photo_url')
-    .eq('id', userId)
-    .maybeSingle()
-  if (profile?.photo_url === key) return true
+  /*
+   * All five questions at once.
+   *
+   * They used to run in series with an early return, so the common case — an
+   * employee loading a colleague's avatar, which is none of these — paid five
+   * sequential round trips before answering "no". They are independent
+   * single-row index lookups (009_performance.sql adds the indexes for the four
+   * key columns), so asking them together costs one round trip instead of five
+   * and the answer is identical: true if ANY row is visible.
+   */
+  const [profile, payslip, document, workAuth, tenant] = await Promise.all([
+    supabase.from('profiles').select('photo_url').eq('id', userId).maybeSingle(),
+    supabase.from('payslips').select('id').eq('file_url', key).limit(1).maybeSingle(),
+    supabase.from('documents').select('id').eq('file_url', key).limit(1).maybeSingle(),
+    supabase
+      .from('work_authorizations')
+      .select('id')
+      .eq('document_url', key)
+      .limit(1)
+      .maybeSingle(),
+    // Branding is visible to everyone inside the workspace.
+    supabase.from('tenants').select('id').eq('logo_url', key).limit(1).maybeSingle(),
+  ])
 
-  const { data: payslip } = await supabase
-    .from('payslips')
-    .select('id')
-    .eq('file_url', key)
-    .limit(1)
-    .maybeSingle()
-  if (payslip) return true
-
-  const { data: document } = await supabase
-    .from('documents')
-    .select('id')
-    .eq('file_url', key)
-    .limit(1)
-    .maybeSingle()
-  if (document) return true
-
-  const { data: workAuth } = await supabase
-    .from('work_authorizations')
-    .select('id')
-    .eq('document_url', key)
-    .limit(1)
-    .maybeSingle()
-  if (workAuth) return true
-
-  // Branding is visible to everyone inside the workspace.
-  const { data: tenant } = await supabase
-    .from('tenants')
-    .select('id')
-    .eq('logo_url', key)
-    .limit(1)
-    .maybeSingle()
-
-  return !!tenant
+  return (
+    profile.data?.photo_url === key ||
+    !!payslip.data ||
+    !!document.data ||
+    !!workAuth.data ||
+    !!tenant.data
+  )
 }
 
 export const GET = withErrorHandler(handleGET)

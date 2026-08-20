@@ -17,7 +17,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useProgressRouter } from '@/lib/use-progress-router'
 import { ArrowLeft, ArrowRight, Check, Copy, Loader2, Save, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -61,7 +61,7 @@ export function OnboardingWizard({
   accountLast4: string | null
   currencySymbol: string
 }) {
-  const router = useRouter()
+  const router = useProgressRouter()
 
   const [draftId, setDraftId] = React.useState(initialDraftId)
   const [draft, setDraft] = React.useState(initialDraft)

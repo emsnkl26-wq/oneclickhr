@@ -1,15 +1,20 @@
 'use client'
 
 import * as React from 'react'
-import { Download, FileText, Search } from 'lucide-react'
+import { Download, FileText } from 'lucide-react'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Input, Select } from '@/components/ui/input'
+import { SearchField } from '@/components/ui/search-field'
+import { Pagination } from '@/components/ui/pagination'
+import { FilterSelect } from '@/components/ui/filter-select'
 import { formatLocal } from '@/lib/time'
 import { humanize, truncate } from '@/lib/utils'
 import type { DocumentKind } from '@/types/db'
 
-interface DocumentRow {
+/** The kinds the type filter offers — also the allowlist the page validates against. */
+export const DOCUMENT_KINDS = ['employee_doc', 'work_auth', 'general'] as const
+
+export interface DocumentRow {
   id: string
   employee_id: string | null
   employeeName: string | null
@@ -19,7 +24,6 @@ interface DocumentRow {
   mime_type: string | null
   size_bytes: number | null
   excerpt: string | null
-  searchText: string
   created_at: string
 }
 
@@ -30,30 +34,22 @@ function formatBytes(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/**
+ * `documents` is ONE page of results that the database has already filtered —
+ * see the page component for why the search cannot live in here any more. The
+ * controls write to the URL; the server answers.
+ */
 export function DocumentLibrary({
-  documents, timezone,
+  documents, total, page, perPage, searching, timezone,
 }: {
   documents: DocumentRow[]
+  total: number
+  page: number
+  perPage: number
+  /** True when a term or type filter is active — changes what "empty" means. */
+  searching: boolean
   timezone: string
 }) {
-  const [query, setQuery] = React.useState('')
-  const [kind, setKind] = React.useState('all')
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return documents.filter((doc) => {
-      if (kind !== 'all' && doc.kind !== kind) return false
-      if (!q) return true
-      // Filename, owner, AND the text extracted from the PDF — which is the
-      // point of running extraction at upload time.
-      return (
-        (doc.file_name ?? '').toLowerCase().includes(q) ||
-        (doc.employeeName ?? '').toLowerCase().includes(q) ||
-        doc.searchText.includes(q)
-      )
-    })
-  }, [documents, query, kind])
-
   const columns: Column<DocumentRow>[] = [
     {
       key: 'file',
@@ -117,48 +113,42 @@ export function DocumentLibrary({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search filenames, employees, or text inside PDFs"
-            className="pl-9"
-            aria-label="Search documents"
-          />
-        </div>
-        <Select
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          aria-label="Filter by type"
+        <SearchField
+          param="q"
+          placeholder="Search filenames or text inside PDFs"
+          label="Search documents"
+        />
+        <FilterSelect
+          param="kind"
+          label="Filter by type"
           className="sm:w-52"
-        >
-          <option value="all">All types</option>
-          <option value="employee_doc">Employee documents</option>
-          <option value="work_auth">Work authorization</option>
-          <option value="general">General</option>
-        </Select>
+          options={[
+            { value: '', label: 'All types' },
+            { value: 'employee_doc', label: 'Employee documents' },
+            { value: 'work_auth', label: 'Work authorization' },
+            { value: 'general', label: 'General' },
+          ]}
+        />
       </div>
 
       <DataTable
         columns={columns}
-        rows={filtered}
+        rows={documents}
         rowKey={(row) => row.id}
         empty={
           <EmptyState
             icon={FileText}
-            title={documents.length ? 'No matches' : 'No documents yet'}
+            title={searching ? 'No matches' : 'No documents yet'}
             description={
-              documents.length
+              searching
                 ? 'Try a different search term or clear the filter.'
                 : 'Files uploaded while adding employees or recording work authorizations appear here.'
             }
           />
         }
       />
+
+      <Pagination page={page} perPage={perPage} total={total} />
     </div>
   )
 }

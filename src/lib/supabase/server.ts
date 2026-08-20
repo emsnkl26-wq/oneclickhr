@@ -10,13 +10,24 @@ import 'server-only'
  * genuinely impossible under RLS (creating auth users, cross-tenant super-admin
  * reads, cron).
  */
+import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
 /** The shape `setAll` receives. Annotated because the `cookies` option is a union. */
 type CookieToSet = { name: string; value: string; options: CookieOptions }
 
-export async function createSupabaseServerClient() {
+/**
+ * Memoized for the lifetime of ONE request.
+ *
+ * A page renders its layout, its guard and several data calls, and every one of
+ * them asked for a client of its own — each rebuilding the cookie adapter and
+ * re-reading the cookie store. Worse, each client carries its own auth state, so
+ * a token refresh done by one was invisible to the next. `cache()` is
+ * request-scoped (never shared between users), so all of them now share one
+ * client and one refresh.
+ */
+export const createSupabaseServerClient = cache(async function createSupabaseServerClient() {
   const cookieStore = await cookies()
 
   return createServerClient(
@@ -41,4 +52,4 @@ export async function createSupabaseServerClient() {
       },
     }
   )
-}
+})

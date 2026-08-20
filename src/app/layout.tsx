@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { ThemeProvider } from '@/components/theme-provider'
+import { RouteProgress } from '@/components/shell/route-progress'
 import '@/app/globals.css'
 
 // Importing this for its side effect: environment validation runs once per
@@ -43,6 +44,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="font-sans">
         <ThemeProvider>
+          {/* Acknowledges every in-app navigation on the tick it is clicked,
+              long before the server has anything to say. */}
+          <RouteProgress />
           {children}
           <Toaster
             position="top-right"

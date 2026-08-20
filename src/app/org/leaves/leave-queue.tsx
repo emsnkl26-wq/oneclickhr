@@ -2,23 +2,26 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, CalendarOff, Search } from 'lucide-react'
+import { Check, X, CalendarOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/input'
 import {
   Avatar, AvatarFallback, AvatarImage,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-  DialogBody, DialogFooter, Tabs, TabsList, TabsTrigger,
+  DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
+import { LinkTabs } from '@/components/ui/link-tabs'
+import { SearchField } from '@/components/ui/search-field'
+import { Pagination } from '@/components/ui/pagination'
 import { FormField } from '@/components/ui/form-field'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatLocal } from '@/lib/time'
 import { initials, truncate } from '@/lib/utils'
 import type { LeaveStatus } from '@/types/db'
 
-interface LeaveRow {
+export interface LeaveRow {
   id: string
   employee_id: string
   employeeName: string
@@ -33,35 +36,30 @@ interface LeaveRow {
   created_at: string
 }
 
+/**
+ * `leaves` is ONE page, already filtered to `filter` and `searching` by the
+ * database. Nothing in here narrows the list any further — the URL is the
+ * filter, so the server never sends rows this screen is not going to show.
+ */
 export function LeaveQueue({
-  leaves, timezone,
+  leaves, total, page, perPage, filter, pendingCount, searching, timezone,
 }: {
   leaves: LeaveRow[]
+  total: number
+  page: number
+  perPage: number
+  filter: 'pending' | 'decided' | 'all'
+  pendingCount: number
+  searching: boolean
   timezone: string
 }) {
   const router = useRouter()
-  const [tab, setTab] = React.useState<'pending' | 'decided' | 'all'>('pending')
-  const [query, setQuery] = React.useState('')
   const [decision, setDecision] = React.useState<{
     leave: LeaveRow
     status: 'approved' | 'rejected'
   } | null>(null)
   const [note, setNote] = React.useState('')
   const [busy, setBusy] = React.useState(false)
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return leaves.filter((leave) => {
-      if (tab === 'pending' && leave.status !== 'pending') return false
-      if (tab === 'decided' && leave.status === 'pending') return false
-      if (!q) return true
-      return (
-        leave.employeeName.toLowerCase().includes(q) || leave.reason.toLowerCase().includes(q)
-      )
-    })
-  }, [leaves, tab, query])
-
-  const pendingCount = leaves.filter((l) => l.status === 'pending').length
 
   async function submitDecision() {
     if (!decision) return
@@ -173,47 +171,44 @@ export function LeaveQueue({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-          <TabsList>
-            <TabsTrigger value="pending">
-              Pending{pendingCount ? ` (${pendingCount})` : ''}
-            </TabsTrigger>
-            <TabsTrigger value="decided">Decided</TabsTrigger>
-            <TabsTrigger value="all">All</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <LinkTabs
+          param="status"
+          active={filter}
+          tabs={[
+            { value: 'pending', label: pendingCount ? `Pending (${pendingCount})` : 'Pending' },
+            { value: 'decided', label: 'Decided' },
+            { value: 'all', label: 'All' },
+          ]}
+        />
 
-        <div className="relative sm:w-72">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name or reason"
-            className="pl-9"
-            aria-label="Search leave requests"
-          />
-        </div>
+        <SearchField
+          param="q"
+          placeholder="Search by employee name"
+          label="Search leave requests"
+          className="sm:max-w-72 sm:flex-none"
+        />
       </div>
 
       <DataTable
         columns={columns}
-        rows={filtered}
+        rows={leaves}
         rowKey={(row) => row.id}
         empty={
           <EmptyState
             icon={CalendarOff}
-            title={tab === 'pending' ? 'Nothing to review' : 'No leave requests'}
+            title={searching ? 'No matches' : filter === 'pending' ? 'Nothing to review' : 'No leave requests'}
             description={
-              tab === 'pending'
-                ? 'Requests from your team appear here as soon as they apply.'
-                : 'Nothing matches this filter.'
+              searching
+                ? 'No requests from anyone by that name.'
+                : filter === 'pending'
+                  ? 'Requests from your team appear here as soon as they apply.'
+                  : 'Nothing matches this filter.'
             }
           />
         }
       />
+
+      <Pagination page={page} perPage={perPage} total={total} />
 
       <Dialog open={!!decision} onOpenChange={(open) => !open && setDecision(null)}>
         <DialogContent size="sm">

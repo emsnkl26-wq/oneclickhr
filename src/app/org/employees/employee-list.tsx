@@ -12,14 +12,14 @@ import {
   Avatar, AvatarFallback, AvatarImage,
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-  Tabs, TabsList, TabsTrigger, TabsContent,
 } from '@/components/ui/primitives'
+import { LinkTabs } from '@/components/ui/link-tabs'
 import { apiDelete, apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatLocal } from '@/lib/time'
 import { initials } from '@/lib/utils'
 import { DraftList, type DraftRow } from './draft-list'
 
-interface EmployeeRow {
+export interface EmployeeRow {
   id: string
   full_name: string | null
   email: string | null
@@ -32,17 +32,23 @@ interface EmployeeRow {
   created_at: string
 }
 
+/**
+ * `employees` and `drafts` are nullable, and the null is meaningful: it says
+ * "this tab is closed, so the server did not fetch it". Only the count arrives
+ * for the closed tab, which is all its badge needs. See the page for why.
+ */
 export function EmployeeList({
-  employees, departments, drafts, initialTab, timezone,
+  employees, employeeCount, departments, drafts, draftCount, tab, timezone,
 }: {
-  employees: EmployeeRow[]
+  employees: EmployeeRow[] | null
+  employeeCount: number
   departments: { id: string; name: string }[]
-  drafts: DraftRow[]
-  initialTab: 'team' | 'drafts'
+  drafts: DraftRow[] | null
+  draftCount: number
+  tab: 'team' | 'drafts'
   timezone: string
 }) {
   const router = useRouter()
-  const [tab, setTab] = React.useState<string>(initialTab)
   const [query, setQuery] = React.useState('')
   const [department, setDepartment] = React.useState('all')
   const [status, setStatus] = React.useState('active')
@@ -56,7 +62,7 @@ export function EmployeeList({
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase()
-    return employees.filter((e) => {
+    return (employees ?? []).filter((e) => {
       if (status === 'active' && !e.is_active) return false
       if (status === 'inactive' && e.is_active) return false
       if (department !== 'all' && e.department_id !== department) return false
@@ -180,92 +186,96 @@ export function EmployeeList({
     },
   ]
 
-  const activeCount = employees.filter((e) => e.is_active).length
+  const activeCount = (employees ?? []).filter((e) => e.is_active).length
 
   return (
-    <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-      <TabsList>
-        <TabsTrigger value="team">Team ({employees.length})</TabsTrigger>
-        <TabsTrigger value="drafts">
-          Drafts
-          {drafts.length ? (
-            <span className="ml-2 rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">
-              {drafts.length}
-            </span>
-          ) : null}
-        </TabsTrigger>
-      </TabsList>
+    <div className="space-y-4">
+      <LinkTabs
+        active={tab}
+        tabs={[
+          { value: 'team', label: `Team (${employeeCount})` },
+          {
+            value: 'drafts',
+            label: 'Drafts',
+            badge: draftCount ? (
+              <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                {draftCount}
+              </span>
+            ) : null,
+          },
+        ]}
+      />
 
-      <TabsContent value="team" className="space-y-4 focus-visible:outline-none">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, email, code or designation"
-            className="pl-9"
-            aria-label="Search employees"
+      {employees ? (
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
+                aria-hidden
+              />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by name, email, code or designation"
+                className="pl-9"
+                aria-label="Search employees"
+              />
+            </div>
+            <Select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              aria-label="Filter by department"
+              className="sm:w-48"
+            >
+              <option value="all">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              aria-label="Filter by status"
+              className="sm:w-40"
+            >
+              <option value="active">Active ({activeCount})</option>
+              <option value="inactive">Deactivated</option>
+              <option value="all">All</option>
+            </Select>
+          </div>
+
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            rowKey={(row) => row.id}
+            empty={
+              employees.length === 0 ? (
+                <EmptyState
+                  icon={Users}
+                  title="No employees yet"
+                  description="Add your team and each person gets an account with sign-in details sent to their email."
+                  action={
+                    <Button asChild>
+                      <Link href="/org/employees/onboard">Add your first employee</Link>
+                    </Button>
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={Search}
+                  title="No matches"
+                  description="Try a different search term or clear the filters."
+                />
+              )
+            }
           />
         </div>
-        <Select
-          value={department}
-          onChange={(e) => setDepartment(e.target.value)}
-          aria-label="Filter by department"
-          className="sm:w-48"
-        >
-          <option value="all">All departments</option>
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          aria-label="Filter by status"
-          className="sm:w-40"
-        >
-          <option value="active">Active ({activeCount})</option>
-          <option value="inactive">Deactivated</option>
-          <option value="all">All</option>
-        </Select>
-      </div>
+      ) : null}
 
-      <DataTable
-        columns={columns}
-        rows={filtered}
-        rowKey={(row) => row.id}
-        empty={
-          employees.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title="No employees yet"
-              description="Add your team and each person gets an account with sign-in details sent to their email."
-              action={
-                <Button asChild>
-                  <Link href="/org/employees/onboard">Add your first employee</Link>
-                </Button>
-              }
-            />
-          ) : (
-            <EmptyState
-              icon={Search}
-              title="No matches"
-              description="Try a different search term or clear the filters."
-            />
-          )
-        }
-      />
-      </TabsContent>
-
-      <TabsContent value="drafts" className="focus-visible:outline-none">
-        <DraftList drafts={drafts} timezone={timezone} />
-      </TabsContent>
+      {drafts ? <DraftList drafts={drafts} timezone={timezone} /> : null}
 
       <Dialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
         <DialogContent size="sm">
@@ -298,6 +308,6 @@ export function EmployeeList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Tabs>
+    </div>
   )
 }

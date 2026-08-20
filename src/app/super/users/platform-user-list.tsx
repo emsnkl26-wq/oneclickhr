@@ -2,11 +2,14 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Users, ShieldAlert } from 'lucide-react'
+import { Users, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/input'
+import { SearchField } from '@/components/ui/search-field'
+import { FilterSelect } from '@/components/ui/filter-select'
+import { Pagination } from '@/components/ui/pagination'
 import { FormField } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -28,27 +31,25 @@ interface UserRow {
   created_at: string
 }
 
-export function PlatformUserList({ users }: { users: UserRow[] }) {
+/**
+ * `users` is one page, already filtered by the server. The controls write to
+ * the URL — see the page component for why the whole table no longer travels to
+ * the browser to be filtered here.
+ */
+export function PlatformUserList({
+  users, total, page, perPage, filtered,
+}: {
+  users: UserRow[]
+  total: number
+  page: number
+  perPage: number
+  /** True when a search or filter is narrowing the list. */
+  filtered: boolean
+}) {
   const router = useRouter()
-  const [query, setQuery] = React.useState('')
-  const [role, setRole] = React.useState('all')
-  const [status, setStatus] = React.useState('all')
   const [pending, setPending] = React.useState<UserRow | null>(null)
   const [reason, setReason] = React.useState('')
   const [busy, setBusy] = React.useState(false)
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return users.filter((user) => {
-      if (role !== 'all' && user.role !== role) return false
-      if (status === 'active' && !user.is_active) return false
-      if (status === 'inactive' && user.is_active) return false
-      if (!q) return true
-      return [user.full_name, user.email, user.tenantName]
-        .filter(Boolean)
-        .some((field) => field!.toLowerCase().includes(q))
-    })
-  }, [users, query, role, status])
 
   async function toggleActive() {
     if (!pending) return
@@ -137,56 +138,48 @@ export function PlatformUserList({ users }: { users: UserRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-            aria-hidden
-          />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, email or organization"
-            className="pl-9"
-            aria-label="Search users"
-          />
-        </div>
-        <Select
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-          aria-label="Filter by role"
+        <SearchField param="q" placeholder="Search by name or email" label="Search users" />
+        <FilterSelect
+          param="role"
+          label="Filter by role"
           className="sm:w-40"
-        >
-          <option value="all">All roles</option>
-          <option value="org">Owners</option>
-          <option value="employee">Employees</option>
-          <option value="super_admin">Platform</option>
-        </Select>
-        <Select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          aria-label="Filter by status"
+          options={[
+            { value: '', label: 'All roles' },
+            { value: 'org', label: 'Owners' },
+            { value: 'employee', label: 'Employees' },
+            { value: 'super_admin', label: 'Platform' },
+          ]}
+        />
+        <FilterSelect
+          param="status"
+          label="Filter by status"
           className="sm:w-40"
-        >
-          <option value="all">All statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Deactivated</option>
-        </Select>
+          options={[
+            { value: '', label: 'All statuses' },
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Deactivated' },
+          ]}
+        />
       </div>
 
       <DataTable
         columns={columns}
-        rows={filtered}
+        rows={users}
         rowKey={(row) => row.id}
         empty={
           <EmptyState
             icon={Users}
-            title={users.length ? 'No matches' : 'No users yet'}
+            title={filtered ? 'No matches' : 'No users yet'}
             description={
-              users.length ? 'Try a different search or clear the filters.' : 'Accounts appear here as they are created.'
+              filtered
+                ? 'Try a different search or clear the filters.'
+                : 'Accounts appear here as they are created.'
             }
           />
         }
       />
+
+      <Pagination page={page} perPage={perPage} total={total} />
 
       <Dialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
         <DialogContent size="sm">

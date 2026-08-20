@@ -29,7 +29,10 @@ export default async function AttendancePage({
   const days = weekDates(anchor, tz)
   const [from, to] = [days[0], days[days.length - 1]]
 
-  const [{ data: employees }, { data: records }] = await Promise.all([
+  // All three in one round trip. `departments` used to run after the other two
+  // finished, which added a whole round trip to every week the user paged
+  // through for a list that has nothing to do with the other queries.
+  const [{ data: employees }, { data: records }, { data: departments }] = await Promise.all([
     supabase
       .from('profiles')
       .select('id, full_name, email, photo_url, employee_code, department_id')
@@ -41,9 +44,8 @@ export default async function AttendancePage({
       .select('id, employee_id, date, login_time, logout_time, total_hours, is_late')
       .gte('date', from)
       .lte('date', to),
+    supabase.from('departments').select('id, name').order('name'),
   ])
-
-  const { data: departments } = await supabase.from('departments').select('id, name').order('name')
 
   return (
     <div className="space-y-6">

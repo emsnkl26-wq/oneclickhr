@@ -111,6 +111,18 @@ export function daysUntil(expiryDate: string, tz: string): number {
   return Math.round((dayEpoch(expiryDate) - dayEpoch(todayIn(tz))) / 86_400_000)
 }
 
+/**
+ * Shift a `YYYY-MM-DD` date by whole days, staying a `YYYY-MM-DD`.
+ *
+ * Calendar arithmetic on the date only, via `dayEpoch`, so it is immune to the
+ * DST hour that breaks `+ n * 86_400_000` on a local `Date`. Use it to build the
+ * bounds of a range filter — a horizon the DATABASE can apply with an index,
+ * rather than fetching rows and rejecting them afterwards.
+ */
+export function addDays(date: string, days: number): string {
+  return new Date(dayEpoch(date) + days * 86_400_000).toISOString().slice(0, 10)
+}
+
 /** Start-of-day instant for a local date — for building timestamptz range filters. */
 export function startOfLocalDay(date: string, tz: string): Date {
   return fromZonedTime(`${date}T00:00:00`, safeTimezone(tz))

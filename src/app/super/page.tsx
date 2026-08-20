@@ -5,7 +5,7 @@ import { requireSuperAdmin } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { StatCard, PageHeader, EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { SignupsChart } from './signups-chart'
+import { SignupsChart } from './signups-chart-loader'
 import { formatLocal } from '@/lib/time'
 
 export const metadata: Metadata = { title: 'Platform overview' }

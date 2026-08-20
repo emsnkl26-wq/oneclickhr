@@ -297,3 +297,130 @@ export function CardSkeleton({ lines = 3 }: { lines?: number }) {
     </div>
   )
 }
+
+/* ------------------------------------------------------- Loading skeletons */
+
+/**
+ * The building blocks every `loading.tsx` composes from.
+ *
+ * The rule they follow: a skeleton must occupy the SAME space the real content
+ * will, or the page jumps when it arrives and the loading state has made things
+ * worse. So these mirror the real components' padding, heights and grid tracks
+ * rather than being generic grey boxes — a `PageHeaderSkeleton` is exactly as
+ * tall as a `PageHeader`, and `TableCardSkeleton` gets the same card chrome and
+ * row height as `DataTable`.
+ */
+
+export function PageHeaderSkeleton({ action = true }: { action?: boolean }) {
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <Skeleton className="h-[26px] w-56" />
+        <Skeleton className="mt-2 h-4 w-72 max-w-full" />
+      </div>
+      {action ? <Skeleton className="h-9 w-36 shrink-0 rounded-lg" /> : null}
+    </div>
+  )
+}
+
+/** A row of StatCards. `columns` must match the page's own grid. */
+export function StatGridSkeleton({ count = 4, columns = 4 }: { count?: number; columns?: 3 | 4 }) {
+  return (
+    <div
+      className={cn(
+        'grid gap-4 sm:grid-cols-2',
+        columns === 4 ? 'xl:grid-cols-4' : 'sm:grid-cols-3'
+      )}
+    >
+      {Array.from({ length: count }).map((_, i) => (
+        <StatCardSkeleton key={i} />
+      ))}
+    </div>
+  )
+}
+
+/** The search + filter row that sits above most tables. */
+export function ToolbarSkeleton({ filters = 2 }: { filters?: number }) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <Skeleton className="h-10 flex-1 rounded-lg" />
+      {Array.from({ length: filters }).map((_, i) => (
+        <Skeleton key={i} className="h-10 rounded-lg sm:w-44" />
+      ))}
+    </div>
+  )
+}
+
+export function TabsSkeleton({ count = 2 }: { count?: number }) {
+  return (
+    <div className="inline-flex items-center gap-1 rounded-xl border border-line bg-card p-1">
+      {Array.from({ length: count }).map((_, i) => (
+        <Skeleton key={i} className="h-[30px] w-28 rounded-lg" />
+      ))}
+    </div>
+  )
+}
+
+export function TableCardSkeleton({ columns = 5, rows = 8 }: { columns?: number; rows?: number }) {
+  return (
+    <div className="card-surface overflow-hidden">
+      <TableSkeleton columns={columns} rows={rows} />
+    </div>
+  )
+}
+
+/**
+ * A titled card wrapping a list of rows — the shape of every "recent X" panel on
+ * the dashboards. `avatar` adds the leading circle those lists have.
+ */
+export function ListCardSkeleton({
+  rows = 4,
+  avatar = false,
+  title = true,
+}: {
+  rows?: number
+  avatar?: boolean
+  title?: boolean
+}) {
+  return (
+    <div className="card-surface overflow-hidden">
+      {title ? (
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <Skeleton className="h-4 w-44" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      ) : null}
+      <div className="divide-y divide-line">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+            {avatar ? <Skeleton className="size-9 shrink-0 rounded-full" /> : null}
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-3.5 w-40 max-w-[70%]" />
+              <Skeleton className="h-3 w-56 max-w-[85%]" />
+            </div>
+            <Skeleton className="h-5 w-16 shrink-0 rounded-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** A card containing a form: title, description, then labelled inputs. */
+export function FormCardSkeleton({ fields = 4 }: { fields?: number }) {
+  return (
+    <div className="card-surface p-5">
+      <Skeleton className="h-4 w-40" />
+      <Skeleton className="mt-2 h-3 w-64 max-w-full" />
+      <div className="mt-5 space-y-4">
+        {Array.from({ length: fields }).map((_, i) => (
+          <div key={i} className="space-y-1.5">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-10 w-full rounded-lg" />
+          </div>
+        ))}
+        <Skeleton className="h-9 w-32 rounded-lg" />
+      </div>
+    </div>
+  )
+}

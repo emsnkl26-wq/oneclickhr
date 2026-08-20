@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { Menu, X, LogOut, ChevronsUpDown } from 'lucide-react'
 import { navFor, isActive } from '@/components/shell/nav-config'
+import { usePendingHref } from '@/lib/nav-progress'
 import {
   Avatar, AvatarFallback, AvatarImage,
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -34,8 +35,23 @@ export interface ShellBrand {
  */
 export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand }) {
   const pathname = usePathname()
+  const pendingHref = usePendingHref()
   const [open, setOpen] = React.useState(false)
   const sections = React.useMemo(() => navFor(user.role), [user.role])
+
+  /*
+   * Move the highlight the moment a link is clicked rather than when the server
+   * answers. Only when the destination actually maps to a nav item, though —
+   * navigating to /change-password should not blank the rail out.
+   */
+  const highlightPath = React.useMemo(() => {
+    const destination = pendingHref?.split('?')[0]
+    if (!destination) return pathname
+    const known = sections.some((section) =>
+      section.items.some((item) => isActive(item, destination))
+    )
+    return known ? destination : pathname
+  }, [pendingHref, pathname, sections])
 
   React.useEffect(() => {
     setOpen(false)
@@ -60,11 +76,12 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
           </p>
           <ul className="space-y-0.5">
             {section.items.map((item) => {
-              const active = isActive(item, pathname)
+              const active = isActive(item, highlightPath)
               return (
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    onClick={() => setOpen(false)}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
                       'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',

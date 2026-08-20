@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useProgressRouter } from '@/lib/use-progress-router'
 import { Download, FileUp, Loader2, Search, Trash2, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
@@ -39,7 +39,7 @@ export function PayrollManager({
   month: number
   year: number
 }) {
-  const router = useRouter()
+  const router = useProgressRouter()
   const [query, setQuery] = React.useState('')
   const [uploadingFor, setUploadingFor] = React.useState<string | null>(null)
 
