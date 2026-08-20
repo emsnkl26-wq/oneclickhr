@@ -138,6 +138,18 @@ function strengthProblems(env: NodeJS.ProcessEnv): { errors: string[]; warnings:
     )
   }
 
+  // Every confirmation and reset link is built from this. Unset in production,
+  // appUrl() falls back to VERCEL_URL — the per-deployment hostname, which is not
+  // in the Supabase redirect allowlist and changes on every deploy, so the links
+  // in already-delivered email rot.
+  if (process.env.NODE_ENV === 'production' && !env.APP_URL && !env.NEXT_PUBLIC_APP_URL) {
+    warnings.push(
+      'Neither APP_URL nor NEXT_PUBLIC_APP_URL is set — confirmation and password-reset ' +
+        'links will be built from the per-deployment VERCEL_URL instead of your real ' +
+        'domain. Set APP_URL to the canonical app origin.'
+    )
+  }
+
   if (!env.CRON_SECRET) {
     warnings.push(
       'CRON_SECRET is not set — /api/cron/* endpoints answer 503 and the visa ' +

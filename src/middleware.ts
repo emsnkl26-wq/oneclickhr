@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { isPublicPath } from '@/lib/auth/public-paths'
 
 /** The shape `setAll` receives. Annotated because the `cookies` option is a union. */
 type CookieToSet = { name: string; value: string; options: CookieOptions }
@@ -16,28 +17,6 @@ type CookieToSet = { name: string; value: string; options: CookieOptions }
  * The role comes from the `user_role` claim minted by the access-token hook, so
  * routing costs no database round-trip.
  */
-
-/** Pages a signed-out visitor may reach. */
-const PUBLIC_PATHS = [
-  '/login',
-  '/employee-login',
-  '/signup',
-  '/forgot-password',
-  '/auth/confirm',
-  '/api/auth/login',
-  '/api/auth/signup',
-  '/api/auth/forgot-password',
-  '/api/auth/signout',
-  // Machine callers. None of these carry a session cookie, so without an entry
-  // here middleware answers the POST with a 307 to /login — and a webhook sender
-  // that follows a redirect re-issues it as a GET, which the handler cannot
-  // answer. For the Supabase Send Email hook that failure is not cosmetic: a
-  // non-2xx aborts the auth action, so every sign-up dies at 'Error sending
-  // confirmation email'.
-  '/api/auth/send-email-hook',
-  '/api/cron',
-  '/api/integrations/google/webhook',
-]
 
 /**
  * Routes a signed-in user may visit regardless of role.
@@ -66,10 +45,6 @@ const ROLE_PREFIX: Record<string, string> = {
   super_admin: '/super',
   org: '/org',
   employee: '/employee',
-}
-
-function isPublic(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
 
 /**
@@ -152,7 +127,7 @@ export async function middleware(request: NextRequest) {
 
   // --- Not signed in -------------------------------------------------------
   if (!session) {
-    if (isPublic(pathname)) return response
+    if (isPublicPath(pathname)) return response
     // Send them to the door that matches where they were headed. A session that
     // expires under an employee mid-shift should not resurface on the admin
     // sign-in, which would refuse the only password they have.

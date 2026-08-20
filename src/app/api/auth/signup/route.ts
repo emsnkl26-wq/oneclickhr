@@ -70,9 +70,17 @@ async function handlePOST(request: NextRequest) {
       // Send Email hook returned 500" from a production log line, and both of
       // those used to arrive here as the same opaque 400.
       console.error('[signup] failed', {
+        // Redacted so a support ticket can be matched to a log line without the
+        // log becoming an address list.
+        to: input.email.replace(/^(.).*(@.*)$/, '***'),
         status: error.status,
         code: error.code,
         message: error.message,
+        hint:
+          typeof error.status === 'number' && error.status >= 500
+            ? 'GoTrue 5xx on signUp almost always means the Send Email hook returned ' +
+              'non-2xx — look for the [send-email-hook] line just after this one.'
+            : undefined,
       })
 
       if (message.includes('password')) {

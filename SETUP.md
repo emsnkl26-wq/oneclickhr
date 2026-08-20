@@ -205,11 +205,43 @@ Once this is on, the **Email Templates** page and the **SMTP Settings** page
 under Authentication no longer matter for signup/reset — leave them as
 defaults, or don't touch them at all.
 
-Test it: sign up with a real address. If the hook URL is wrong or the secret
-doesn't match, Supabase surfaces an error on signup itself (the hook aborts
-the auth action rather than failing silently) — check the app logs for
-`[send-email-hook]` and the Supabase dashboard's **Logs → Auth** for the hook
-delivery attempt.
+> **The secret must match in THREE places or nothing works:** the Supabase
+> dashboard field above, `SUPABASE_SEND_EMAIL_HOOK_SECRET` in `.env.local`, and
+> the same variable in your hosting provider's environment (Vercel → Settings →
+> Environment Variables → Production **and** Preview). Setting it locally and
+> forgetting the deployment is the single most common way to ship a build where
+> **every sign-up and password reset fails** — the hook answers Supabase with a
+> 401, Supabase aborts the auth action, and the user sees only a generic error.
+> Changing an env var on Vercel requires a **redeploy** to take effect.
+
+### 4d. Verify it before you trust it
+
+```bash
+npm run auth:doctor                              # against localhost:3000
+npm run auth:doctor -- https://your-domain.com   # against a deployment
+npm run auth:doctor -- https://your-domain.com --send you@work.com
+```
+
+It proves the four things that silently break this path — the hook is not
+behind the session redirect, it refuses unsigned callers, it **accepts a
+payload signed with your secret** (i.e. the deployed secret matches), and
+Resend accepts your `EMAIL_FROM`. No email is sent unless you pass `--send`.
+Run it against production after every change to the secret or the domain.
+
+If a check fails, the app logs name the exact cause. Look for
+`[send-email-hook]` in your hosting logs:
+
+| Log line | Cause | Fix |
+|---|---|---|
+| `signature rejected — signature-mismatch (configured secret fingerprint: …)` | The deployment's secret differs from the dashboard's | Copy the dashboard value into the deployment env and redeploy. The fingerprint is a one-way hash — compare it against `npm run auth:doctor` output rather than pasting secrets around |
+| `signature rejected — missing-headers: …` | The caller isn't Supabase, or a proxy stripped the `webhook-*` headers | Check the hook URL has no redirecting hop (apex→www, trailing slash) |
+| `signature rejected — timestamp-skew: …` | Replay window exceeded — clock drift | Rare on managed hosts; re-send |
+| `received a GET` | The POST was redirected and the sender followed it as a GET | The path must be in `MACHINE_PATHS` (`src/lib/auth/public-paths.ts`) |
+| `send failed { reason: … }` | Resend refused — usually an unverified domain | Fix in the Resend dashboard; the reason is quoted verbatim |
+
+Then test for real: sign up with a real address. Because the hook aborts the
+auth action rather than failing silently, a broken hook shows up immediately as
+an error on the signup form — never as a user stranded without an email.
 
 ### 4c. URL configuration
 
@@ -426,8 +458,19 @@ npm run build           # production build
 4. Go back and update, now that you know the domain:
    - **Supabase → Authentication → URL Configuration** — Site URL and redirect
      allowlist
+   - **Supabase → Authentication → Hooks → Send Email** — the hook URL, and
+     confirm its secret is the same value you set as
+     `SUPABASE_SEND_EMAIL_HOOK_SECRET` in Vercel (§4b)
    - **Google Cloud → Credentials** — authorized redirect URI
    - **Cloudflare R2 → CORS** — `AllowedOrigins`
+5. Prove the auth email path works on the deployment **before** announcing it:
+
+   ```bash
+   npm run auth:doctor -- https://your-domain.com
+   ```
+
+   Every env-var change needs a redeploy before it takes effect, so run this
+   after the redeploy, not before.
 
 ---
 

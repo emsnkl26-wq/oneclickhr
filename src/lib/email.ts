@@ -45,33 +45,85 @@ interface SendArgs {
   replyTo?: string
 }
 
+/**
+ * Transient failures worth one more try: a network blip, a Resend 5xx, or a
+ * burst rate-limit. NONE of these mean an email was accepted, so a retry cannot
+ * duplicate a message. A 4xx (unverified domain, malformed address) is a
+ * permanent verdict and is returned immediately — retrying it only delays the
+ * error the caller needs to see.
+ */
+function isRetryable(statusCode: number | undefined): boolean {
+  if (statusCode === undefined) return true // threw before a response — network
+  return statusCode === 429 || statusCode >= 500
+}
+
+const RETRY_DELAYS_MS = [250, 1000]
+
 export async function sendEmail({ to, subject, html, text, replyTo }: SendArgs): Promise<SendResult> {
   const api = resend()
   const from = process.env.EMAIL_FROM
 
   if (!api || !from) {
-    console.warn('[email] not configured (RESEND_API_KEY / EMAIL_FROM) — skipping:', subject)
+    console.error('[email] not configured — skipping send', {
+      subject,
+      RESEND_API_KEY: process.env.RESEND_API_KEY ? 'set' : 'MISSING',
+      EMAIL_FROM: process.env.EMAIL_FROM ? 'set' : 'MISSING',
+    })
     return { ok: false, error: 'Email is not configured' }
   }
 
-  try {
-    const { error } = await api.emails.send({
-      from,
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      html,
-      text: text || stripHtml(html),
-      ...(replyTo ? { replyTo } : {}),
-    })
-    if (error) {
-      console.error('[email] send failed:', subject, error)
-      return { ok: false, error: error.message }
+  const recipients = Array.isArray(to) ? to : [to]
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { error } = await api.emails.send({
+        from,
+        to: recipients,
+        subject,
+        html,
+        text: text || stripHtml(html),
+        ...(replyTo ? { replyTo } : {}),
+      })
+
+      if (!error) return { ok: true }
+
+      // Resend's error carries a machine-readable `name` ("validation_error",
+      // "restricted_api_key", …) and a human `message` that names the actual
+      // problem. Both are about OUR configuration, never about the recipient,
+      // so both are safe to log and to hand back to the caller.
+      const statusCode = (error as { statusCode?: number }).statusCode
+      const detail = `${error.name || 'send_error'}: ${error.message || 'unknown'}`
+
+      if (isRetryable(statusCode) && attempt < RETRY_DELAYS_MS.length) {
+        console.warn(`[email] send failed (attempt ${attempt + 1}), retrying —`, {
+          subject,
+          statusCode,
+          detail,
+        })
+        await sleep(RETRY_DELAYS_MS[attempt])
+        continue
+      }
+
+      console.error('[email] send failed', { subject, statusCode, detail })
+      return { ok: false, error: detail }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'Email delivery failed'
+      if (attempt < RETRY_DELAYS_MS.length) {
+        console.warn(`[email] send threw (attempt ${attempt + 1}), retrying —`, {
+          subject,
+          detail,
+        })
+        await sleep(RETRY_DELAYS_MS[attempt])
+        continue
+      }
+      console.error('[email] send threw', { subject, detail })
+      return { ok: false, error: `Email delivery failed: ${detail}` }
     }
-    return { ok: true }
-  } catch (err) {
-    console.error('[email] send threw:', subject, err)
-    return { ok: false, error: 'Email delivery failed' }
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 // ---------------------------------------------------------------------------
