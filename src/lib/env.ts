@@ -21,30 +21,45 @@ const criticalSchema = z.object({
 })
 
 /**
+ * An env var set to an empty string is ABSENT, not malformed. A .env file ships
+ * with placeholder keys such as SUPABASE_JWT_SECRET=, and a hosting dashboard
+ * writes "" for a cleared field — both arrive as "" rather than undefined, which
+ * a bare .optional() rejects with a confusing "must contain at least N
+ * character(s)" that names a variable the product does not even need.
+ */
+const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema)
+
+const opt = {
+  url: () => blankAsUndefined(z.string().url().optional()),
+  str: (min: number) => blankAsUndefined(z.string().min(min).optional()),
+}
+
+/**
  * Integrations that degrade gracefully when absent. Shape-validated ONLY when
  * present, so a typo is caught even though absence is allowed.
  */
 const optionalSchema = z.object({
-  APP_URL: z.string().url().optional(),
-  NEXT_PUBLIC_APP_URL: z.string().url().optional(),
-  SUPABASE_JWT_SECRET: z.string().min(20).optional(),
+  APP_URL: opt.url(),
+  NEXT_PUBLIC_APP_URL: opt.url(),
+  SUPABASE_JWT_SECRET: opt.str(20),
 
-  RESEND_API_KEY: z.string().min(10).optional(),
-  EMAIL_FROM: z.string().min(3).optional(),
-  SUPABASE_SEND_EMAIL_HOOK_SECRET: z.string().min(10).optional(),
+  RESEND_API_KEY: opt.str(10),
+  EMAIL_FROM: opt.str(3),
+  SUPABASE_SEND_EMAIL_HOOK_SECRET: opt.str(10),
 
-  R2_ACCOUNT_ID: z.string().min(4).optional(),
-  R2_ACCESS_KEY_ID: z.string().min(8).optional(),
-  R2_SECRET_ACCESS_KEY: z.string().min(16).optional(),
-  R2_BUCKET: z.string().min(1).optional(),
-  R2_ENDPOINT: z.string().url().optional(),
+  R2_ACCOUNT_ID: opt.str(4),
+  R2_ACCESS_KEY_ID: opt.str(8),
+  R2_SECRET_ACCESS_KEY: opt.str(16),
+  R2_BUCKET: opt.str(1),
+  R2_ENDPOINT: opt.url(),
 
-  GOOGLE_CLIENT_ID: z.string().min(10).optional(),
-  GOOGLE_CLIENT_SECRET: z.string().min(10).optional(),
-  GOOGLE_REDIRECT_URI: z.string().url().optional(),
-  GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().min(16).optional(),
+  GOOGLE_CLIENT_ID: opt.str(10),
+  GOOGLE_CLIENT_SECRET: opt.str(10),
+  GOOGLE_REDIRECT_URI: opt.url(),
+  GOOGLE_TOKEN_ENCRYPTION_KEY: opt.str(16),
 
-  CRON_SECRET: z.string().min(16).optional(),
+  CRON_SECRET: opt.str(16),
 })
 
 /** Cross-field and entropy checks a plain schema cannot express. */
