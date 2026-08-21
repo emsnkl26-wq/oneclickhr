@@ -130,11 +130,14 @@ function strengthProblems(env: NodeJS.ProcessEnv): { errors: string[]; warnings:
     warnings.push('RESEND_API_KEY is set but EMAIL_FROM is not — transactional email will not send.')
   }
 
+  // Only a problem for a deployment that has turned the OPTIONAL Send Email hook
+  // on. The default path — Supabase's own SMTP sender — does not touch this app,
+  // so an absent secret there is not a fault to shout about.
   if (!env.SUPABASE_SEND_EMAIL_HOOK_SECRET) {
     warnings.push(
-      'SUPABASE_SEND_EMAIL_HOOK_SECRET is not set — /api/auth/send-email-hook will reject every ' +
-        'call, so unless the Supabase "Send Email" Auth Hook is left disabled, confirmation and ' +
-        'password-reset email will fail to send. See SETUP.md §4.'
+      'SUPABASE_SEND_EMAIL_HOOK_SECRET is not set — /api/auth/send-email-hook will reject ' +
+        'every call. Harmless while auth email goes out over Supabase SMTP (the default); ' +
+        'fatal to every sign-up if the "Send Email" Auth Hook is enabled. See SETUP.md §4.'
     )
   }
 

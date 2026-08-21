@@ -2,35 +2,35 @@
  * AUTH DOCTOR — proves the sign-up / password-reset email path works, end to
  * end, against a DEPLOYED url.
  *
- * Both flows hang off one hop that no browser ever makes and no page can
- * report: Supabase POSTs the token to /api/auth/send-email-hook, and this app
- * sends the mail. If that hop fails for any reason, Supabase ABORTS the auth
- * action — so a wrong webhook secret, a middleware redirect, or an unverified
- * Resend domain all surface to the user as the same unexplained "we could not
- * complete your sign-up", with the real cause visible only in a server log.
- * That blind spot cost a production evening; this script closes it.
+ *   npm run auth:doctor                                   check localhost:3000
+ *   npm run auth:doctor -- https://app.example            check a deployment
+ *   npm run auth:doctor -- https://app.example --send me@work.com
+ *   npm run auth:doctor -- https://app.example --signup me@work.com
+ *   npm run auth:doctor -- https://app.example --hook     also check the (optional) Auth Hook
  *
- *   npm run auth:doctor                          check localhost:3000
- *   npm run auth:doctor -- https://app.example   check a deployment
- *   npm run auth:doctor -- --send you@work.com   ALSO send one real email
+ * HOW AUTH EMAIL IS SENT HERE
  *
- * WHAT IT CHECKS, and why each one has bitten:
- *   1. the hook is not behind the session redirect  (a 307 → sign-up dies)
- *   2. it is POST-only and says so                  (a followed redirect → GET)
- *   3. an unsigned request is refused               (the endpoint is public)
- *   4. a SIGNED request is accepted                 (deployed secret == local)
- *   5. Resend accepts the configured From address   (domain verified, key live)
+ * Supabase sends it, through custom SMTP (Resend) — see SETUP.md §4. The app is
+ * not in that path at all, which means the two things that can break it are both
+ * dashboard settings rather than code:
  *
- * Check 4 is the one that matters most and the only one that needs a secret. It
- * signs a payload with SUPABASE_SEND_EMAIL_HOOK_SECRET from the local env and
- * uses an action type the handler does not support, so the request gets past
- * signature verification and stops BEFORE any email is sent. A 401 means the
- * deployed secret differs from the local one; a 500 "Unsupported email type" is
- * the pass.
+ *   • the EMAIL TEMPLATE must link to /auth/confirm?token_hash=…, not to the
+ *     default `{{ .ConfirmationURL }}`. The stock link is a PKCE `?code=` url
+ *     that only works in the browser that started the signup, so opening the
+ *     email on a phone fails. `npm run email:templates` generates the correct
+ *     ones.
+ *   • SMTP itself must be enabled and its sender domain verified.
  *
- * NOTHING is printed that would leak a secret. Where a secret must be compared,
- * only a one-way sha256 fingerprint is shown — same fingerprint the server logs
- * on a signature mismatch, so the two can be matched by eye.
+ * Neither shows up in a browser console, and a wrong template fails only for
+ * the user who opens their mail on a second device — which is why this script
+ * checks the pieces directly instead of trusting a green sign-up form.
+ *
+ * The Auth Hook (--hook) is OPTIONAL and off by default: it is only worth
+ * enabling to bypass Supabase's SMTP send-rate limit. When it is disabled in the
+ * dashboard, its checks here are noise.
+ *
+ * NOTHING printed leaks a secret. Where a secret must be compared, only a
+ * one-way sha256 fingerprint is shown — the same one the server logs.
  */
 import crypto from 'crypto'
 import { config } from 'dotenv'
@@ -39,24 +39,22 @@ config({ path: '.env.local' })
 config()
 
 const args = process.argv.slice(2)
-const sendIndex = args.indexOf('--send')
-const SEND_TO = sendIndex >= 0 ? args[sendIndex + 1] : ''
+const flagValue = (name: string) => {
+  const i = args.indexOf(name)
+  return i >= 0 ? args[i + 1] : ''
+}
+const SEND_TO = flagValue('--send')
+const SIGNUP_AS = flagValue('--signup')
+const CHECK_HOOK = args.includes('--hook')
 const BASE = (args.find((a) => a.startsWith('http')) || 'http://localhost:3000').replace(/\/+$/, '')
-const HOOK_URL = `${BASE}/api/auth/send-email-hook`
 
 let failures = 0
 const pass = (msg: string) => console.log(`  ✓ ${msg}`)
+const info = (msg: string) => console.log(`  • ${msg}`)
 const fail = (msg: string, fix?: string) => {
   failures++
   console.log(`  ✗ ${msg}`)
   if (fix) console.log(`      → ${fix}`)
-}
-
-/** The signing key with both optional prefixes stripped — mirrors the route. */
-function signingKey(): string {
-  const raw = (process.env.SUPABASE_SEND_EMAIL_HOOK_SECRET || '').trim().replace(/^["']|["']$/g, '')
-  const noVersion = raw.startsWith('v1,') ? raw.slice(3) : raw
-  return noVersion.startsWith('whsec_') ? noVersion.slice('whsec_'.length) : noVersion
 }
 
 function fingerprint(secret: string): string {
@@ -64,11 +62,98 @@ function fingerprint(secret: string): string {
   return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 8)
 }
 
-async function main() {
-  console.log(`\nAUTH DOCTOR  →  ${BASE}\n`)
+/** The hook signing key with both optional prefixes stripped — mirrors the route. */
+function signingKey(): string {
+  const raw = (process.env.SUPABASE_SEND_EMAIL_HOOK_SECRET || '').trim().replace(/^["']|["']$/g, '')
+  const noVersion = raw.startsWith('v1,') ? raw.slice(3) : raw
+  return noVersion.startsWith('whsec_') ? noVersion.slice('whsec_'.length) : noVersion
+}
 
-  // --- 1/2. the hook must be reachable, and must not redirect ---------------
-  console.log('Hook reachability')
+/**
+ * Supabase's own view of the project's auth config. Public endpoint, read with
+ * the anon key — it is what the client library itself calls on boot.
+ */
+async function checkSupabaseSettings() {
+  console.log('\nSupabase auth configuration')
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '')
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  if (!url || !anon) {
+    fail('NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set locally')
+    return
+  }
+
+  const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: anon } })
+  if (!res.ok) {
+    fail(`could not read auth settings (${res.status})`)
+    return
+  }
+  const s = (await res.json()) as {
+    disable_signup?: boolean
+    mailer_autoconfirm?: boolean
+    external?: Record<string, boolean>
+  }
+
+  if (s.disable_signup) {
+    fail('new sign-ups are DISABLED for this project', 'Authentication → Sign In / Providers → Allow new users to sign up')
+  } else {
+    pass('new sign-ups are allowed')
+  }
+
+  if (s.external?.email === false) {
+    fail('the email provider is disabled', 'Authentication → Sign In / Providers → Email')
+  } else {
+    pass('email provider is enabled')
+  }
+
+  // autoconfirm ON means Supabase never sends a confirmation email at all —
+  // accounts are live immediately. That is a legitimate choice, but it is not
+  // this product's flow (the app tells the user to check their inbox), so it is
+  // worth stating plainly rather than leaving someone to wonder where the mail
+  // went.
+  if (s.mailer_autoconfirm) {
+    fail(
+      'email auto-confirm is ON — Supabase will NOT send a confirmation email',
+      'Authentication → Sign In / Providers → Confirm email. The app tells users to check their inbox, so this must be on.'
+    )
+  } else {
+    pass('email confirmation is required (a confirmation email is sent on sign-up)')
+  }
+}
+
+/**
+ * The link target every auth email points at. If this route is missing or
+ * redirects oddly, every confirmation link in every already-delivered email is
+ * dead — so it is checked against the deployment, not just assumed.
+ */
+async function checkConfirmRoute() {
+  console.log('\nConfirmation link target')
+  const res = await fetch(`${BASE}/auth/confirm`, { redirect: 'manual' })
+  const location = res.headers.get('location') || ''
+  if (res.status >= 300 && res.status < 400 && location.includes('/login')) {
+    pass('/auth/confirm is live and rejects an incomplete link cleanly')
+  } else {
+    fail(
+      `/auth/confirm answered ${res.status} (location: ${location || 'none'})`,
+      'this route verifies the token_hash server-side; every email link depends on it'
+    )
+  }
+
+  const withToken = await fetch(`${BASE}/auth/confirm?token_hash=doctor-probe&type=signup`, {
+    redirect: 'manual',
+  })
+  const tokenLocation = withToken.headers.get('location') || ''
+  if (tokenLocation.includes('error=')) {
+    pass('an invalid token is refused with a readable message (not a 500)')
+  } else {
+    fail(`an invalid token produced ${withToken.status} → ${tokenLocation || 'no redirect'}`)
+  }
+}
+
+/** The optional Send Email Auth Hook. Skipped unless --hook is passed. */
+async function checkHook() {
+  console.log('\nSend Email Auth Hook (optional — only if enabled in Supabase)')
+  const HOOK_URL = `${BASE}/api/auth/send-email-hook`
+
   const unsigned = await fetch(HOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -79,117 +164,155 @@ async function main() {
   if (unsigned.status >= 300 && unsigned.status < 400) {
     fail(
       `POST is redirected (${unsigned.status} → ${unsigned.headers.get('location')})`,
-      'add /api/auth/send-email-hook to MACHINE_PATHS in src/lib/auth/public-paths.ts. ' +
-        'Supabase sends no cookie, so a session redirect turns the POST into a GET and ' +
-        'every sign-up fails.'
+      'add the path to MACHINE_PATHS in src/lib/auth/public-paths.ts'
     )
+  } else if (unsigned.status === 401) {
+    pass('unsigned requests are refused, and the POST is not redirected')
   } else {
-    pass('POST reaches the handler (no session redirect)')
+    fail(`an unsigned request answered ${unsigned.status}, expected 401`)
   }
 
-  const asGet = await fetch(HOOK_URL, { method: 'GET', redirect: 'manual' })
-  if (asGet.status === 405) pass('GET is refused with 405, as it should be')
-  else if (asGet.status >= 300 && asGet.status < 400)
-    fail(`GET is redirected (${asGet.status})`, 'same fix as above')
-  else fail(`GET answered ${asGet.status}, expected 405`)
-
-  // --- 3. unsigned requests must be refused ---------------------------------
-  console.log('\nSignature enforcement')
-  if (unsigned.status === 401) pass('an unsigned request is refused (401)')
-  else if (unsigned.status === 500)
-    fail(
-      'the hook reports it is not configured',
-      'set SUPABASE_SEND_EMAIL_HOOK_SECRET (and RESEND_API_KEY / EMAIL_FROM) on the deployment'
-    )
-  else fail(`an unsigned request answered ${unsigned.status}, expected 401`)
-
-  // --- 4. a signed request must be accepted ---------------------------------
   const key = signingKey()
   if (!key) {
-    fail(
-      'SUPABASE_SEND_EMAIL_HOOK_SECRET is not set locally, so the signed check cannot run',
-      'copy it from Supabase → Authentication → Hooks → Send Email'
-    )
-  } else {
-    // magiclink is deliberately unsupported: it clears signature verification
-    // and stops before Resend, so this check never sends an email.
-    const body = JSON.stringify({
-      user: { email: 'doctor@example.com' },
-      email_data: { token_hash: 'doctor-probe', email_action_type: 'magiclink' },
-    })
-    const id = 'msg_auth_doctor'
-    const ts = Math.floor(Date.now() / 1000)
-    const sig = crypto
-      .createHmac('sha256', Buffer.from(key, 'base64'))
-      .update(`${id}.${ts}.${body}`)
-      .digest('base64')
-
-    const signed = await fetch(HOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'webhook-id': id,
-        'webhook-timestamp': String(ts),
-        'webhook-signature': `v1,${sig}`,
-      },
-      body,
-      redirect: 'manual',
-    })
-
-    if (signed.status === 401) {
-      fail(
-        `the deployment REJECTED a payload signed with the local secret ` +
-          `(local fingerprint: ${fingerprint(key)})`,
-        'the deployed SUPABASE_SEND_EMAIL_HOOK_SECRET differs from this one. Set the ' +
-          'deployment env var to the exact value shown in Supabase → Authentication → ' +
-          'Hooks → Send Email, redeploy, and run this again. Until the two match, every ' +
-          'sign-up and password reset fails.'
-      )
-    } else if (signed.status === 500) {
-      pass(`signed request accepted — secret matches (fingerprint: ${fingerprint(key)})`)
-    } else {
-      fail(`signed request answered ${signed.status}; expected 500 (unsupported type)`)
-    }
+    info('SUPABASE_SEND_EMAIL_HOOK_SECRET is not set locally — signed check skipped')
+    return
   }
 
-  // --- 5. the sender itself --------------------------------------------------
-  console.log('\nSender (Resend)')
+  // magiclink is deliberately unsupported: it clears signature verification and
+  // stops before any email is sent.
+  const body = JSON.stringify({
+    user: { email: 'doctor@example.com' },
+    email_data: { token_hash: 'doctor-probe', email_action_type: 'magiclink' },
+  })
+  const id = 'msg_auth_doctor'
+  const ts = Math.floor(Date.now() / 1000)
+  const sig = crypto
+    .createHmac('sha256', Buffer.from(key, 'base64'))
+    .update(`${id}.${ts}.${body}`)
+    .digest('base64')
+
+  const signed = await fetch(HOOK_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'webhook-id': id,
+      'webhook-timestamp': String(ts),
+      'webhook-signature': `v1,${sig}`,
+    },
+    body,
+    redirect: 'manual',
+  })
+
+  if (signed.status === 500) {
+    pass(`signed request accepted — deployed secret matches (fingerprint: ${fingerprint(key)})`)
+  } else if (signed.status === 401) {
+    fail(
+      `the deployment rejected a payload signed with the local secret (local fingerprint: ${fingerprint(
+        key
+      )})`,
+      'the deployed SUPABASE_SEND_EMAIL_HOOK_SECRET differs from this one — or the hook is not in use, in which case drop --hook'
+    )
+  } else {
+    fail(`signed request answered ${signed.status}; expected 500 (unsupported type)`)
+  }
+}
+
+/** Resend's API, used directly by product email (credentials, reminders). */
+async function checkResend() {
+  console.log('\nProduct email sender (Resend API)')
   const apiKey = process.env.RESEND_API_KEY || ''
   const from = (process.env.EMAIL_FROM || '').replace(/^["']|["']$/g, '')
   if (!apiKey || !from) {
     fail(
       `not configured locally (RESEND_API_KEY ${apiKey ? 'set' : 'MISSING'}, EMAIL_FROM ${
         from ? 'set' : 'MISSING'
-      })`
+      })`,
+      'employee credentials and visa reminders are sent through this, independently of Supabase SMTP'
     )
-  } else if (!SEND_TO) {
-    console.log(`  • from ${from} — pass --send <address> to attempt a real delivery`)
-  } else {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from,
-        to: [SEND_TO],
-        subject: 'Auth doctor delivery probe',
-        html: '<p>If this arrived, the sending domain and API key are good.</p>',
-        text: 'If this arrived, the sending domain and API key are good.',
-      }),
-    })
-    const payload = (await res.json().catch(() => null)) as
-      | { id?: string; message?: string; name?: string }
-      | null
-    if (res.ok && payload?.id) pass(`Resend accepted a message from ${from} (id ${payload.id})`)
-    else
-      fail(
-        `Resend refused: ${payload?.name || res.status} — ${payload?.message || 'no detail'}`,
-        'verify the EMAIL_FROM domain in the Resend dashboard, and check the API key has send permission'
-      )
+    return
   }
+  if (!SEND_TO) {
+    info(`from ${from} — pass --send <address> to attempt a real delivery`)
+    return
+  }
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [SEND_TO],
+      subject: 'Auth doctor delivery probe',
+      html: '<p>If this arrived, the sending domain and API key are good.</p>',
+      text: 'If this arrived, the sending domain and API key are good.',
+    }),
+  })
+  const payload = (await res.json().catch(() => null)) as
+    | { id?: string; message?: string; name?: string }
+    | null
+  if (res.ok && payload?.id) pass(`Resend accepted a message from ${from} (id ${payload.id})`)
+  else
+    fail(
+      `Resend refused: ${payload?.name || res.status} — ${payload?.message || 'no detail'}`,
+      'verify the EMAIL_FROM domain in the Resend dashboard'
+    )
+}
+
+/**
+ * The whole flow, for real: create an account through the app's own endpoint.
+ * This is the only check that exercises Supabase's SMTP send, because that send
+ * happens inside signUp() — if the mail cannot go out, this returns 503.
+ */
+async function checkEndToEndSignup() {
+  console.log('\nEnd-to-end sign-up')
+  if (!SIGNUP_AS) {
+    info('pass --signup <address> to create a real account and receive a real confirmation email')
+    return
+  }
+
+  const res = await fetch(`${BASE}/api/auth/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      orgName: 'Auth Doctor',
+      fullName: 'Auth Doctor',
+      email: SIGNUP_AS,
+      password: `Doctor-${crypto.randomBytes(6).toString('hex')}1`,
+    }),
+    redirect: 'manual',
+  })
+  const payload = (await res.json().catch(() => null)) as { error?: string; message?: string } | null
+
+  if (res.ok) {
+    pass(`sign-up accepted — a confirmation email should be on its way to ${SIGNUP_AS}`)
+    info('open the link ON A DIFFERENT DEVICE. It must land on /login with a confirmed message,')
+    info('not on an error — that is the check that catches a PKCE `?code=` template.')
+  } else if (res.status === 503) {
+    fail(
+      `sign-up refused with 503: ${payload?.error}`,
+      'Supabase could not send the confirmation email. Check Authentication → Emails (SMTP enabled, ' +
+        'sender domain verified) and the app log for the [signup] line carrying the GoTrue status.'
+    )
+  } else if (res.status === 429) {
+    info(`rate limited (${payload?.error}) — not a fault, just try again later`)
+  } else {
+    fail(`sign-up refused with ${res.status}: ${payload?.error || 'no detail'}`)
+  }
+}
+
+async function main() {
+  console.log(`\nAUTH DOCTOR  →  ${BASE}\n`)
+  console.log('Auth email is sent by Supabase SMTP; product email by the Resend API.')
+
+  await checkSupabaseSettings()
+  await checkConfirmRoute()
+  if (CHECK_HOOK) await checkHook()
+  await checkResend()
+  await checkEndToEndSignup()
 
   console.log(
     failures === 0
-      ? '\nALL CHECKS PASSED — sign-up and password-reset email can be delivered.\n'
+      ? '\nALL CHECKS PASSED.\n'
       : `\n${failures} CHECK(S) FAILED — sign-up and/or password reset are broken.\n`
   )
   process.exit(failures === 0 ? 0 : 1)

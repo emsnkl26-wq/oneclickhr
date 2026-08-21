@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Oneclickhr</title>
+</head>
+<body style="margin:0;padding:0;background:#F6F7F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;color:#1A1C23;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Confirm your email to activate your workspace</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F9;padding:32px 12px;">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border:1px solid #E7E9EE;border-radius:14px;overflow:hidden;">
+      <tr>
+        <td style="background:#16181F;padding:22px 28px;">
+          <span style="color:#FFFFFF;font-size:17px;font-weight:700;letter-spacing:-0.2px;">
+            Oneclickhr
+          </span>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#C41E33;margin-left:8px;vertical-align:middle;"></span>
+        </td>
+      </tr>
+      <tr><td style="padding:32px 28px;font-size:15px;line-height:1.65;color:#1A1C23;">
+        
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">Confirm your workspace</h1>
+    <p style="margin:0 0 18px;">
+      Thanks for signing up. Click below to confirm your email address and activate
+      your organization's workspace.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+  <tr><td style="border-radius:10px;background:#C41E33;">
+    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=signup" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:10px;">Confirm my email</a>
+  </td></tr>
+</table>
+
+    <p style="margin:18px 0 0;font-size:13px;color:#6B7280;">This link works on any device — open it on your phone if that's where you're
+      reading this. It expires in 24 hours. If you did not create this account, you
+      can safely ignore this email.</p>
+
+    <p style="margin:18px 0 0;font-size:12px;color:#9CA3AF;word-break:break-all;">
+      Button not working? Paste this into your browser:<br>{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup
+    </p>
+  
+      </td></tr>
+      <tr>
+        <td style="padding:18px 28px;background:#FAFBFC;border-top:1px solid #E7E9EE;font-size:12px;line-height:1.6;color:#6B7280;">
+          This is an automated message from Oneclickhr. If it looks unexpected, you can ignore it.
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

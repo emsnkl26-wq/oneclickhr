@@ -7,13 +7,20 @@ import { sendSignupConfirmationEmail, sendPasswordResetEmail } from '@/lib/auth-
 export const dynamic = 'force-dynamic'
 
 /**
- * Supabase "Send Email" Auth Hook.
+ * Supabase "Send Email" Auth Hook — OPTIONAL, and OFF in this deployment.
  *
- * Once this hook is enabled in the Supabase dashboard (SETUP.md §4), Supabase
- * stops sending confirmation/reset email itself — it POSTs the token here
- * instead, and WE build and send the email via Resend using our own template.
- * That's how the built-in 2/hr sender limit gets bypassed: Resend's API, not
- * Supabase's SMTP relay, does the sending.
+ * Auth email is normally sent by Supabase itself over custom SMTP (Resend), with
+ * the templates in supabase/templates/ pasted into the dashboard. That path has
+ * no moving parts of ours in it at all, which is why it is the default: nothing
+ * here can break a sign-up.
+ *
+ * This route exists for the one reason to prefer the hook — Supabase's SMTP
+ * send-rate limit. Enabling the hook in the dashboard makes Supabase stop
+ * sending the mail and POST the token here instead, and the app sends it through
+ * the Resend API, whose limits are Resend's rather than Supabase's. Turn it on
+ * only if that limit becomes the constraint, and run `npm run auth:doctor --
+ * <url> --hook` immediately after: a hook that answers non-2xx ABORTS every
+ * sign-up, so a misconfigured secret here is worse than no hook at all.
  *
  * The link we build is deliberately our own `/auth/confirm?token_hash=...`
  * route rather than `email_data.site_url` — same device-independent
