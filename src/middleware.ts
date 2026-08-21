@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { isPublicPath } from '@/lib/auth/public-paths'
+import { canonicalMachinePath, isPublicPath } from '@/lib/auth/public-paths'
 
 /** The shape `setAll` receives. Annotated because the `cookies` option is a union. */
 type CookieToSet = { name: string; value: string; options: CookieOptions }
@@ -95,6 +95,34 @@ export async function middleware(request: NextRequest) {
    */
   if (request.headers.get('next-router-prefetch') === '1') {
     return NextResponse.next({ request })
+  }
+
+  /*
+   * A machine endpoint reached with a trailing slash is rewritten, never
+   * redirected — see canonicalMachinePath(). This has to happen before the
+   * session work below: these callers have no cookie, and the redirect Next
+   * would otherwise issue is what silently breaks a webhook.
+   */
+  const canonical = canonicalMachinePath(request.nextUrl.pathname)
+  if (canonical) {
+    const url = request.nextUrl.clone()
+    url.pathname = canonical
+    return NextResponse.rewrite(url)
+  }
+
+  /*
+   * Everything else keeps the ordinary behaviour. Next's own trailing-slash
+   * redirect is off (see skipTrailingSlashRedirect in next.config.js), so this
+   * reproduces it — a permanent redirect to the canonical, slash-less path.
+   */
+  const { pathname: rawPath } = request.nextUrl
+  if (rawPath.length > 1 && rawPath.endsWith('/')) {
+    // Built from request.url rather than nextUrl.clone(): NextURL re-applies the
+    // trailing slash to its own pathname setter, which turns the redirect into a
+    // loop back to the same address.
+    const url = new URL(request.url)
+    url.pathname = rawPath.replace(/[/]+$/, '') || '/'
+    return NextResponse.redirect(url, 308)
   }
 
   let response = NextResponse.next({ request })

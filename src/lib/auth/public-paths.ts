@@ -48,3 +48,21 @@ export const PUBLIC_PATHS: readonly string[] = [...PUBLIC_HUMAN_PATHS, ...MACHIN
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
+
+/**
+ * A machine endpoint whose configured URL carries a trailing slash, mapped back
+ * to its canonical path — otherwise `null`.
+ *
+ * Next answers `/api/auth/send-email-hook/` with a 308 to the slash-less path.
+ * A browser follows that invisibly; a webhook sender either refuses to follow a
+ * redirect on a POST or re-issues it as a GET, and either way the handler never
+ * runs and the auth action it was serving fails. The URL is typed into a
+ * third-party dashboard by hand, so the trailing slash is a matter of when, not
+ * if. Middleware rewrites instead of redirecting, which keeps the method, the
+ * body and the `webhook-*` signature headers intact.
+ */
+export function canonicalMachinePath(pathname: string): string | null {
+  if (!pathname.endsWith('/') || pathname === '/') return null
+  const withoutSlash = pathname.replace(/\/+$/, '')
+  return (MACHINE_PATHS as readonly string[]).includes(withoutSlash) ? withoutSlash : null
+}

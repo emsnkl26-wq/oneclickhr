@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isPublicPath, MACHINE_PATHS, PUBLIC_PATHS } from '@/lib/auth/public-paths'
+import { canonicalMachinePath, isPublicPath, MACHINE_PATHS, PUBLIC_PATHS } from '@/lib/auth/public-paths'
 
 /**
  * These tests exist because of a real production outage: the Supabase "Send
@@ -47,5 +47,19 @@ describe('middleware public paths', () => {
 
   it('exposes no duplicates', () => {
     expect(new Set(PUBLIC_PATHS).size).toBe(PUBLIC_PATHS.length)
+  })
+})
+
+describe('trailing-slash tolerance for machine endpoints', () => {
+  it('maps a trailing-slash hook URL back to the real route', () => {
+    expect(canonicalMachinePath('/api/auth/send-email-hook/')).toBe('/api/auth/send-email-hook')
+    expect(canonicalMachinePath('/api/cron/')).toBe('/api/cron')
+  })
+
+  it('leaves everything else alone', () => {
+    expect(canonicalMachinePath('/api/auth/send-email-hook')).toBeNull()
+    expect(canonicalMachinePath('/org/')).toBeNull()
+    expect(canonicalMachinePath('/')).toBeNull()
+    expect(canonicalMachinePath('/api/auth/send-email-hook/extra/')).toBeNull()
   })
 })

@@ -2,6 +2,18 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
+  /*
+   * Next's built-in trailing-slash redirect runs BEFORE middleware, which makes
+   * it invisible and unfixable from there. That matters for exactly one class of
+   * caller: a webhook sender whose URL was typed with a trailing slash gets a
+   * 308 it either refuses to follow on a POST or re-issues as a GET — the
+   * handler never runs, and the auth action it was serving fails with no useful
+   * error anywhere. Turning the automatic redirect off lets middleware REWRITE
+   * those paths instead (method, body and signature headers intact) and issue
+   * the ordinary redirect itself for everything else. See middleware.ts.
+   */
+  skipTrailingSlashRedirect: true,
   eslint: {
     // Lint is a separate `npm run lint` gate; a style nit must not fail a deploy.
     ignoreDuringBuilds: true,
