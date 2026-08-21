@@ -6,13 +6,12 @@ import { FileUp, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input, Select } from '@/components/ui/input'
+import { Input, Select, TimeField } from '@/components/ui/input'
+import { ColorField } from '@/components/ui/color-field'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPatch, uploadFile, ApiClientError } from '@/lib/fetcher'
 import { COMMON_TIMEZONES } from '@/lib/timezones'
 import { contrastOn } from '@/lib/utils'
-
-const HEX_RE = /^#[0-9a-f]{6}$/i
 
 export function SettingsForm({
   tenant,
@@ -137,24 +136,11 @@ export function SettingsForm({
 
           <FormField label="Primary colour" error={fields.primaryColor}>
             <div className="space-y-2.5">
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="focus-ring relative size-10 shrink-0 cursor-pointer overflow-hidden rounded-full ring-1 ring-line">
-                  <input
-                    type="color"
-                    value={HEX_RE.test(primaryColor) ? primaryColor : '#16A34A'}
-                    onChange={(e) => setPrimaryColor(e.target.value.toUpperCase())}
-                    className="absolute -left-2 -top-2 size-14 cursor-pointer border-0 bg-transparent p-0"
-                    aria-label="Pick a custom colour"
-                  />
-                </label>
-                <Input
-                  value={primaryColor}
-                  onChange={(e) => setPrimaryColor(e.target.value)}
-                  className="tabular w-28 uppercase"
-                  maxLength={7}
-                  aria-label="Custom hex colour"
-                />
-              </div>
+              <ColorField
+                value={primaryColor}
+                onChange={setPrimaryColor}
+                aria-label="Workspace primary colour"
+              />
               <div
                 className="rounded-lg px-3.5 py-2 text-[13px] font-medium"
                 style={{ background: primaryColor, color: contrastOn(primaryColor) }}
@@ -191,8 +177,7 @@ export function SettingsForm({
               hint="A clock-in after this local time is flagged late."
               required
             >
-              <Input
-                type="time"
+              <TimeField
                 value={workStartTime}
                 onChange={(e) => setWorkStartTime(e.target.value)}
                 className="tabular"

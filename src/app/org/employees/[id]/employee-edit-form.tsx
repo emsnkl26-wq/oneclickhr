@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input, Select } from '@/components/ui/input'
+import { Input, Select, DateField } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { Switch } from '@/components/ui/primitives'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
@@ -121,8 +121,7 @@ export function EmployeeEditForm({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Date of joining">
-              <Input
-                type="date"
+              <DateField
                 value={form.dateOfJoining}
                 onChange={(e) => set('dateOfJoining', e.target.value)}
               />

@@ -13,7 +13,7 @@ import * as React from 'react'
 import { Eye, EyeOff, FileUp, Loader2, Lock, Plus, Trash2, UserRound, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Input, Select, Textarea, DateField } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -141,7 +141,6 @@ function Wrap({
 const INPUT_TYPES: Partial<Record<FieldDef['type'], string>> = {
   email: 'email',
   tel: 'tel',
-  date: 'date',
 }
 
 /** The scalar value behind a field. `additionalDocs` never reaches these. */
@@ -151,6 +150,20 @@ function scalar(draft: OnboardingDraft, field: FieldDef): string {
 
 function TextField(props: FieldProps) {
   const { field, draft, set } = props
+
+  // Dates get the app's own calendar rather than whatever the browser draws.
+  if (field.type === 'date') {
+    return (
+      <Wrap {...props}>
+        <DateField
+          value={scalar(draft, field)}
+          placeholder={field.placeholder}
+          onChange={(e) => set(field.key as DraftFieldKey, e.target.value)}
+        />
+      </Wrap>
+    )
+  }
+
   return (
     <Wrap {...props}>
       <Input
@@ -317,51 +330,30 @@ function DepartmentField(props: FieldProps) {
 }
 
 /**
- * A searchable manager picker. The search box filters a plain `<select>` rather
- * than replacing it with a custom listbox — the native control stays correct for
- * keyboards and screen readers, and opens the system picker on mobile.
+ * The manager picker.
+ *
+ * It used to pair a separate search box with a `<select>`, because a native
+ * dropdown cannot filter itself. Our `Select` does — it grows a filter box once
+ * the list is long — so the extra input, the query state and the "keep the
+ * current pick visible" special case all went away with it.
  */
 function ManagerField(props: FieldProps) {
   const { draft, set, ctx } = props
-  const [query, setQuery] = React.useState('')
-
-  const matches = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return ctx.managers
-    return ctx.managers.filter((m) =>
-      [m.full_name, m.email].filter(Boolean).some((v) => v!.toLowerCase().includes(q))
-    )
-  }, [ctx.managers, query])
-
-  const selected = ctx.managers.find((m) => m.id === draft.reportingManagerId)
 
   return (
     <Wrap {...props}>
-      <div className="space-y-2">
-        {ctx.managers.length > 6 ? (
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search people…"
-            aria-label="Search for a manager"
-          />
-        ) : null}
-        <Select
-          value={draft.reportingManagerId}
-          onChange={(e) => set('reportingManagerId', e.target.value)}
-        >
-          <option value="">No reporting manager</option>
-          {/* Keep the current pick listed even when the search excludes it. */}
-          {selected && !matches.some((m) => m.id === selected.id) ? (
-            <option value={selected.id}>{selected.full_name || selected.email}</option>
-          ) : null}
-          {matches.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.full_name || m.email}
-            </option>
-          ))}
-        </Select>
-      </div>
+      <Select
+        value={draft.reportingManagerId}
+        onChange={(e) => set('reportingManagerId', e.target.value)}
+        placeholder="No reporting manager"
+      >
+        <option value="">No reporting manager</option>
+        {ctx.managers.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.full_name || m.email}
+          </option>
+        ))}
+      </Select>
     </Wrap>
   )
 }

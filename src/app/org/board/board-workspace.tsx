@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { KanbanBoard } from '@/components/board/kanban-board'
 import { PageHeader, EmptyState } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Input, Select, Textarea, DateField, Checkbox } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter,
@@ -204,7 +204,7 @@ function TaskDialog({
                 </Select>
               </FormField>
               <FormField label="Due date">
-                <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                <DateField value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
               </FormField>
             </div>
 
@@ -218,9 +218,7 @@ function TaskDialog({
                       key={member.id}
                       className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-page"
                     >
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded border-line text-brand-600 focus-ring"
+                      <Checkbox
                         checked={assigneeIds.includes(member.id)}
                         onChange={(e) =>
                           setAssigneeIds((prev) =>

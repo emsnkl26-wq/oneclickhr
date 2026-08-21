@@ -75,7 +75,9 @@ export function AppShell({
     <div className="min-h-screen bg-page">
       {css ? <style>{css}</style> : null}
       <Sidebar user={user} brand={brand} />
-      <div className="lg:pl-64">
+      {/* `rail-offset` rather than a fixed `lg:pl-64`: the collapsed rail is
+          half the width, and the offset has to follow it. */}
+      <div className="rail-offset">
         <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {children}
         </main>

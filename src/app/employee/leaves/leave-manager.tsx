@@ -6,7 +6,7 @@ import { CalendarOff, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Input, Textarea } from '@/components/ui/input'
+import { Textarea, DateField } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter,
@@ -235,8 +235,7 @@ function ApplyDialog({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="From" error={fields.startDate} required>
-                <Input
-                  type="date"
+                <DateField
                   min={today}
                   value={startDate}
                   onChange={(e) => {
@@ -247,8 +246,7 @@ function ApplyDialog({
                 />
               </FormField>
               <FormField label="To" error={fields.endDate} required>
-                <Input
-                  type="date"
+                <DateField
                   min={startDate || today}
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}

@@ -6,7 +6,7 @@ import { Plus, Receipt, Trash2, Pencil, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Input, Select, Textarea, DateField } from '@/components/ui/input'
 import { SearchField } from '@/components/ui/search-field'
 import { FilterSelect } from '@/components/ui/filter-select'
 import { Pagination } from '@/components/ui/pagination'
@@ -385,15 +385,14 @@ function InvoiceDialog({
                 />
               </FormField>
               <FormField label="Issue date" required>
-                <Input
-                  type="date"
+                <DateField
                   value={issueDate}
                   onChange={(e) => setIssueDate(e.target.value)}
                   required
                 />
               </FormField>
               <FormField label="Due date">
-                <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                <DateField value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
               </FormField>
             </div>
 

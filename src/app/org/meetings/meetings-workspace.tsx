@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import { EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input, Textarea } from '@/components/ui/input'
+import { Input, Textarea, DateTimeField } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter,
@@ -329,16 +329,14 @@ function MeetingDialog({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Starts" error={fields.startTime} required>
-                <Input
-                  type="datetime-local"
+                <DateTimeField
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
                   required
                 />
               </FormField>
               <FormField label="Ends" error={fields.endTime} required>
-                <Input
-                  type="datetime-local"
+                <DateTimeField
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
                   required

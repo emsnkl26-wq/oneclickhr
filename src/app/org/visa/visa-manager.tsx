@@ -6,7 +6,7 @@ import { BadgeCheck, FileUp, Loader2, Pencil, Plus, Trash2, Download } from 'luc
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Input, Select, Textarea, DateField } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Avatar, AvatarFallback, AvatarImage,
@@ -372,15 +372,13 @@ function VisaDialog({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Start date">
-                <Input
-                  type="date"
+                <DateField
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                 />
               </FormField>
               <FormField label="Expiry date" error={fields.expiryDate} required>
-                <Input
-                  type="date"
+                <DateField
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
                   required

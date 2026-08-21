@@ -79,6 +79,63 @@
     @apply rounded-xl border border-line bg-card shadow-sm;
   }
 
+  /*
+   * The sidebar rail's two widths.
+   *
+   * Collapsed state lives in a `data-sidebar` attribute on <html> rather than in
+   * React, for the same reason the theme does: a blocking script in layout.tsx
+   * sets it before first paint, so a collapsed rail never flashes open on load.
+   * CSS then drives the rail width, the content offset and the label visibility
+   * together — one source of truth, no layout jump on hydration.
+   */
+  .rail {
+    width: 16rem;
+    transition: width 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .rail-label {
+    @apply min-w-0 flex-1 truncate;
+  }
+
+  @media (min-width: 1024px) {
+    .rail-offset {
+      padding-left: 16rem;
+      transition: padding-left 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    html[data-sidebar='collapsed'] .rail {
+      width: 4.75rem;
+    }
+    html[data-sidebar='collapsed'] .rail-offset {
+      padding-left: 4.75rem;
+    }
+    /*
+     * Everything that only makes sense next to a visible label goes away, and
+     * a hairline stands in for the section headings.
+     *
+     * Every rule is scoped INSIDE `.rail` — the desktop aside — so the mobile
+     * drawer, which is always full width, is untouched by the collapsed state
+     * rather than having to undo it.
+     */
+    html[data-sidebar='collapsed'] .rail .rail-label,
+    html[data-sidebar='collapsed'] .rail .rail-expanded-only {
+      display: none;
+    }
+    html[data-sidebar='collapsed'] .rail .rail-divider {
+      display: block;
+    }
+    html[data-sidebar='collapsed'] .rail .rail-center {
+      justify-content: center;
+      padding-left: 0;
+      padding-right: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rail,
+    .rail-offset {
+      transition: none;
+    }
+  }
+
   .focus-ring {
     @apply outline-none ring-offset-2 ring-offset-page focus-visible:ring-2 focus-visible:ring-brand-600/70;
   }

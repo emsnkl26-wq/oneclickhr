@@ -7,6 +7,7 @@ import * as AvatarPrimitive from '@radix-ui/react-avatar'
 import * as SwitchPrimitive from '@radix-ui/react-switch'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 import * as SeparatorPrimitive from '@radix-ui/react-separator'
+import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -268,6 +269,36 @@ const Separator = React.forwardRef<
 ))
 Separator.displayName = 'Separator'
 
+/* ----------------------------------------------------------------- Tooltip */
+
+/**
+ * Wrap the app once in `TooltipProvider` and a tooltip anywhere inside opens
+ * quickly after the first — the standard "the user is clearly reading labels
+ * now" behaviour. The collapsed sidebar rail relies on it.
+ */
+const TooltipProvider = TooltipPrimitive.Provider
+const Tooltip = TooltipPrimitive.Root
+const TooltipTrigger = TooltipPrimitive.Trigger
+
+const TooltipContent = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
+>(({ className, sideOffset = 8, ...props }, ref) => (
+  <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Content
+      ref={ref}
+      sideOffset={sideOffset}
+      className={cn(
+        'z-50 rounded-lg border border-line bg-card px-2.5 py-1.5 text-[13px] font-medium text-ink shadow-pop',
+        'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95',
+        className
+      )}
+      {...props}
+    />
+  </TooltipPrimitive.Portal>
+))
+TooltipContent.displayName = 'TooltipContent'
+
 export {
   Dialog, DialogTrigger, DialogClose, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogBody, DialogFooter,
@@ -277,4 +308,5 @@ export {
   Switch,
   Tabs, TabsList, TabsTrigger, TabsContent,
   Separator,
+  TooltipProvider, Tooltip, TooltipTrigger, TooltipContent,
 }

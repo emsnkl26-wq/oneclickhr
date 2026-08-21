@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * A `<select>` bound to a URL parameter.
+ * The app's `Select`, bound to a URL parameter.
  *
  * Companion to `SearchField`: same reasoning, same contract. The filter is part
  * of the query the server runs, so it belongs in the address bar rather than in

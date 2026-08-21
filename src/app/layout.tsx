@@ -34,11 +34,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
-        {/* Blocking, pre-hydration: sets the `dark` class before first paint so
-            there's no flash of the wrong theme. */}
+        {/* Blocking, pre-hydration: sets the `dark` class and the collapsed
+            state of the sidebar rail before first paint, so neither the theme
+            nor the layout flashes the wrong way round on load. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}if(t==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})()`,
+            __html: `(function(){try{var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}if(t==='dark'){document.documentElement.classList.add('dark')}if(localStorage.getItem('sidebar')==='collapsed'){document.documentElement.setAttribute('data-sidebar','collapsed')}}catch(e){}})()`,
           }}
         />
       </head>
