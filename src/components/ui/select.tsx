@@ -21,6 +21,7 @@ import * as React from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useWheelScroll } from '@/components/ui/use-wheel-scroll'
 
 /** Shaped like a native change event so `(e) => e.target.value` still reads. */
 export type SelectChangeEvent = { target: { value: string; name: string } }
@@ -140,6 +141,9 @@ export const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function 
   const [query, setQuery] = React.useState('')
   const [activeIndex, setActiveIndex] = React.useState(0)
   const listRef = React.useRef<HTMLDivElement>(null)
+  // Inside a dialog the page scroll lock cancels wheel events over this
+  // portalled list, so it scrolls itself.
+  useWheelScroll(listRef, open)
   const reactId = React.useId()
   const listboxId = `${id ?? reactId}-listbox`
 
@@ -271,6 +275,7 @@ export const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function 
         <PopoverPrimitive.Content
           align="start"
           sideOffset={6}
+          collisionPadding={12}
           onOpenAutoFocus={(event) => {
             // Keep focus on the trigger unless there is a filter box to type in;
             // arrow keys then drive the list from where the user already is.
@@ -304,7 +309,7 @@ export const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function 
             ref={listRef}
             id={listboxId}
             role="listbox"
-            className="scrollbar-thin max-h-64 overflow-y-auto"
+            className="scrollbar-thin max-h-[min(16rem,var(--radix-popover-content-available-height,16rem))] overflow-y-auto overscroll-contain"
           >
             {matches.length === 0 ? (
               <p className="px-3 py-6 text-center text-[13px] text-ink-muted">No matches</p>

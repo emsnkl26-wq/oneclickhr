@@ -29,6 +29,10 @@ const DialogContent = React.forwardRef<
         'fixed left-1/2 top-1/2 z-50 flex max-h-[92vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line bg-card shadow-pop',
         'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
         'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+        // A dialog whose <form> wraps header/body/footer would otherwise break the
+        // flex height chain: the body could not scroll and the footer was pushed
+        // past the bottom of the viewport. Let the form itself be the column.
+        '[&>form]:flex [&>form]:min-h-0 [&>form]:flex-1 [&>form]:flex-col [&>form]:overflow-hidden',
         size === 'sm' && 'max-w-md',
         size === 'md' && 'max-w-lg',
         size === 'lg' && 'max-w-3xl',
@@ -47,7 +51,7 @@ const DialogContent = React.forwardRef<
 DialogContent.displayName = 'DialogContent'
 
 function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('flex flex-col gap-1 px-6 pb-4 pt-6', className)} {...props} />
+  return <div className={cn('flex shrink-0 flex-col gap-1 px-6 pb-4 pt-6', className)} {...props} />
 }
 
 const DialogTitle = React.forwardRef<
@@ -75,14 +79,14 @@ const DialogDescription = React.forwardRef<
 DialogDescription.displayName = 'DialogDescription'
 
 function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('scrollbar-thin flex-1 overflow-y-auto px-6 pb-2', className)} {...props} />
+  return <div className={cn('scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-2', className)} {...props} />
 }
 
 function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        'flex flex-col-reverse gap-2 border-t border-line px-6 py-4 sm:flex-row sm:justify-end',
+        'flex shrink-0 flex-col-reverse gap-2 border-t border-line bg-card px-6 py-4 sm:flex-row sm:justify-end',
         className
       )}
       {...props}

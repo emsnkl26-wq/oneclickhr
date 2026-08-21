@@ -25,6 +25,7 @@ import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Select, controlBase } from '@/components/ui/select'
+import { useWheelScroll } from '@/components/ui/use-wheel-scroll'
 
 /** The month/year jump menus sit flush in the header, so they lose the chrome. */
 const jumpTrigger =
@@ -234,6 +235,24 @@ export function Calendar({ value, onSelect, min, max }: CalendarProps) {
 
 const MINUTE_STEP = 5
 
+const timeColumn =
+  'scrollbar-thin flex max-h-52 flex-col gap-0.5 overflow-y-auto overscroll-contain px-1'
+
+/**
+ * One scrolling column of the time board. Top-level rather than nested in
+ * `TimeBoard` so it keeps its DOM node — and therefore its scroll position —
+ * when picking an hour re-renders the board.
+ */
+function TimeColumn({ children }: { children: React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null)
+  useWheelScroll(ref)
+  return (
+    <div ref={ref} className={timeColumn}>
+      {children}
+    </div>
+  )
+}
+
 function TimeBoard({ value, onSelect }: { value: string; onSelect: (value: string) => void }) {
   const match = /^(\d{1,2}):(\d{2})/.exec(value ?? '')
   const hours24 = match ? Number(match[1]) : null
@@ -241,21 +260,36 @@ function TimeBoard({ value, onSelect }: { value: string; onSelect: (value: strin
   const meridiem = hours24 === null ? 'AM' : hours24 >= 12 ? 'PM' : 'AM'
   const hour12 = hours24 === null ? null : hours24 % 12 === 0 ? 12 : hours24 % 12
 
+  // Both columns scroll, so the current hour/minute is often below the fold when
+  // the board opens. Bring it into view once, without scrolling the page.
+  const hourRef = React.useRef<HTMLButtonElement>(null)
+  const minuteRef = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    for (const node of [hourRef.current, minuteRef.current]) {
+      if (!node) continue
+      const list = node.parentElement
+      if (!list) continue
+      list.scrollTop = node.offsetTop - list.clientHeight / 2 + node.clientHeight / 2
+    }
+    // Only on open — later clicks should not yank the list under the cursor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function commit(nextHour12: number, nextMinute: number, nextMeridiem: 'AM' | 'PM') {
     const h = (nextHour12 % 12) + (nextMeridiem === 'PM' ? 12 : 0)
     onSelect(`${pad(h)}:${pad(nextMinute)}`)
   }
 
-  const column = 'scrollbar-thin flex max-h-52 flex-col gap-0.5 overflow-y-auto px-1'
   const cell =
     'tabular focus-ring shrink-0 rounded-lg px-3 py-1.5 text-[13px] transition-colors hover:bg-page'
 
   return (
     <div className="flex divide-x divide-line p-2" role="group" aria-label="Time">
-      <div className={column}>
+      <TimeColumn>
         {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
           <button
             key={h}
+            ref={h === hour12 ? hourRef : undefined}
             type="button"
             onClick={() => commit(h, minutes ?? 0, meridiem)}
             className={cn(cell, h === hour12 && 'bg-brand-600 font-semibold text-white hover:bg-brand-700')}
@@ -263,11 +297,12 @@ function TimeBoard({ value, onSelect }: { value: string; onSelect: (value: strin
             {pad(h)}
           </button>
         ))}
-      </div>
-      <div className={column}>
+      </TimeColumn>
+      <TimeColumn>
         {Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP).map((m) => (
           <button
             key={m}
+            ref={m === minutes ? minuteRef : undefined}
             type="button"
             onClick={() => commit(hour12 ?? 9, m, meridiem)}
             className={cn(cell, m === minutes && 'bg-brand-600 font-semibold text-white hover:bg-brand-700')}
@@ -275,7 +310,7 @@ function TimeBoard({ value, onSelect }: { value: string; onSelect: (value: strin
             {pad(m)}
           </button>
         ))}
-      </div>
+      </TimeColumn>
       <div className="flex flex-col gap-0.5 px-1">
         {(['AM', 'PM'] as const).map((m) => (
           <button
@@ -354,15 +389,26 @@ function PickerPopover({
   trigger: React.ReactNode
   children: React.ReactNode
 }) {
+  // The shell scrolls too when the popover is taller than the room on screen,
+  // so it needs the same wheel handling as the columns inside it.
+  const contentRef = React.useRef<HTMLDivElement>(null)
+  useWheelScroll(contentRef, open)
+
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <PopoverPrimitive.Trigger asChild>{trigger}</PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
+          ref={contentRef}
           align="start"
           sideOffset={6}
+          collisionPadding={12}
+          // Radix measures the room left on screen for us; without this the
+          // popover simply ran off the bottom of a small window and the parts
+          // below the fold were unreachable.
+          style={{ maxHeight: 'var(--radix-popover-content-available-height)' }}
           className={cn(
-            'z-50 overflow-hidden rounded-xl border border-line bg-card shadow-pop',
+            'scrollbar-thin z-50 flex flex-col overflow-y-auto overscroll-contain rounded-xl border border-line bg-card shadow-pop',
             'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
             'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95'
           )}
@@ -385,7 +431,7 @@ function PickerFooter({
   todayLabel: string
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-2">
+    <div className="sticky bottom-0 flex shrink-0 items-center justify-between gap-2 border-t border-line bg-card px-3 py-2">
       <button
         type="button"
         onClick={onToday}
