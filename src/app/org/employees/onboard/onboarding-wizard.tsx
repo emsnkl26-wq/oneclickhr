@@ -16,9 +16,8 @@
  */
 
 import * as React from 'react'
-import Link from 'next/link'
 import { useProgressRouter } from '@/lib/use-progress-router'
-import { ArrowLeft, ArrowRight, Check, Copy, Loader2, Save, UserRound } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Loader2, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/input'
@@ -26,20 +25,17 @@ import { apiPatch, apiPost, ApiClientError } from '@/lib/fetcher'
 import { cn } from '@/lib/utils'
 import {
   DRAFT_COLUMNS, ONBOARDING_STEPS, REVIEW_STEP, TOTAL_STEPS,
-  draftDisplayName, validateStep, visibleSections,
+  validateStep, visibleSections,
   type DraftFieldKey, type OnboardingDraft, type AdditionalDoc,
 } from '@/lib/onboarding'
 import { InfoBanner, WizardField, type FieldContext, type Person } from './step-fields'
 import { ReviewStep } from './review-step'
+import { stashCredentials, type NewCredentials } from '@/lib/new-credentials'
 
 const AUTOSAVE_MS = 30_000
 
-interface CompletionResult {
+interface CompletionResult extends NewCredentials {
   id: string
-  email: string
-  emailSent: boolean
-  tempPassword: string | null
-  loginUrl: string
 }
 
 export function OnboardingWizard({
@@ -79,7 +75,6 @@ export function OnboardingWizard({
   const [submitting, setSubmitting] = React.useState(false)
   const [uploads, setUploads] = React.useState<string[]>([])
   const [accountMismatch, setAccountMismatch] = React.useState(false)
-  const [result, setResult] = React.useState<CompletionResult | null>(null)
 
   const dirty = React.useRef(false)
   const draftRef = React.useRef(draft)
@@ -263,8 +258,14 @@ export function OnboardingWizard({
         sendCredentialsEmail: true,
       })
       dirty.current = false
-      setResult(completion)
-      router.refresh()
+      /*
+       * Hand the one-time password to the employee's own page rather than
+       * flashing it here: this route redirects once the draft is completed, so
+       * anything rendered in the wizard is gone within a tick. sessionStorage
+       * keeps it out of the URL and out of history.
+       */
+      stashCredentials(completion.id, completion)
+      router.push(`/org/employees/${completion.id}`)
     } catch (err) {
       if (err instanceof ApiClientError) {
         // The server re-validates everything; where it disagrees with us, it
@@ -283,12 +284,6 @@ export function OnboardingWizard({
     } finally {
       setSubmitting(false)
     }
-  }
-
-  /* ---------------------------------------------------------------- Result */
-
-  if (result) {
-    return <CompletionCard result={result} name={draftDisplayName(draft)} />
   }
 
   /* ------------------------------------------------------------ The wizard */
@@ -482,83 +477,3 @@ function readSteps(err: unknown): Record<number, Record<string, string>> | null 
   return Object.keys(parsed).length ? parsed : null
 }
 
-/* ----------------------------------------------------------------- Success */
-
-function CompletionCard({ result, name }: { result: CompletionResult; name: string }) {
-  return (
-    <div className="card-surface mx-auto max-w-lg p-8 text-center">
-      <span className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-600">
-        <Check className="size-6" aria-hidden />
-      </span>
-      <h2 className="text-[20px] font-bold tracking-[-0.02em]">{name} is set up</h2>
-      <p className="mt-2 text-sm text-ink-muted">
-        {result.emailSent
-          ? 'Their sign-in details have been emailed to them.'
-          : 'We could not send their email, so share these details directly — the password is shown only once.'}
-      </p>
-
-      <div className="mt-6 space-y-3 rounded-xl border border-line bg-page p-4 text-left">
-        <Detail label="Sign-in page" value={result.loginUrl} copyable mono />
-        <Detail label="Email" value={result.email} />
-        {result.tempPassword ? (
-          <Detail label="Temporary password" value={result.tempPassword} copyable mono />
-        ) : null}
-      </div>
-
-      <p className="mt-4 text-xs leading-relaxed text-ink-muted">
-        These details work on the employee sign-in page above — not on the administrator sign-in you
-        use. They will be asked to choose their own password the first time they sign in.
-      </p>
-
-      <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-        <Button asChild variant="secondary" className="flex-1">
-          <Link href="/org/employees">Back to employees</Link>
-        </Button>
-        <Button asChild className="flex-1">
-          <Link href={`/org/employees/${result.id}`}>
-            <UserRound />
-            Open their profile
-          </Link>
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function Detail({
-  label, value, copyable, mono,
-}: {
-  label: string
-  value: string
-  copyable?: boolean
-  mono?: boolean
-}) {
-  return (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">{label}</p>
-      <div className="mt-1 flex items-center gap-2">
-        <span
-          className={cn(
-            'flex-1 break-all text-sm font-medium',
-            mono && 'rounded-lg border border-line bg-card px-3 py-2 font-mono'
-          )}
-        >
-          {value}
-        </span>
-        {copyable ? (
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label={`Copy ${label.toLowerCase()}`}
-            onClick={() => {
-              navigator.clipboard.writeText(value)
-              toast.success('Copied')
-            }}
-          >
-            <Copy />
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  )
-}

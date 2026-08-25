@@ -15,7 +15,10 @@ import {
 import { formatLocal, todayIn, formatPeriod } from '@/lib/time'
 import { initials, formatHours } from '@/lib/utils'
 import { DOCUMENT_TYPE_LABELS } from '@/lib/document-templates'
+import { EMPLOYEE_LOGIN_PATH } from '@/lib/routes'
+import { appUrl } from '@/lib/env'
 import { EmployeeEditForm } from './employee-edit-form'
+import { SignInDetails } from './sign-in-details'
 import type { GeneratedDocumentType, TimesheetStatus } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Employee' }
@@ -227,6 +230,15 @@ export default async function EmployeeDetailPage({
         />
 
         <div className="space-y-5">
+          {employee.email ? (
+            <SignInDetails
+              employeeId={employee.id}
+              email={employee.email}
+              loginUrl={`${appUrl()}${EMPLOYEE_LOGIN_PATH}`}
+              mustChangePassword={employee.must_change_password}
+            />
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle>Attendance this month</CardTitle>

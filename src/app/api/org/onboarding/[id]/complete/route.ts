@@ -328,10 +328,10 @@ async function handlePOST(request: NextRequest, { params }: Params) {
       id: userId,
       email,
       emailSent,
-      // Shown to the org ONLY when we could not email it — otherwise the
-      // password leaves the server exactly once, inside that email. It is
-      // stored nowhere and cannot be retrieved again either way.
-      tempPassword: emailSent ? null : tempPassword,
+      // Returned once, for the org to read out on the new employee's page.
+      // Emailing it as well does not change that: it is stored nowhere and
+      // cannot be retrieved again, so this response is the only other copy.
+      tempPassword,
       loginUrl: `${appUrl()}${EMPLOYEE_LOGIN_PATH}`,
     },
     201
