@@ -546,3 +546,215 @@ export const userActivationSchema = z.object({
   isActive: z.boolean(),
   reason: optionalText(500),
 })
+
+// ---------------------------------------------------------------------------
+// Projects
+//
+// `code` is absent on purpose: PRJ-001 is minted by a database trigger from a
+// per-tenant counter, so there is no request shape that can choose its own id or
+// collide with another project's.
+// ---------------------------------------------------------------------------
+
+export const PROJECT_STATUSES = ['active', 'inactive', 'completed'] as const
+
+export const projectSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Name the project').max(160),
+    clientName: optionalText(160),
+    endClientName: optionalText(160),
+    description: optionalText(2000),
+    startDate: isoDate.nullable().optional(),
+    endDate: isoDate.nullable().optional(),
+    status: z.enum(PROJECT_STATUSES).default('active'),
+    employeeIds: z.array(uuid).max(200).default([]),
+  })
+  .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
+    message: 'The end date cannot be before the start date',
+    path: ['endDate'],
+  })
+export type ProjectInput = z.infer<typeof projectSchema>
+
+// ---------------------------------------------------------------------------
+// Timesheets
+//
+// The grid is posted as a WHOLE WEEK, not cell by cell. One save is one
+// request: the entry rows are replaced with exactly what the form holds, so a
+// deleted line disappears instead of lingering as an orphan the totals would
+// still count.
+// ---------------------------------------------------------------------------
+
+/** A single day's hours. */
+const dayHours = z.coerce
+  .number({ invalid_type_error: 'Enter a number of hours' })
+  .min(0, 'Hours cannot be negative')
+  .max(24, 'A day has 24 hours')
+  .default(0)
+
+export const timesheetEntrySchema = z
+  .object({
+    projectId: uuid.nullable().optional(),
+    taskName: optionalText(200),
+    billable: z.boolean().default(true),
+    hoursSun: dayHours,
+    hoursMon: dayHours,
+    hoursTue: dayHours,
+    hoursWed: dayHours,
+    hoursThu: dayHours,
+    hoursFri: dayHours,
+    hoursSat: dayHours,
+  })
+  .refine((v) => !!v.projectId || !!v.taskName, {
+    message: 'Pick a project or name the task',
+    path: ['taskName'],
+  })
+
+export const createTimesheetSchema = z.object({
+  /** Any date inside the week; the server normalises it to that week's Sunday. */
+  weekStart: isoDate,
+})
+
+export const saveTimesheetSchema = z.object({
+  entries: z.array(timesheetEntrySchema).max(60, 'That is too many lines for one week'),
+  comments: optionalText(4000),
+  attachmentKey: optionalText(300),
+  attachmentName: optionalText(255),
+  /** True turns the draft in. The status change is re-checked server-side. */
+  submit: z.boolean().default(false),
+})
+export type SaveTimesheetInput = z.infer<typeof saveTimesheetSchema>
+
+export const reviewTimesheetSchema = z
+  .object({
+    status: z.enum(['approved', 'rejected']),
+    note: optionalText(2000),
+  })
+  .refine((v) => v.status !== 'rejected' || !!v.note, {
+    message: 'Tell them what needs changing',
+    path: ['note'],
+  })
+
+// ---------------------------------------------------------------------------
+// Help desk
+// ---------------------------------------------------------------------------
+
+export const TICKET_PRIORITIES = ['low', 'medium', 'high'] as const
+export const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const
+
+export const ticketSchema = z.object({
+  subject: z.string().trim().min(3, 'Give it a subject').max(200),
+  description: z.string().trim().min(5, 'Describe what you need').max(8000),
+  priority: z.enum(TICKET_PRIORITIES).default('medium'),
+  attachmentKey: optionalText(300),
+  attachmentName: optionalText(255),
+})
+
+export const ticketMessageSchema = z.object({
+  body: z.string().trim().min(1, 'Write a reply').max(8000),
+  attachmentKey: optionalText(300),
+  attachmentName: optionalText(255),
+})
+
+export const ticketStatusSchema = z.object({
+  status: z.enum(TICKET_STATUSES),
+})
+
+// ---------------------------------------------------------------------------
+// Employee profile — experience, education, skills
+// ---------------------------------------------------------------------------
+
+export const experienceSchema = z
+  .object({
+    companyName: z.string().trim().min(1, 'Enter the company').max(160),
+    roleTitle: z.string().trim().min(1, 'Enter the role').max(160),
+    startDate: isoDate.nullable().optional(),
+    endDate: isoDate.nullable().optional(),
+    isCurrent: z.boolean().default(false),
+    summary: optionalText(2000),
+  })
+  .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
+    message: 'The end date cannot be before the start date',
+    path: ['endDate'],
+  })
+
+export const educationSchema = z.object({
+  institution: z.string().trim().min(1, 'Enter the institution').max(160),
+  degree: z.string().trim().min(1, 'Enter the degree').max(160),
+  fieldOfStudy: optionalText(160),
+  completionYear: z.coerce
+    .number()
+    .int()
+    .min(1900, 'Enter a four-digit year')
+    .max(2200, 'Enter a four-digit year')
+    .nullable()
+    .optional(),
+})
+
+/** Tags are deduplicated and trimmed here so the pill row cannot show twins. */
+export const skillsSchema = z.object({
+  skills: z
+    .array(z.string().trim().min(1).max(40))
+    .max(50, 'Keep it to fifty skills')
+    .default([])
+    .transform((tags) => {
+      const seen = new Set<string>()
+      const out: string[] = []
+      for (const tag of tags) {
+        const key = tag.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(tag)
+      }
+      return out
+    }),
+})
+
+// ---------------------------------------------------------------------------
+// Company details — what a generated letterhead prints
+// ---------------------------------------------------------------------------
+
+export const companyDetailsSchema = z.object({
+  addressLine1: optionalText(200),
+  addressLine2: optionalText(200),
+  city: optionalText(80),
+  stateProvince: optionalText(80),
+  postalCode: optionalText(20),
+  country: optionalText(80),
+  registrationNumber: optionalText(60),
+  companyEmail: z
+    .string()
+    .trim()
+    .max(254)
+    .optional()
+    .transform((v) => (v ? v.toLowerCase() : null))
+    .refine((v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), 'Enter a valid email address'),
+  companyPhone: optionalText(40),
+  website: optionalText(200),
+  signatoryName: optionalText(120),
+  signatoryTitle: optionalText(120),
+  signatoryPhone: optionalText(40),
+})
+
+// ---------------------------------------------------------------------------
+// Generated documents (offer letters / agreements)
+//
+// The PDF itself is built in the browser and uploaded through the ordinary
+// two-phase pipeline; this records the RESULT. `payload` is the form that
+// produced it, kept so a letter can be reissued with one field changed rather
+// than retyped from scratch.
+// ---------------------------------------------------------------------------
+
+export const GENERATED_DOCUMENT_TYPES = [
+  'offer_letter',
+  'employment_agreement',
+  'internship_offer',
+] as const
+
+export const generatedDocumentSchema = z.object({
+  employeeId: uuid,
+  docType: z.enum(GENERATED_DOCUMENT_TYPES),
+  title: z.string().trim().min(1).max(200),
+  key: z.string().trim().min(1).max(300),
+  fileName: z.string().trim().min(1).max(255),
+  documentId: uuid.nullable().optional(),
+  payload: z.record(z.unknown()).default({}),
+})

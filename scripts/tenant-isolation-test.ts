@@ -223,6 +223,34 @@ async function main() {
     orgA.from('audit_logs').select('id').eq('tenant_id', tenantB.id)
   )
 
+  /*
+   * The tables added by 010–012. They carry the same NOT NULL tenant_id and the
+   * same policy shape as everything above, so they are checked the same way —
+   * a new feature that quietly forgot its tenant clause would show up here and
+   * nowhere else until a customer found it.
+   */
+  for (const table of [
+    'projects',
+    'project_assignments',
+    'timesheets',
+    'timesheet_entries',
+    'tickets',
+    'ticket_messages',
+    'generated_documents',
+    'employee_experience',
+    'employee_education',
+  ]) {
+    await expectNoRows(
+      `Org A cannot read Tenant B's ${table.replace(/_/g, ' ')}`,
+      orgA.from(table).select('tenant_id').eq('tenant_id', tenantB.id)
+    )
+  }
+
+  await expectDenied(
+    "Org A cannot create a project inside Tenant B",
+    orgA.from('projects').insert({ tenant_id: tenantB.id, name: 'Injected' }).select()
+  )
+
   // Targeted by primary key — no tenant filter to "help" RLS along.
   if (bEmployeeId) {
     await expectNoRows(
@@ -328,6 +356,15 @@ async function main() {
     .eq('email', EMP_A2.email)
     .maybeSingle()
 
+  // A1's own id, resolved with the service role: it is test SETUP, never an
+  // assertion. The checks below all run through A1's own session.
+  const { data: a1Row } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', EMP_A1.email)
+    .maybeSingle()
+  const a1Id: string | null = a1Row?.id ?? null
+
   await expectRows(
     'Employee A1 CAN see their own attendance',
     empA1.from('attendance').select('id')
@@ -346,7 +383,65 @@ async function main() {
       "Employee A1 cannot read colleague A2's leaves",
       empA1.from('leaves').select('id').eq('employee_id', a2Profile.id)
     )
+    await expectNoRows(
+      "Employee A1 cannot read colleague A2's timesheets",
+      empA1.from('timesheets').select('id').eq('employee_id', a2Profile.id)
+    )
+    await expectNoRows(
+      "Employee A1 cannot read colleague A2's help desk tickets",
+      empA1.from('tickets').select('id').eq('employee_id', a2Profile.id)
+    )
+    await expectNoRows(
+      "Employee A1 cannot read colleague A2's work history",
+      empA1.from('employee_experience').select('id').eq('employee_id', a2Profile.id)
+    )
+    await expectDenied(
+      "Employee A1 cannot append to colleague A2's work history",
+      empA1
+        .from('employee_experience')
+        .insert({
+          tenant_id: tenantA.id,
+          employee_id: a2Profile.id,
+          company_name: 'Injected',
+          role_title: 'Injected',
+        })
+        .select()
+    )
   }
+
+  /*
+   * The self-approval hole, checked from the outside.
+   *
+   * `timesheets_update` lets an employee update their OWN row — it has to, or
+   * they could not submit one. What stops them approving it is
+   * `tg_timesheets_guard`, and this is the assertion that the trigger is
+   * actually installed rather than merely written down in the migration.
+   */
+  await expectDenied(
+    'Employee A1 cannot approve their own timesheet',
+    empA1.from('timesheets').update({ status: 'approved' }).eq('employee_id', a1Id ?? '').select()
+  )
+  await expectDenied(
+    'Employee A1 cannot file a timesheet that is already approved',
+    empA1
+      .from('timesheets')
+      .insert({
+        tenant_id: tenantA.id,
+        employee_id: a1Id ?? '',
+        week_start: '2020-01-05',
+        week_end: '2020-01-11',
+        status: 'approved',
+      })
+      .select()
+  )
+  await expectDenied(
+    'Employee A1 cannot create a project',
+    empA1.from('projects').insert({ tenant_id: tenantA.id, name: 'Injected' }).select()
+  )
+  await expectDenied(
+    'Employee A1 cannot close their own help desk ticket',
+    empA1.from('tickets').update({ status: 'closed' }).eq('employee_id', a1Id ?? '').select()
+  )
 
   await expectNoRows(
     'Employee A1 cannot read their own tenant invoices (org-only data)',
@@ -375,24 +470,18 @@ async function main() {
   // ========================================================================
   console.log('\n\x1b[1mD. Deactivation takes effect immediately\x1b[0m')
   // ========================================================================
-  const { data: a1Profile } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('email', EMP_A1.email)
-    .maybeSingle()
-
-  if (a1Profile?.id) {
+  if (a1Id) {
     // Deactivate WITHOUT touching the session. The already-issued JWT stays
     // valid for its full hour, so if access survived here, the system would be
     // trusting the token instead of the table.
-    await admin.from('profiles').update({ is_active: false }).eq('id', a1Profile.id)
+    await admin.from('profiles').update({ is_active: false }).eq('id', a1Id)
 
     await expectNoRows(
       'Deactivated employee immediately loses access (same live session)',
       empA1.from('attendance').select('id')
     )
 
-    await admin.from('profiles').update({ is_active: true }).eq('id', a1Profile.id)
+    await admin.from('profiles').update({ is_active: true }).eq('id', a1Id)
     await expectRows(
       'Reactivated employee regains access immediately',
       empA1.from('attendance').select('id')

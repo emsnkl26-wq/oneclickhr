@@ -160,3 +160,57 @@ export const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
+
+/**
+ * The Sunday that begins the timesheet week containing `date`.
+ *
+ * Timesheet weeks run Sunday→Saturday, which is what the grid's day row shows
+ * and what US staffing clients expect on an invoice. It is deliberately NOT
+ * `weekDates()` above — that one is Monday-first and belongs to the attendance
+ * views, and quietly reusing it here would file every Sunday's hours against the
+ * previous week.
+ *
+ * Pure date arithmetic via `dayEpoch`, so no DST hour can shift the answer.
+ */
+export function weekStartSunday(date: string): string {
+  const epoch = dayEpoch(date)
+  // getUTCDay() on a UTC-midnight epoch is the calendar weekday, 0 = Sunday.
+  const dow = new Date(epoch).getUTCDay()
+  return new Date(epoch - dow * 86_400_000).toISOString().slice(0, 10)
+}
+
+/** The seven `YYYY-MM-DD` dates of the Sunday-first week containing `date`. */
+export function timesheetWeek(date: string): string[] {
+  const start = weekStartSunday(date)
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i))
+}
+
+/** Short weekday labels for the timesheet grid, in the order the week runs. */
+export const WEEK_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+/**
+ * "Aug 18, 2026 – Aug 22, 2026" — how a timesheet period is quoted everywhere.
+ *
+ * Formatted from the stored dates rather than from an instant, because a period
+ * is a pair of calendar days and must not shift with whoever is reading it.
+ */
+export function formatPeriod(startDate: string, endDate: string): string {
+  return `${formatDateLabel(startDate)} – ${formatDateLabel(endDate)}`
+}
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** `2026-08-18` -> `Aug 18, 2026`, with no timezone in the way. */
+export function formatDateLabel(date: string | null | undefined): string {
+  if (!date) return '—'
+  const [y, m, d] = date.split('-').map(Number)
+  if (!y || !m || !d) return date
+  return `${MONTH_ABBR[m - 1]} ${d}, ${y}`
+}
+
+/** `2026-08-18` -> `Mon, 08/18`, the label under each column of the grid. */
+export function formatDayHeader(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+  return `${WEEK_DAY_LABELS[dow]}, ${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}`
+}

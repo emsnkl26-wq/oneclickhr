@@ -25,13 +25,27 @@ export default function Loading() {
         </div>
       </div>
 
-      <StatGridSkeleton count={3} columns={3} />
+      <StatGridSkeleton count={4} columns={4} />
 
       <div className="grid gap-5 lg:grid-cols-2">
         <FormCardSkeleton fields={6} />
         <div className="space-y-5">
           <ListCardSkeleton rows={4} />
           <ListCardSkeleton rows={3} />
+          <ListCardSkeleton rows={3} />
+        </div>
+      </div>
+
+      {/* Profile sections on the left, documents / projects / timesheets right. */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="space-y-5">
+          <ListCardSkeleton rows={3} />
+          <ListCardSkeleton rows={2} />
+          <ListCardSkeleton rows={1} title={false} />
+        </div>
+        <div className="space-y-5">
+          <ListCardSkeleton rows={3} />
+          <ListCardSkeleton rows={2} />
           <ListCardSkeleton rows={3} />
         </div>
       </div>

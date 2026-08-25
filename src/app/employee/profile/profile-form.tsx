@@ -2,13 +2,12 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { FileUp, Loader2, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Select } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
-import { apiPatch, uploadFile, ApiClientError } from '@/lib/fetcher'
+import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { COMMON_TIMEZONES } from '@/lib/timezones'
 
 /**
@@ -18,6 +17,11 @@ import { COMMON_TIMEZONES } from '@/lib/timezones'
  * their own row. Role, department, designation, employee code and `is_active`
  * are privileged — the trigger raises if any of them appear in a self-update, so
  * the form cannot offer them even by accident.
+ *
+ * The PHOTO is deliberately absent: it belongs to `ProfileHero`, which shows it
+ * at full size and saves it on the spot. This form posts only its own three
+ * fields, and the API leaves anything it does not send alone — so the two
+ * controls cannot revert each other.
  */
 export function ProfileForm({
   profile,
@@ -25,7 +29,6 @@ export function ProfileForm({
   profile: {
     fullName: string
     phone: string
-    photoUrl: string | null
     timezone: string
   }
 }) {
@@ -33,28 +36,9 @@ export function ProfileForm({
   const [fullName, setFullName] = React.useState(profile.fullName)
   const [phone, setPhone] = React.useState(profile.phone)
   const [timezone, setTimezone] = React.useState(profile.timezone)
-  const [photoKey, setPhotoKey] = React.useState(profile.photoUrl)
-  const [uploading, setUploading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
-
-  async function onPhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    setUploading(true)
-    setError(null)
-    try {
-      const uploaded = await uploadFile(file, 'photo')
-      setPhotoKey(uploaded.key)
-      toast.success('Photo uploaded — save to apply it')
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'That upload failed')
-    } finally {
-      setUploading(false)
-    }
-  }
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -64,8 +48,7 @@ export function ProfileForm({
     try {
       await apiPatch('/api/employee/profile', {
         fullName,
-        phone: phone || undefined,
-        photoKey: photoKey || undefined,
+        phone: phone || null,
         timezone,
       })
       toast.success('Profile updated')
@@ -92,34 +75,6 @@ export function ProfileForm({
         <form onSubmit={onSubmit} className="space-y-4">
           <FormError message={error} />
 
-          <div className="flex items-center gap-4">
-            <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-full border border-line bg-page text-ink-muted">
-              {uploading ? (
-                <Loader2 className="size-5 animate-spin" />
-              ) : photoKey ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={`/api/files/view?key=${encodeURIComponent(photoKey)}`}
-                  alt=""
-                  className="size-full object-cover"
-                />
-              ) : (
-                <UserRound className="size-6" />
-              )}
-            </span>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-line bg-card px-3.5 py-2 text-sm font-medium shadow-sm transition hover:bg-page">
-              <FileUp className="size-4" />
-              {photoKey ? 'Change photo' : 'Upload photo'}
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                className="sr-only"
-                disabled={uploading}
-                onChange={onPhotoChange}
-              />
-            </label>
-          </div>
-
           <FormField label="Full name" error={fields.fullName} required>
             <Input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
           </FormField>
@@ -141,7 +96,7 @@ export function ProfileForm({
             </Select>
           </FormField>
 
-          <Button type="submit" loading={submitting} disabled={uploading}>
+          <Button type="submit" loading={submitting}>
             Save changes
           </Button>
         </form>

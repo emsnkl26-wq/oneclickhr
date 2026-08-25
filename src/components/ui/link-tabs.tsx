@@ -32,16 +32,26 @@ export function LinkTabs({
   tabs,
   active,
   param = 'tab',
+  resets,
   className,
 }: {
   tabs: LinkTab[]
   active: string
   param?: string
+  /**
+   * Params to drop when the tab changes. Use it when the tabs show DIFFERENT
+   * data rather than a filtered view of the same rows — carrying `page=7` into a
+   * panel with three pages is the classic version of this bug.
+   */
+  resets?: string[]
   className?: string
 }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const pendingHref = usePendingHref()
+
+  // Stable across renders so the callback below is not rebuilt every time.
+  const resetKey = resets?.join(',') ?? ''
 
   const hrefFor = React.useCallback(
     (value: string) => {
@@ -50,10 +60,11 @@ export function LinkTabs({
       const next = new URLSearchParams(searchParams.toString())
       if (value) next.set(param, value)
       else next.delete(param)
+      for (const key of resetKey ? resetKey.split(',') : []) next.delete(key)
       const query = next.toString()
       return query ? `${pathname}?${query}` : pathname
     },
-    [pathname, searchParams, param]
+    [pathname, searchParams, param, resetKey]
   )
 
   // While a tab navigation is in flight, the destination is the one that looks

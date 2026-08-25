@@ -5,6 +5,26 @@ import { cn, humanize } from '@/lib/utils'
 
 /* --------------------------------------------------------------- StatCard */
 
+/**
+ * Icon tints for a stat row.
+ *
+ * The rule the app follows: the NUMBER is crimson on at most one card (that is
+ * what `accent` does), and the icon tile may carry a quiet hue so a long row of
+ * cards is scannable. The tile is a tint, never a fill — these sit next to each
+ * other and a row of saturated squares reads as a toy.
+ */
+export type StatTone = 'neutral' | 'brand' | 'orange' | 'pink' | 'purple' | 'indigo' | 'emerald'
+
+const STAT_TONES: Record<StatTone, string> = {
+  neutral: 'bg-page text-ink-muted',
+  brand: 'bg-brand-50 text-brand-600',
+  orange: 'bg-amber-50 text-amber-600',
+  pink: 'bg-pink-50 text-pink-600',
+  purple: 'bg-purple-50 text-purple-600',
+  indigo: 'bg-indigo-50 text-indigo-600',
+  emerald: 'bg-emerald-50 text-emerald-600',
+}
+
 export interface StatCardProps {
   label: string
   value: React.ReactNode
@@ -12,6 +32,8 @@ export interface StatCardProps {
   icon?: LucideIcon
   /** Renders the number in crimson. Use for ONE card per row, at most. */
   accent?: boolean
+  /** Tints the icon tile. Defaults to brand when `accent` is set. */
+  tone?: StatTone
   href?: string
   className?: string
 }
@@ -22,19 +44,15 @@ export interface StatCardProps {
  * digits must not shift as they refresh.
  */
 export function StatCard({
-  label, value, hint, icon: Icon, accent, href, className,
+  label, value, hint, icon: Icon, accent, tone, href, className,
 }: StatCardProps) {
+  const iconTone = STAT_TONES[tone ?? (accent ? 'brand' : 'neutral')]
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[13px] font-medium text-ink-muted">{label}</p>
         {Icon ? (
-          <span
-            className={cn(
-              'grid size-9 shrink-0 place-items-center rounded-lg',
-              accent ? 'bg-brand-50 text-brand-600' : 'bg-page text-ink-muted'
-            )}
-          >
+          <span className={cn('grid size-9 shrink-0 place-items-center rounded-lg', iconTone)}>
             <Icon className="size-[18px]" aria-hidden />
           </span>
         ) : null}
@@ -111,9 +129,12 @@ const TONES: Record<Tone, string> = {
 /** Every status in the app maps to a tone here, so colours stay consistent. */
 const STATUS_TONES: Record<string, Tone> = {
   active: 'success', approved: 'success', paid: 'success', connected: 'success', present: 'success',
+  resolved: 'success',
   pending: 'warning', draft: 'neutral', overdue: 'warning', needs_reauth: 'warning', late: 'warning',
-  sent: 'info', in_progress: 'info',
+  submitted: 'warning',
+  sent: 'info', in_progress: 'info', open: 'info', completed: 'info',
   rejected: 'danger', suspended: 'danger', cancelled: 'danger', revoked: 'danger', inactive: 'danger', absent: 'danger',
+  closed: 'neutral',
   low: 'neutral', medium: 'info', high: 'warning', urgent: 'danger',
 }
 

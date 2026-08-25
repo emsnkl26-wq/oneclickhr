@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { CalendarCheck, Clock, TimerReset, ArrowRight, Bell, ClipboardList } from 'lucide-react'
+import {
+  CalendarCheck, Clock, TimerReset, ArrowRight, Bell, ClipboardList,
+  Briefcase, Timer, CheckCircle2, XCircle,
+} from 'lucide-react'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { StatCard, PageHeader, EmptyState, StatusChip } from '@/components/ui/patterns'
@@ -25,7 +28,17 @@ export default async function EmployeeDashboard() {
    * attendance/leaves policies already restrict an employee to `employee_id =
    * auth.uid()`. It stays because it makes the intent legible at the call site.
    */
-  const [todayRecord, monthRecords, pendingLeaves, notifications, myTasks] = await Promise.all([
+  const [
+    todayRecord,
+    monthRecords,
+    pendingLeaves,
+    notifications,
+    myTasks,
+    activeProjects,
+    timesheetCount,
+    approvedCount,
+    rejectedCount,
+  ] = await Promise.all([
     supabase
       .from('attendance')
       .select('id, login_time, logout_time, total_hours, is_late')
@@ -51,6 +64,19 @@ export default async function EmployeeDashboard() {
       .select('task_id, tasks(id, title, priority, due_date)')
       .eq('profile_id', ctx.userId)
       .limit(5),
+    /*
+     * The four cards below read `count` with `head: true` — an index-only scan
+     * that returns no rows at all. Fetching the timesheets to count them would
+     * pull an employment history's worth of weeks onto a dashboard that only
+     * ever shows the number.
+     */
+    supabase
+      .from('project_assignments')
+      .select('project_id, projects!inner(status)', { count: 'exact', head: true })
+      .eq('projects.status', 'active'),
+    supabase.from('timesheets').select('id', { count: 'exact', head: true }),
+    supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
+    supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'rejected'),
   ])
 
   const records = monthRecords.data ?? []
@@ -85,7 +111,7 @@ export default async function EmployeeDashboard() {
         shiftStart={ctx.tenant.workStartTime}
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Days present this month"
           value={records.length}
@@ -99,6 +125,36 @@ export default async function EmployeeDashboard() {
           value={lateCount}
           icon={TimerReset}
           hint={`Shift starts at ${ctx.tenant.workStartTime}`}
+        />
+        <StatCard
+          label="Projects"
+          value={activeProjects.count ?? 0}
+          icon={Briefcase}
+          tone="orange"
+          href="/employee/projects"
+          hint="Active assignments"
+        />
+        <StatCard
+          label="Timesheets"
+          value={timesheetCount.count ?? 0}
+          icon={Timer}
+          tone="pink"
+          href="/employee/timesheets"
+        />
+        <StatCard
+          label="Approved"
+          value={approvedCount.count ?? 0}
+          icon={CheckCircle2}
+          tone="purple"
+          href="/employee/timesheets"
+        />
+        <StatCard
+          label="Rejected"
+          value={rejectedCount.count ?? 0}
+          icon={XCircle}
+          tone="indigo"
+          href="/employee/timesheets"
+          hint={rejectedCount.count ? 'Needs your attention' : 'Nothing returned'}
         />
       </div>
 

@@ -11,6 +11,8 @@ export default function Loading() {
           <FormCardSkeleton fields={1} />
         </div>
       </div>
+      {/* Company details — the letterhead block, full width under the grid. */}
+      <FormCardSkeleton fields={8} />
     </div>
   )
 }

@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { Users, CalendarCheck, CalendarOff, BadgeCheck, UserPlus, ArrowRight } from 'lucide-react'
+import {
+  Users, CalendarCheck, CalendarOff, BadgeCheck, UserPlus, ArrowRight,
+  Briefcase, Timer, LifeBuoy,
+} from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { StatCard, EmptyState, PageHeader, StatusChip } from '@/components/ui/patterns'
@@ -37,7 +40,16 @@ export default async function OrgDashboard() {
    */
   const visaHorizon = addDays(today, 120)
 
-  const [employees, todayAttendance, pendingLeaves, recentHires, expiringVisas] = await Promise.all([
+  const [
+    employees,
+    todayAttendance,
+    pendingLeaves,
+    recentHires,
+    expiringVisas,
+    activeProjects,
+    pendingTimesheets,
+    openTickets,
+  ] = await Promise.all([
     supabase
       .from('profiles')
       .select('id', { count: 'exact', head: true })
@@ -72,6 +84,19 @@ export default async function OrgDashboard() {
       .lte('expiry_date', visaHorizon)
       .order('expiry_date', { ascending: true })
       .limit(5),
+    // Three more counts, all `head: true` — an index-only scan each, no rows.
+    supabase
+      .from('projects')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active'),
+    supabase
+      .from('timesheets')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'submitted'),
+    supabase
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['open', 'in_progress']),
   ])
 
   /** PostgREST returns a one-to-one embed as an object, or null when unmatched. */
@@ -152,6 +177,29 @@ export default async function OrgDashboard() {
           icon={BadgeCheck}
           href="/org/visa"
           hint={expiringVisaCount ? 'Within the next 120 days' : 'Nothing upcoming'}
+        />
+        <StatCard
+          label="Active projects"
+          value={activeProjects.count ?? 0}
+          icon={Briefcase}
+          tone="orange"
+          href="/org/projects"
+        />
+        <StatCard
+          label="Timesheets to approve"
+          value={pendingTimesheets.count ?? 0}
+          icon={Timer}
+          tone="pink"
+          href="/org/timesheets"
+          hint={pendingTimesheets.count ? 'Awaiting your decision' : 'Nothing to review'}
+        />
+        <StatCard
+          label="Open tickets"
+          value={openTickets.count ?? 0}
+          icon={LifeBuoy}
+          tone="purple"
+          href="/org/helpdesk"
+          hint={openTickets.count ? 'Raised by your team' : 'Nothing outstanding'}
         />
       </div>
 

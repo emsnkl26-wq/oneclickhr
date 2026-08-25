@@ -1,7 +1,8 @@
 import {
   LayoutDashboard, Users, CalendarCheck, CalendarOff, Wallet, FileText, Bell,
   Building2, ShieldCheck, Activity, Settings, KanbanSquare, CalendarDays,
-  BadgeCheck, ClipboardList, Receipt, Server,
+  BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
+  LifeBuoy, FileSignature, UserRound,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { UserRole } from '@/types/db'
@@ -58,6 +59,13 @@ const ORG_NAV: NavSection[] = [
     ],
   },
   {
+    label: 'Delivery',
+    items: [
+      { href: '/org/projects', label: 'Projects', icon: Briefcase, prefix: true },
+      { href: '/org/timesheets', label: 'Timesheets', icon: Timer, prefix: true },
+    ],
+  },
+  {
     label: 'Finance',
     items: [
       { href: '/org/payroll', label: 'Payroll', icon: Wallet },
@@ -69,8 +77,10 @@ const ORG_NAV: NavSection[] = [
     items: [
       { href: '/org/board', label: 'Task board', icon: KanbanSquare },
       { href: '/org/meetings', label: 'Meetings', icon: CalendarDays },
+      { href: '/org/helpdesk', label: 'Help desk', icon: LifeBuoy, prefix: true },
       { href: '/org/notifications', label: 'Notifications', icon: Bell },
       { href: '/org/documents', label: 'Documents', icon: FileText },
+      { href: '/org/letters', label: 'Letters', icon: FileSignature, prefix: true },
     ],
   },
   {
@@ -82,10 +92,22 @@ const ORG_NAV: NavSection[] = [
 const EMPLOYEE_NAV: NavSection[] = [
   {
     label: 'Overview',
-    items: [{ href: '/employee', label: 'Dashboard', icon: LayoutDashboard }],
+    items: [
+      { href: '/employee', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/employee/profile', label: 'My profile', icon: UserRound },
+    ],
   },
   {
     label: 'My work',
+    items: [
+      { href: '/employee/projects', label: 'Projects', icon: Briefcase, prefix: true },
+      { href: '/employee/timesheets', label: 'Timesheets', icon: Timer, prefix: true },
+      { href: '/employee/sheet', label: 'Sheet', icon: Table2 },
+      { href: '/employee/helpdesk', label: 'Help desk', icon: LifeBuoy, prefix: true },
+    ],
+  },
+  {
+    label: 'Day to day',
     items: [
       { href: '/employee/attendance', label: 'My attendance', icon: CalendarCheck },
       { href: '/employee/leaves', label: 'Leaves', icon: CalendarOff },
@@ -98,7 +120,6 @@ const EMPLOYEE_NAV: NavSection[] = [
     items: [
       { href: '/employee/payslips', label: 'My payslips', icon: Wallet },
       { href: '/employee/notifications', label: 'Notifications', icon: Bell },
-      { href: '/employee/profile', label: 'My profile', icon: Settings },
     ],
   },
 ]

@@ -46,6 +46,8 @@ export interface Profile extends Partial<ProfileOnboardingFields> {
   must_change_password: boolean
   timezone: string
   date_of_joining: string | null
+  /** Free-text skill tags, editable by the employee (012_profiles_and_letters). */
+  skills: string[]
   created_at: string
   updated_at: string
 }
@@ -374,4 +376,206 @@ export interface CurrentProfile {
   tenant_logo_url: string | null
   tenant_primary_color: string | null
   tenant_timezone: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Projects & timesheets (010_projects_timesheets.sql)
+// ---------------------------------------------------------------------------
+
+export type ProjectStatus = 'active' | 'inactive' | 'completed'
+export type TimesheetStatus = 'open' | 'submitted' | 'approved' | 'rejected'
+
+export interface Project {
+  id: string
+  tenant_id: string
+  /** `PRJ-001`. Generated per tenant by a trigger — never sent by the client. */
+  code: string
+  name: string
+  client_name: string | null
+  /** The client's client. Common in staffing, and the timesheet has to name it. */
+  end_client_name: string | null
+  description: string | null
+  start_date: string | null
+  end_date: string | null
+  status: ProjectStatus
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** A person on a project, as the assignment picker and avatar stack need them. */
+export interface ProjectMember {
+  id: string
+  full_name: string | null
+  email: string | null
+  photo_url: string | null
+  designation: string | null
+}
+
+export interface ProjectWithMembers extends Project {
+  members: ProjectMember[]
+  /** Approved hours only — see `project_hour_totals()`. */
+  totalHours: number
+}
+
+export interface Timesheet {
+  id: string
+  tenant_id: string
+  employee_id: string
+  /** `TS-00001`. */
+  code: string
+  /** Sunday of the week, in the org's calendar. */
+  week_start: string
+  /** Saturday. Always `week_start + 6`; a DB constraint enforces it. */
+  week_end: string
+  status: TimesheetStatus
+  total_hours: number
+  billable_hours: number
+  non_billable_hours: number
+  comments: string | null
+  /** R2 object key of the client's own timesheet export, when one is required. */
+  attachment_url: string | null
+  attachment_name: string | null
+  submitted_at: string | null
+  reviewed_by: string | null
+  review_note: string | null
+  reviewed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** One task/project line of the weekly grid. */
+export interface TimesheetEntry {
+  id: string
+  tenant_id: string
+  timesheet_id: string
+  project_id: string | null
+  task_name: string | null
+  billable: boolean
+  position: number
+  hours_sun: number
+  hours_mon: number
+  hours_tue: number
+  hours_wed: number
+  hours_thu: number
+  hours_fri: number
+  hours_sat: number
+  created_at: string
+}
+
+export interface TimesheetWithEntries extends Timesheet {
+  entries: TimesheetEntry[]
+}
+
+// ---------------------------------------------------------------------------
+// Help desk (011_helpdesk.sql)
+// ---------------------------------------------------------------------------
+
+export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
+export type TicketPriority = 'low' | 'medium' | 'high'
+
+export interface Ticket {
+  id: string
+  tenant_id: string
+  employee_id: string
+  /** `TKT-001`. */
+  code: string
+  subject: string
+  description: string
+  priority: TicketPriority
+  status: TicketStatus
+  attachment_url: string | null
+  attachment_name: string | null
+  last_activity_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface TicketMessage {
+  id: string
+  tenant_id: string
+  ticket_id: string
+  author_id: string | null
+  /** Denormalised so the thread still reads right after an account is closed. */
+  author_role: UserRole
+  body: string
+  attachment_url: string | null
+  attachment_name: string | null
+  created_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Employee profile & generated documents (012_profiles_and_letters.sql)
+// ---------------------------------------------------------------------------
+
+export interface EmployeeExperience {
+  id: string
+  tenant_id: string
+  employee_id: string
+  company_name: string
+  role_title: string
+  start_date: string | null
+  end_date: string | null
+  is_current: boolean
+  summary: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface EmployeeEducation {
+  id: string
+  tenant_id: string
+  employee_id: string
+  institution: string
+  degree: string
+  field_of_study: string | null
+  completion_year: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type GeneratedDocumentType =
+  | 'offer_letter'
+  | 'employment_agreement'
+  | 'internship_offer'
+
+export interface GeneratedDocument {
+  id: string
+  tenant_id: string
+  employee_id: string
+  doc_type: GeneratedDocumentType
+  title: string
+  /** R2 object key. Read through `/api/files/view`, never linked directly. */
+  file_url: string
+  file_name: string | null
+  document_id: string | null
+  payload: Record<string, unknown>
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * The letterhead block a generated document prints.
+ *
+ * Every field is optional because a document must never invent one: an org that
+ * has not entered a registration number gets a letterhead without that line, not
+ * a placeholder and certainly not ours.
+ */
+export interface CompanyDetails {
+  name: string
+  logoUrl: string | null
+  addressLine1: string | null
+  addressLine2: string | null
+  city: string | null
+  stateProvince: string | null
+  postalCode: string | null
+  country: string | null
+  registrationNumber: string | null
+  companyEmail: string | null
+  companyPhone: string | null
+  website: string | null
+  signatoryName: string | null
+  signatoryTitle: string | null
+  signatoryPhone: string | null
 }
