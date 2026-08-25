@@ -165,7 +165,7 @@ export default async function OrgTimesheetsPage({
           to={rangeTo}
           capped={rows.length >= MAX_SHEET_ROWS}
           showEmployee
-          timesheetHref={(timesheetId) => `/org/timesheets/${timesheetId}`}
+          timesheetBasePath="/org/timesheets"
         />
       </div>
     )

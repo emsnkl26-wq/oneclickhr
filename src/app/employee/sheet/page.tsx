@@ -109,7 +109,7 @@ export default async function EmployeeSheetPage({
         from={from}
         to={to}
         capped={rows.length >= MAX_ROWS}
-        timesheetHref={(timesheetId) => `/employee/timesheets/${timesheetId}`}
+        timesheetBasePath="/employee/timesheets"
       />
     </div>
   )

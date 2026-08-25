@@ -48,7 +48,7 @@ const rowTotal = (row: SheetRow) => row.hours.reduce((sum, value) => sum + value
  * that makes people stop trusting both.
  */
 export function HoursSheet({
-  rows, from, to, capped, showEmployee, timesheetHref,
+  rows, from, to, capped, showEmployee, timesheetBasePath,
 }: {
   rows: SheetRow[]
   from: string
@@ -57,7 +57,7 @@ export function HoursSheet({
   capped: boolean
   showEmployee?: boolean
   /** Where a timesheet code links to — the portals have different routes. */
-  timesheetHref: (timesheetId: string) => string
+  timesheetBasePath: string
 }) {
   const totals = React.useMemo(() => {
     const all = rows.reduce((sum, row) => sum + rowTotal(row), 0)
@@ -104,7 +104,7 @@ export function HoursSheet({
             {formatPeriod(row.weekStart, row.weekEnd)}
           </span>
           <Link
-            href={timesheetHref(row.timesheetId)}
+            href={`${timesheetBasePath}/${row.timesheetId}`}
             className="tabular text-xs text-brand-600 hover:underline"
           >
             {row.timesheetCode}
