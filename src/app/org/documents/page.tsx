@@ -2,7 +2,8 @@ import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
-import { DocumentLibrary, DOCUMENT_KINDS, type DocumentRow } from './document-library'
+import { DocumentLibrary, type DocumentRow } from './document-library'
+import { isDocumentKind } from './document-kinds'
 
 export const metadata: Metadata = { title: 'Documents' }
 export const dynamic = 'force-dynamic'
@@ -48,7 +49,7 @@ export default async function DocumentsPage({
 
   const page = Math.max(1, parseInt(params.page ?? '', 10) || 1)
   const query = params.q?.trim() || null
-  const kind = DOCUMENT_KINDS.includes(params.kind as never) ? params.kind! : null
+  const kind = isDocumentKind(params.kind) ? params.kind : null
 
   const { data } = await supabase.rpc('search_documents', {
     p_query: query,

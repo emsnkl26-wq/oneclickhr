@@ -36,7 +36,7 @@ export default async function EmployeeDetailPage({
 
   // RLS scopes this to the tenant, so an id from another workspace is simply a
   // 404 — the isolation is the lookup, not an extra branch.
-  const { data: employee } = await supabase
+  const { data: employee, error: employeeError } = await supabase
     .from('profiles')
     .select(
       'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, must_change_password, created_at, skills'
@@ -44,6 +44,14 @@ export default async function EmployeeDetailPage({
     .eq('id', id)
     .eq('role', 'employee')
     .maybeSingle()
+
+  // A read that FAILED is not a record that is missing. Answering both with
+  // notFound() tells someone it was deleted when the database was simply
+  // unreachable, which is the one explanation they cannot act on.
+  if (employeeError) {
+    console.error('[org/employees/:id] load failed', employeeError)
+    throw new Error('That employee could not be loaded. Please try again.')
+  }
 
   if (!employee) notFound()
 

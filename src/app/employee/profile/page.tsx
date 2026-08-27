@@ -27,11 +27,26 @@ export default async function EmployeeProfilePage() {
   const ctx = await requireEmployee()
   const supabase = await createSupabaseServerClient()
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, skills')
     .eq('id', ctx.userId)
     .single()
+
+  /*
+   * This page is a FORM over the row it just read, so a failed read is not a
+   * cosmetic problem. Every field below falls back to '' when `profile` is null,
+   * which renders a blank form over a profile that is perfectly intact — and the
+   * first Save posts those blanks back. `phone` is cleared by an empty string,
+   * so a read failure would quietly wipe a contact number nobody meant to touch.
+   *
+   * The guard cannot rely on `!profile` alone either: the row is the caller's
+   * own and always exists, so its absence IS a failure.
+   */
+  if (profileError || !profile) {
+    console.error('[employee/profile] load failed', profileError)
+    throw new Error('Your profile could not be loaded. Please try again.')
+  }
 
   const [{ data: department }, { data: experience }, { data: education }] = await Promise.all([
     profile?.department_id

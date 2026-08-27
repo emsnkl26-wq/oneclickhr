@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { CalendarCheck } from 'lucide-react'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { PageHeader, StatCard, EmptyState, StatusChip } from '@/components/ui/patterns'
+import { PageHeader, StatCard, EmptyState, StatusChip, LoadError } from '@/components/ui/patterns'
 import { Card } from '@/components/ui/card'
 import { formatLocal, todayIn } from '@/lib/time'
 import { formatHours } from '@/lib/utils'
@@ -28,7 +28,7 @@ export default async function MyAttendancePage({
 
   // RLS restricts `attendance` to `employee_id = auth.uid()` for employees, so
   // this returns only their own rows without a filter that could be forgotten.
-  const { data: records } = await supabase
+  const { data: records, error: loadError } = await supabase
     .from('attendance')
     .select('id, date, login_time, logout_time, total_hours, is_late')
     .gte('date', from)
@@ -39,12 +39,16 @@ export default async function MyAttendancePage({
   const totalHours = rows.reduce((sum, r) => sum + Number(r.total_hours ?? 0), 0)
   const lateCount = rows.filter((r) => r.is_late).length
 
+  if (loadError) console.error('[employee/attendance] load failed', loadError)
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="My attendance"
         description={`All times shown in ${tz}.`}
       />
+
+      {loadError ? <LoadError what="Your attendance record" /> : null}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Days present" value={rows.length} accent />

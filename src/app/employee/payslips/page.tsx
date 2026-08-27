@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Download, Wallet } from 'lucide-react'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { PageHeader, EmptyState } from '@/components/ui/patterns'
+import { PageHeader, EmptyState, LoadError } from '@/components/ui/patterns'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { MONTH_NAMES, formatLocal } from '@/lib/time'
@@ -23,7 +23,7 @@ export default async function MyPayslipsPage() {
    * that a row this user can see actually references the key before signing a
    * URL for it.
    */
-  const { data: payslips } = await supabase
+  const { data: payslips, error: loadError } = await supabase
     .from('payslips')
     .select('id, month, year, file_url, file_name, created_at')
     .order('year', { ascending: false })
@@ -31,12 +31,16 @@ export default async function MyPayslipsPage() {
 
   const rows = payslips ?? []
 
+  if (loadError) console.error('[employee/payslips] load failed', loadError)
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="My payslips"
         description="Only you can open these. Links expire after a few minutes."
       />
+
+      {loadError ? <LoadError what="Your payslips" /> : null}
 
       {rows.length === 0 ? (
         <Card>

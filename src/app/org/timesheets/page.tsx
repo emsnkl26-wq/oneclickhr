@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { PageHeader } from '@/components/ui/patterns'
+import { PageHeader, LoadError } from '@/components/ui/patterns'
 import { LinkTabs } from '@/components/ui/link-tabs'
 import { HoursSheet, type SheetRow } from '@/components/timesheet/hours-sheet'
 import { TimesheetQueue, type QueueRow } from './timesheet-queue'
@@ -117,7 +117,7 @@ export default async function OrgTimesheetsPage({
     const rangeFrom = from || addDays(thisWeek, -7 * (DEFAULT_WEEKS - 1))
     const rangeTo = to || addDays(thisWeek, 6)
 
-    const { data } = await supabase
+    const { data, error: sheetError } = await supabase
       .from('timesheet_entries')
       .select(
         'id, task_name, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat, project:projects(id, code, name, client_name), timesheet:timesheets!inner(id, code, week_start, week_end, status, employee:profiles!timesheets_employee_id_fkey(full_name, email))'
@@ -156,9 +156,13 @@ export default async function OrgTimesheetsPage({
           : b.weekStart.localeCompare(a.weekStart)
       )
 
+    if (sheetError) console.error('[org/timesheets sheet view] load failed', sheetError)
+
     return (
       <div className="space-y-6">
         {header}
+
+        {sheetError ? <LoadError what="The hours sheet" /> : null}
         <HoursSheet
           rows={rows}
           from={rangeFrom}

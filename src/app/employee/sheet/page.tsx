@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { PageHeader } from '@/components/ui/patterns'
+import { PageHeader, LoadError } from '@/components/ui/patterns'
 import { HoursSheet, type SheetRow } from '@/components/timesheet/hours-sheet'
 import { todayIn, weekStartSunday, addDays } from '@/lib/time'
 import type { TimesheetStatus } from '@/types/db'
@@ -61,7 +61,7 @@ export default async function EmployeeSheetPage({
   const from = isDate(params.from) ? params.from! : addDays(thisWeek, -7 * (DEFAULT_WEEKS - 1))
   const to = isDate(params.to) ? params.to! : addDays(thisWeek, 6)
 
-  const { data } = await supabase
+  const { data, error: loadError } = await supabase
     .from('timesheet_entries')
     .select(
       'id, task_name, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat, project:projects(id, code, name, client_name), timesheet:timesheets!inner(id, code, week_start, week_end, status)'
@@ -98,12 +98,16 @@ export default async function EmployeeSheetPage({
         : b.weekStart.localeCompare(a.weekStart)
     )
 
+  if (loadError) console.error('[employee/sheet] load failed', loadError)
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Sheet"
         description="Every hour you have logged, flattened into one table you can export."
       />
+
+      {loadError ? <LoadError what="Your hours" /> : null}
       <HoursSheet
         rows={rows}
         from={from}

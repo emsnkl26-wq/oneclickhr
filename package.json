@@ -17,7 +17,8 @@
     "test:isolation": "tsx scripts/tenant-isolation-test.ts",
     "r2:doctor": "tsx scripts/r2-doctor.ts",
     "auth:doctor": "tsx scripts/auth-doctor.ts",
-    "email:templates": "tsx scripts/render-supabase-templates.ts"
+    "email:templates": "tsx scripts/render-supabase-templates.ts",
+    "check:boundaries": "tsx scripts/check-client-boundary.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.716.0",

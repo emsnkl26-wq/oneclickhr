@@ -8,35 +8,15 @@ import { FilterSelect } from '@/components/ui/filter-select'
 import { Pagination } from '@/components/ui/pagination'
 import { formatLocal } from '@/lib/time'
 
-/**
- * The action namespaces this product writes — the prefix before the dot in
- * "employee.deactivated".
- *
- * Declared rather than derived. The groups used to be collected from whatever
- * happened to be in the loaded page, which meant the filter's options changed
- * as you paged and a namespace with no recent activity vanished from it. This
- * list is the actual vocabulary: every `audit()` call in the codebase uses one
- * of these prefixes, so a new one belongs here alongside the call that emits it.
+/*
+ * Imported, not declared here. `action-groups.ts` explains why plain data this
+ * file shares with a Server Component must not live inside a `'use client'`
+ * module. Re-exported for any existing importer — but note the local `import` is
+ * what line 108 below binds to; a bare `export { … } from` would re-export it
+ * without ever defining it in this scope.
  */
-export const ACTION_GROUPS = [
-  'attendance',
-  'auth',
-  'board_column',
-  'calendar',
-  'department',
-  'employee',
-  'file',
-  'invoice',
-  'leave',
-  'meeting',
-  'notification',
-  'onboarding',
-  'payslip',
-  'profile',
-  'task',
-  'tenant',
-  'work_auth',
-] as const
+import { ACTION_GROUPS } from './action-groups'
+export { ACTION_GROUPS }
 
 interface AuditRow {
   id: string

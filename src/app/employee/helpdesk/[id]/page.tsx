@@ -38,11 +38,19 @@ export default async function EmployeeTicketPage({
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
-  const { data: ticket } = await supabase
+  const { data: ticket, error: ticketError } = await supabase
     .from('tickets')
     .select('id, code, subject, description, priority, status, attachment_url, attachment_name, created_at, employee_id')
     .eq('id', id)
     .maybeSingle()
+
+  // A read that FAILED is not a record that is missing. Answering both with
+  // notFound() tells someone it was deleted when the database was simply
+  // unreachable, which is the one explanation they cannot act on.
+  if (ticketError) {
+    console.error('[employee/helpdesk/:id] load failed', ticketError)
+    throw new Error('That ticket could not be loaded. Please try again.')
+  }
 
   if (!ticket) notFound()
 

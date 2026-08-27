@@ -11,8 +11,15 @@ import { formatLocal } from '@/lib/time'
 import { humanize, truncate } from '@/lib/utils'
 import type { DocumentKind } from '@/types/db'
 
-/** The kinds the type filter offers — also the allowlist the page validates against. */
-export const DOCUMENT_KINDS = ['employee_doc', 'work_auth', 'general'] as const
+/*
+ * The kinds the type filter offers — also the allowlist the page validates
+ * against. Imported, not declared here: `document-kinds.ts` explains why data a
+ * Server Component reads must not live inside a `'use client'` module. The local
+ * `import` is what the filter below binds to; a bare `export { … } from` would
+ * re-export it without ever defining it in this scope.
+ */
+import { DOCUMENT_KINDS } from './document-kinds'
+export { DOCUMENT_KINDS }
 
 export interface DocumentRow {
   id: string

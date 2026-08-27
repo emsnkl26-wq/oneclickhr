@@ -30,12 +30,23 @@ export default async function ResumeOnboardingPage({
   const { draftId } = await params
 
   const admin = createAdminClient()
-  const { data: row } = await admin
+  const { data: row, error: rowError } = await admin
     .from('employee_onboarding')
     .select('*')
     .eq('id', draftId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
+
+  /*
+   * A draft is five screens of typing about a real person, so "we could not
+   * read it" and "it is gone" must not share an answer. notFound() here would
+   * tell an admin their half-finished onboarding was deleted — and the only
+   * sensible response to that is to start it again from the top.
+   */
+  if (rowError) {
+    console.error('[org/employees/onboard/:draftId] load failed', rowError)
+    throw new Error('That onboarding draft could not be loaded. Please try again.')
+  }
 
   if (!row) notFound()
   // A finished onboarding is an employee now — send the org to the person, not

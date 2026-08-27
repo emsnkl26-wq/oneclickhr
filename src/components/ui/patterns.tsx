@@ -1,6 +1,6 @@
 import * as React from 'react'
 import Link from 'next/link'
-import type { LucideIcon } from 'lucide-react'
+import { AlertTriangle, type LucideIcon } from 'lucide-react'
 import { cn, humanize } from '@/lib/utils'
 
 /* --------------------------------------------------------------- StatCard */
@@ -109,6 +109,40 @@ export function EmptyState({ icon: Icon, title, description, action, className }
         <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-ink-muted">{description}</p>
       ) : null}
       {action ? <div className="mt-5">{action}</div> : null}
+    </div>
+  )
+}
+
+/* --------------------------------------------------------------- LoadError */
+
+/**
+ * "We could not read this", as distinct from "there is nothing here".
+ *
+ * Every list on a server page is written `data ?? []`, which renders an EmptyState
+ * for BOTH outcomes. On a fresh workspace that is right. On a failed query it is
+ * a lie with consequences: an employee told "No payslips" or "No timesheets yet"
+ * concludes their records are gone, and the reasonable next move — file it
+ * again — creates the duplicate. Payroll and hours are the worst places for the
+ * app to sound confident about data it did not manage to load.
+ *
+ * Deliberately says nothing about WHY. The Postgres message behind it can carry
+ * table and column names; it belongs in the server log, which is where the
+ * calling page puts it.
+ */
+export function LoadError({ what, className }: { what: string; className?: string }) {
+  return (
+    <div
+      role="alert"
+      className={cn(
+        'flex items-start gap-2.5 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3.5 text-sm text-danger',
+        className
+      )}
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <p className="leading-relaxed">
+        {what} could not be loaded just now. Nothing has been lost — please reload the page, and
+        tell your administrator if it keeps happening.
+      </p>
     </div>
   )
 }

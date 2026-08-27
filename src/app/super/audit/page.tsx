@@ -2,7 +2,8 @@ import type { Metadata } from 'next'
 import { requireSuperAdmin } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { PageHeader } from '@/components/ui/patterns'
-import { AuditViewer, ACTION_GROUPS } from './audit-viewer'
+import { AuditViewer } from './audit-viewer'
+import { isActionGroup } from './action-groups'
 
 export const metadata: Metadata = { title: 'Audit log' }
 export const dynamic = 'force-dynamic'
@@ -29,7 +30,7 @@ export default async function AuditPage({
   const params = await searchParams
 
   const search = params.q?.trim() || ''
-  const group = ACTION_GROUPS.includes(params.action as never) ? params.action! : null
+  const group = isActionGroup(params.action) ? params.action : null
   const page = Math.max(1, parseInt(params.page ?? '', 10) || 1)
   const offset = (page - 1) * PER_PAGE
 

@@ -60,13 +60,21 @@ export default async function ProjectDetailPage({
   const supabase = await createSupabaseServerClient()
 
   // RLS scopes this to the tenant, so an id from another workspace is a 404.
-  const { data: project } = await supabase
+  const { data: project, error: projectError } = await supabase
     .from('projects')
     .select(
       'id, code, name, client_name, end_client_name, description, start_date, end_date, status, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))'
     )
     .eq('id', id)
     .maybeSingle()
+
+  // A read that FAILED is not a record that is missing. Answering both with
+  // notFound() tells someone it was deleted when the database was simply
+  // unreachable, which is the one explanation they cannot act on.
+  if (projectError) {
+    console.error('[org/projects/:id] load failed', projectError)
+    throw new Error('That project could not be loaded. Please try again.')
+  }
 
   if (!project) notFound()
 
