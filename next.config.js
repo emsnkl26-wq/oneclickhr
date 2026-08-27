@@ -39,15 +39,27 @@ const nextConfig = {
     /*
      * Client-side Router Cache.
      *
-     * Every route in this app is `force-dynamic`, and Next's default of 0
-     * seconds for dynamic segments means going back to a page you were on two
-     * seconds ago re-renders it on the server from scratch. 30 seconds makes
-     * back/forward and the common tab-hopping loop instant, and costs nothing in
-     * staleness: every mutation in this codebase finishes with
-     * `router.refresh()`, which invalidates the cache outright.
+     * Dynamic segments are NOT cached, which is Next's own default and is the
+     * only setting this app can be correct under.
+     *
+     * The previous 30 seconds rested on "every mutation finishes with
+     * `router.refresh()`, which invalidates the cache outright". That holds
+     * right up until the mutation NAVIGATES — create a timesheet, get pushed to
+     * the new week, press Back — and there it does not: `router.refresh()`
+     * followed immediately by `router.push()` starts a second transition that
+     * discards the first, so the refresh never lands and Back replays a list
+     * rendered before the row existed. The employee is shown "No timesheets yet"
+     * over a week they just created, concludes their hours are gone, and opens
+     * the week again from scratch. The same shape appears wherever a create
+     * hands off to a detail page (help desk, letters).
+     *
+     * Every route here is `force-dynamic` and behind auth, so nothing is
+     * shareable between users anyway; the cost of refetching is one round trip
+     * against a global progress bar, and the cost of NOT refetching is an HR
+     * record that appears to have vanished.
      */
     staleTimes: {
-      dynamic: 30,
+      dynamic: 0,
       static: 180,
     },
   },

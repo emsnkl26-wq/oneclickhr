@@ -154,17 +154,27 @@ function NewTimesheetDialog({
   const progressRouter = useProgressRouter()
   const [weekStart, setWeekStart] = React.useState(currentWeek)
   const [error, setError] = React.useState<string | null>(null)
+  /** The week already exists — its id, so we can offer to open it. */
+  const [existingId, setExistingId] = React.useState<string | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
 
   React.useEffect(() => {
     if (!open) return
     setWeekStart(currentWeek)
     setError(null)
+    setExistingId(null)
   }, [open, currentWeek])
+
+  // Stepping to another week makes a previous week's conflict meaningless.
+  React.useEffect(() => {
+    setError(null)
+    setExistingId(null)
+  }, [weekStart])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
+    setExistingId(null)
     setSubmitting(true)
     try {
       const created = await apiPost<{ id: string }>('/api/timesheets', { weekStart })
@@ -173,10 +183,22 @@ function NewTimesheetDialog({
       router.refresh()
       progressRouter.push(`/employee/timesheets/${created.id}`)
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Something went wrong.')
+      if (err instanceof ApiClientError) {
+        setError(err.message)
+        const id = err.payload?.id
+        if (err.status === 409 && typeof id === 'string') setExistingId(id)
+      } else {
+        setError('Something went wrong.')
+      }
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function openExisting() {
+    if (!existingId) return
+    onClose()
+    progressRouter.push(`/employee/timesheets/${existingId}`)
   }
 
   const weekEnd = addDays(weekStart, 6)
@@ -193,6 +215,12 @@ function NewTimesheetDialog({
 
           <DialogBody className="space-y-4">
             <FormError message={error} />
+
+            {existingId ? (
+              <Button type="button" variant="secondary" className="w-full" onClick={openExisting}>
+                Open the existing timesheet for this week
+              </Button>
+            ) : null}
 
             <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-page px-3 py-3">
               <Button

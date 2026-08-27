@@ -4,6 +4,8 @@ import {
   WEEK_DAY_LABELS,
 } from '@/lib/time'
 import { toCsv } from '@/lib/csv'
+import { saveTimesheetSchema, isBlankEntry } from '@/lib/schemas'
+import { summarizeZodError } from '@/lib/api'
 import { composeSalaryText, buildAgreementSections } from '@/lib/document-templates'
 
 /**
@@ -185,5 +187,166 @@ describe('buildAgreementSections', () => {
     // Everything else is on, so a document generated without touching the form
     // is complete.
     expect(sections.filter((section) => !section.enabled)).toHaveLength(1)
+  })
+})
+
+/**
+ * The save payload.
+ *
+ * These cases are the ones the grid actually produces, and one of them shipped
+ * broken: a line with hours, no project and no task description was refused by
+ * the schema, the refusal was rendered behind the confirmation dialog, and the
+ * employee saw a spinner stop with no explanation and their week unsaved.
+ */
+describe('saveTimesheetSchema', () => {
+  const line = (over: Partial<Record<string, unknown>> = {}) => ({
+    projectId: null,
+    billable: true,
+    hoursSun: 0, hoursMon: 0, hoursTue: 0, hoursWed: 0,
+    hoursThu: 0, hoursFri: 0, hoursSat: 0,
+    ...over,
+  })
+
+  it('accepts hours described by a task when the employee is on no project', () => {
+    const parsed = saveTimesheetSchema.parse({
+      entries: [line({ taskName: 'Client onboarding calls', hoursSun: 2 })],
+      submit: true,
+    })
+    expect(parsed.entries).toHaveLength(1)
+    expect(parsed.entries[0].hoursSun).toBe(2)
+  })
+
+  it('accepts hours attributed to a project with no task description', () => {
+    const parsed = saveTimesheetSchema.parse({
+      entries: [line({ projectId: '11111111-1111-4111-8111-111111111111', hoursMon: 8 })],
+      submit: true,
+    })
+    expect(parsed.entries[0].projectId).toBe('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('refuses hours that name neither a project nor a task', () => {
+    const result = saveTimesheetSchema.safeParse({
+      entries: [line({ hoursSun: 2 })],
+      submit: true,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(['entries', 0, 'taskName'])
+    }
+  })
+
+  it("accepts the grid's trailing blank line, which carries nothing at all", () => {
+    // The editor always keeps one empty row at the bottom. Refusing it made an
+    // untouched grid unsaveable.
+    const parsed = saveTimesheetSchema.parse({ entries: [line()], submit: false })
+    expect(parsed.entries).toHaveLength(1)
+    expect(isBlankEntry(parsed.entries[0])).toBe(true)
+  })
+
+  it('refuses more than 24 hours in one day across separate lines', () => {
+    // Each cell passes its own 0-24 check; only the whole week shows the problem.
+    const result = saveTimesheetSchema.safeParse({
+      entries: [
+        line({ taskName: 'A', hoursTue: 20 }),
+        line({ taskName: 'B', hoursTue: 8 }),
+      ],
+      submit: true,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].message).toContain('Tuesday')
+      expect(result.error.issues[0].message).toContain('28')
+    }
+  })
+
+  it('allows exactly 24 hours in a day', () => {
+    const parsed = saveTimesheetSchema.parse({
+      entries: [line({ taskName: 'A', hoursTue: 16 }), line({ taskName: 'B', hoursTue: 8 })],
+      submit: true,
+    })
+    expect(parsed.entries).toHaveLength(2)
+  })
+
+  it('rounds hours to the two decimals the column actually stores', () => {
+    // numeric(5,2) would round 2.555 to 2.56 on write and the grid would come
+    // back showing a figure nobody typed.
+    const parsed = saveTimesheetSchema.parse({
+      entries: [line({ taskName: 'A', hoursWed: 2.555 })],
+      submit: false,
+    })
+    expect(parsed.entries[0].hoursWed).toBe(2.56)
+  })
+
+  it('refuses a single cell over 24 hours', () => {
+    const result = saveTimesheetSchema.safeParse({
+      entries: [line({ taskName: 'A', hoursWed: 25 })],
+      submit: false,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('refuses a negative cell', () => {
+    const result = saveTimesheetSchema.safeParse({
+      entries: [line({ taskName: 'A', hoursWed: -1 })],
+      submit: false,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('carries no status field, so a submit cannot smuggle one in', () => {
+    const parsed = saveTimesheetSchema.parse({
+      entries: [line({ taskName: 'A', hoursWed: 1 })],
+      submit: true,
+      status: 'approved',
+    })
+    expect(parsed).not.toHaveProperty('status')
+  })
+})
+
+/**
+ * The banner text a failed save shows. One reason is worth stating; several
+ * reasons at once are not, because the result is a paragraph nobody reads.
+ */
+describe('summarizeZodError', () => {
+  it('uses the single reason when there is exactly one', () => {
+    const result = saveTimesheetSchema.safeParse({
+      entries: [
+        {
+          projectId: null, billable: true,
+          hoursSun: 2, hoursMon: 0, hoursTue: 0, hoursWed: 0,
+          hoursThu: 0, hoursFri: 0, hoursSat: 0,
+        },
+      ],
+      submit: true,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(summarizeZodError(result.error)).toBe(
+        'Pick a project or describe the task for this line'
+      )
+    }
+  })
+
+  it('falls back to the generic line when the reasons differ', () => {
+    const result = saveTimesheetSchema.safeParse({
+      entries: [
+        {
+          projectId: null, taskName: 'A', billable: true,
+          hoursSun: -5, hoursMon: 0, hoursTue: 0, hoursWed: 0,
+          hoursThu: 0, hoursFri: 0, hoursSat: 0,
+        },
+        {
+          projectId: null, taskName: 'B', billable: true,
+          hoursSun: 0, hoursMon: 30, hoursTue: 0, hoursWed: 0,
+          hoursThu: 0, hoursFri: 0, hoursSat: 0,
+        },
+      ],
+      submit: true,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(new Set(result.error.issues.map((i) => i.message)).size).toBeGreaterThan(1)
+      expect(summarizeZodError(result.error)).toBe('Please check the highlighted fields')
+    }
   })
 })

@@ -47,13 +47,19 @@ export default async function OrgTimesheetDetailPage({
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
-  const { data: sheet } = await supabase
+  const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
       'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, comments, attachment_url, attachment_name, review_note, submitted_at, reviewed_at, employee:profiles!timesheets_employee_id_fkey(id, full_name, email, photo_url, designation)'
     )
     .eq('id', id)
     .maybeSingle()
+
+  // A load failure is not a missing timesheet — see the employee-side page.
+  if (sheetError) {
+    console.error('[org/timesheets/:id] load failed', sheetError)
+    throw new Error('That timesheet could not be loaded. Please try again.')
+  }
 
   if (!sheet) notFound()
 
@@ -65,7 +71,7 @@ export default async function OrgTimesheetDetailPage({
     designation: string | null
   } | null
 
-  const [{ data: entries }, { data: projects }] = await Promise.all([
+  const [{ data: entries, error: entriesError }, { data: projects }] = await Promise.all([
     supabase
       .from('timesheet_entries')
       .select(
@@ -75,6 +81,17 @@ export default async function OrgTimesheetDetailPage({
       .order('position'),
     supabase.from('projects').select('id, code, name, client_name'),
   ])
+
+  /*
+   * This is an APPROVAL screen, so a grid that renders empty because the query
+   * failed is the most expensive failure on it: the week still shows its header
+   * total, the reviewer sees no lines to disagree with, and one click approves
+   * hours nobody looked at. Refusing to render is the only safe answer.
+   */
+  if (entriesError) {
+    console.error('[org/timesheets/:id] entries load failed', entriesError)
+    throw new Error('The hours on this timesheet could not be loaded. Please try again.')
+  }
 
   return (
     <div className="space-y-6">

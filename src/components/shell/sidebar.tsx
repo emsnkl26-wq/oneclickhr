@@ -48,6 +48,31 @@ export interface ShellBrand {
  * brand-tinted background — it stays legible in both themes, because the tint
  * comes from the sidebar's own hover colour.
  */
+
+/**
+ * Drop anything this app has parked in `localStorage` for the person leaving.
+ *
+ * The timesheet editor keeps unsaved hours there so a failed request or a closed
+ * tab cannot lose a week. That is the right trade while someone is signed in and
+ * the wrong one the moment they are not: on a shared ward terminal the next
+ * person to sign in would be offered the last one's hours and task notes to
+ * restore. Signing out is the boundary, so the drafts end here.
+ *
+ * Prefixed keys only — `theme` and `sidebar` are this browser's preferences, not
+ * this account's data, and clearing them would make every sign-out flash the
+ * wrong theme for the next user.
+ */
+function clearLocalDrafts() {
+  try {
+    const doomed = Object.keys(window.localStorage).filter((key) =>
+      key.startsWith('oneclickhr:')
+    )
+    doomed.forEach((key) => window.localStorage.removeItem(key))
+  } catch {
+    // Storage denied or unavailable — there is nothing held to clear.
+  }
+}
+
 export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand }) {
   const pathname = usePathname()
   const pendingHref = usePendingHref()
@@ -231,7 +256,12 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem destructive asChild>
-              <form action="/api/auth/signout" method="post" className="w-full">
+              <form
+                action="/api/auth/signout"
+                method="post"
+                className="w-full"
+                onSubmit={clearLocalDrafts}
+              >
                 <button type="submit" className="flex w-full items-center gap-2">
                   <LogOut className="size-4" aria-hidden />
                   Sign out

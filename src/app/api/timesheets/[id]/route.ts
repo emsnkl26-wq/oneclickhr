@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
 import { apiRequireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { saveTimesheetSchema } from '@/lib/schemas'
+import { saveTimesheetSchema, isBlankEntry } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { audit } from '@/lib/audit'
 
@@ -60,15 +60,12 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     return jsonError('That file does not belong to this workspace.', 403)
   }
 
-  // A line with no hours at all is the empty row the form always keeps at the
+  // A line with nothing on it is the empty row the form always keeps at the
   // bottom. Dropping it here means "Save" on an untouched grid stores nothing
-  // rather than a row of zeroes the totals would have to ignore later.
-  const entries = input.entries.filter(
-    (entry) =>
-      entry.hoursSun + entry.hoursMon + entry.hoursTue + entry.hoursWed +
-        entry.hoursThu + entry.hoursFri + entry.hoursSat >
-        0 || !!entry.projectId || !!entry.taskName
-  )
+  // rather than a row of zeroes the totals would have to ignore later. The
+  // schema exempts the same shape from the "name the task" rule, so the two
+  // agree on what "blank" means.
+  const entries = input.entries.filter((entry) => !isBlankEntry(entry))
 
   if (input.submit && entries.length === 0) {
     return jsonError('Add at least one line before submitting.', 400)

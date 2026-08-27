@@ -29,7 +29,18 @@ export function emptyRow(key: string): GridRow {
   return { key, projectId: '', taskName: '', billable: true, hours: [0, 0, 0, 0, 0, 0, 0] }
 }
 
-export const rowTotal = (row: GridRow) => row.hours.reduce((sum, value) => sum + (value || 0), 0)
+/**
+ * Two decimals, because the hour columns are `numeric(5,2)` and because binary
+ * floats do not add the way a timesheet has to: 0.1 + 0.2 rendered raw shows
+ * `0.30000000000000004` in the Total column of an otherwise ordinary week.
+ */
+export const round2 = (value: number) => Math.round(value * 100) / 100
+
+export const rowTotal = (row: GridRow) =>
+  round2(row.hours.reduce((sum, value) => sum + (value || 0), 0))
+
+/** The most hours a single calendar day can hold, across every line. */
+export const MAX_HOURS_PER_DAY = 24
 
 /**
  * The weekly hour grid.
@@ -54,6 +65,7 @@ export function WeekGrid({
   projects,
   readOnly,
   onChange,
+  rowErrors,
   className,
 }: {
   /** The seven `YYYY-MM-DD` dates, Sunday first. */
@@ -62,6 +74,12 @@ export function WeekGrid({
   projects: GridProject[]
   readOnly?: boolean
   onChange?: (rows: GridRow[]) => void
+  /**
+   * Per-line problems, keyed by `GridRow.key`. Shown against the line rather
+   * than in a banner: on a grid of sixty lines "one of these is missing a task"
+   * is not something a person can act on.
+   */
+  rowErrors?: Record<string, string>
   className?: string
 }) {
   const nextKey = React.useRef(0)
@@ -85,11 +103,13 @@ export function WeekGrid({
   }
 
   const dayTotals = days.map((_, index) =>
-    rows.reduce((sum, row) => sum + (row.hours[index] || 0), 0)
+    round2(rows.reduce((sum, row) => sum + (row.hours[index] || 0), 0))
   )
-  const grandTotal = dayTotals.reduce((sum, value) => sum + value, 0)
-  const billableTotal = rows.filter((row) => row.billable).reduce((sum, row) => sum + rowTotal(row), 0)
-  const nonBillableTotal = grandTotal - billableTotal
+  const grandTotal = round2(dayTotals.reduce((sum, value) => sum + value, 0))
+  const billableTotal = round2(
+    rows.filter((row) => row.billable).reduce((sum, row) => sum + rowTotal(row), 0)
+  )
+  const nonBillableTotal = round2(grandTotal - billableTotal)
 
   return (
     <div className={cn('space-y-4', className)}>
@@ -158,7 +178,9 @@ export function WeekGrid({
                           onChange={(e) => setRow(row.key, { projectId: e.target.value })}
                           aria-label="Project"
                         >
-                          <option value="">No project</option>
+                          <option value="">
+                            {projects.length ? 'No project' : 'No project available'}
+                          </option>
                           {projects.map((project) => (
                             <option key={project.id} value={project.id}>
                               {project.code} · {project.name}
@@ -168,10 +190,20 @@ export function WeekGrid({
                         <input
                           value={row.taskName}
                           onChange={(e) => setRow(row.key, { taskName: e.target.value })}
-                          placeholder="Task description"
+                          placeholder={row.projectId ? 'Task description' : 'What did you work on?'}
                           aria-label="Task description"
-                          className="h-9 w-full rounded-lg border border-line bg-card px-3 text-sm shadow-sm outline-none transition-colors placeholder:text-ink-muted/70 hover:border-ink-muted/40 focus-visible:border-brand-600"
+                          aria-invalid={rowErrors?.[row.key] ? true : undefined}
+                          aria-describedby={rowErrors?.[row.key] ? `${row.key}-error` : undefined}
+                          className={cn(
+                            'h-9 w-full rounded-lg border bg-card px-3 text-sm shadow-sm outline-none transition-colors placeholder:text-ink-muted/70 hover:border-ink-muted/40 focus-visible:border-brand-600',
+                            rowErrors?.[row.key] ? 'border-danger' : 'border-line'
+                          )}
                         />
+                        {rowErrors?.[row.key] ? (
+                          <p id={`${row.key}-error`} role="alert" className="text-xs text-danger">
+                            {rowErrors[row.key]}
+                          </p>
+                        ) : null}
                         <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-muted">
                           <Checkbox
                             checked={row.billable}
@@ -240,7 +272,21 @@ export function WeekGrid({
                 </td>
                 {dayTotals.map((total, index) => (
                   <td key={days[index]} className="px-2 py-3 text-center">
-                    <span className="tabular text-sm font-semibold">{total}</span>
+                    <span
+                      className={cn(
+                        'tabular text-sm font-semibold',
+                        // Over 24 in one day is refused on save; saying so in the
+                        // column that is wrong beats a banner naming a weekday.
+                        total > MAX_HOURS_PER_DAY ? 'text-danger' : undefined
+                      )}
+                      title={
+                        total > MAX_HOURS_PER_DAY
+                          ? `A day cannot exceed ${MAX_HOURS_PER_DAY} hours`
+                          : undefined
+                      }
+                    >
+                      {total}
+                    </span>
                   </td>
                 ))}
                 <td className="px-3 py-3 text-right">

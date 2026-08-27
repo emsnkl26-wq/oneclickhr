@@ -583,12 +583,29 @@ export type ProjectInput = z.infer<typeof projectSchema>
 // still count.
 // ---------------------------------------------------------------------------
 
-/** A single day's hours. */
+/**
+ * A single day's hours.
+ *
+ * Rounded to two decimals here rather than left to the column. `hours_sun` is
+ * `numeric(5,2)`, so 2.555 would be stored as 2.56 and the grid would come back
+ * showing a figure nobody typed. Rounding on the way in makes what is saved and
+ * what is displayed the same number.
+ */
 const dayHours = z.coerce
   .number({ invalid_type_error: 'Enter a number of hours' })
   .min(0, 'Hours cannot be negative')
   .max(24, 'A day has 24 hours')
   .default(0)
+  .transform((v) => Math.round(v * 100) / 100)
+
+/** Sunday-first, matching the grid and `week_start`. Used for the daily caps. */
+export const TIMESHEET_DAY_KEYS = [
+  'hoursSun', 'hoursMon', 'hoursTue', 'hoursWed', 'hoursThu', 'hoursFri', 'hoursSat',
+] as const
+
+export const TIMESHEET_DAY_LABELS = [
+  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+] as const
 
 export const timesheetEntrySchema = z
   .object({
@@ -603,24 +620,73 @@ export const timesheetEntrySchema = z
     hoursFri: dayHours,
     hoursSat: dayHours,
   })
-  .refine((v) => !!v.projectId || !!v.taskName, {
-    message: 'Pick a project or name the task',
+  /*
+   * A line has to say what the hours were FOR. Unlabelled hours cannot be
+   * approved by anyone — the reviewer has nothing to agree with — and cannot be
+   * billed to a client afterwards. The employee may satisfy this either way, so
+   * someone with no project assignments can still file a week by describing the
+   * work.
+   *
+   * An ENTIRELY empty line is exempt, and that exemption is load-bearing: the
+   * grid always keeps one blank row at the bottom so adding work never starts
+   * with a click on "Add a line". Refusing it here would make an untouched grid
+   * unsaveable, and the route that drops blank lines before writing them would
+   * never get the chance to run.
+   */
+  .refine((v) => isBlankEntry(v) || !!v.projectId || !!v.taskName, {
+    message: 'Pick a project or describe the task for this line',
     path: ['taskName'],
   })
+
+/** No project, no task, no hours — the form's trailing placeholder row. */
+export function isBlankEntry(entry: {
+  projectId?: string | null
+  taskName?: string | null
+  hoursSun: number; hoursMon: number; hoursTue: number; hoursWed: number
+  hoursThu: number; hoursFri: number; hoursSat: number
+}): boolean {
+  return (
+    !entry.projectId &&
+    !entry.taskName &&
+    TIMESHEET_DAY_KEYS.every((key) => !entry[key])
+  )
+}
 
 export const createTimesheetSchema = z.object({
   /** Any date inside the week; the server normalises it to that week's Sunday. */
   weekStart: isoDate,
 })
 
-export const saveTimesheetSchema = z.object({
-  entries: z.array(timesheetEntrySchema).max(60, 'That is too many lines for one week'),
-  comments: optionalText(4000),
-  attachmentKey: optionalText(300),
-  attachmentName: optionalText(255),
-  /** True turns the draft in. The status change is re-checked server-side. */
-  submit: z.boolean().default(false),
-})
+export const saveTimesheetSchema = z
+  .object({
+    entries: z.array(timesheetEntrySchema).max(60, 'That is too many lines for one week'),
+    comments: optionalText(4000),
+    attachmentKey: optionalText(300),
+    attachmentName: optionalText(255),
+    /** True turns the draft in. The status change is re-checked server-side. */
+    submit: z.boolean().default(false),
+  })
+  /*
+   * A DAY cannot exceed 24 hours across the whole grid.
+   *
+   * The column check only bounds one cell of one line, so six lines of five
+   * hours on the same Tuesday passes every per-cell rule and still claims thirty
+   * hours in a day. The cap belongs here because it is the only place that sees
+   * the whole week at once, and the error is pinned to the first offending cell
+   * so the grid can point at it.
+   */
+  .superRefine((value, ctx) => {
+    TIMESHEET_DAY_KEYS.forEach((key, dayIndex) => {
+      const total = value.entries.reduce((sum, entry) => sum + (entry[key] || 0), 0)
+      if (total > 24) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${TIMESHEET_DAY_LABELS[dayIndex]} adds up to ${total} hours — a day cannot exceed 24.`,
+          path: ['entries', 0, key],
+        })
+      }
+    })
+  })
 export type SaveTimesheetInput = z.infer<typeof saveTimesheetSchema>
 
 export const reviewTimesheetSchema = z

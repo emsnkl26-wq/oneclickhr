@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from '@/lib/api'
 import { apiRequireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -46,8 +46,22 @@ async function handlePOST(request: NextRequest) {
     .eq('week_start', weekStart)
     .maybeSingle()
 
+  /*
+   * A week can only be opened once, but "you already have one" is a dead end if
+   * the person cannot get to it — and they clicked this button precisely because
+   * the list did not show them the week. The id travels with the conflict so the
+   * dialog can offer to open the existing sheet rather than leaving them to hunt
+   * for it, or worse, conclude their hours are gone.
+   */
   if (existing) {
-    return jsonError('You already have a timesheet for that week.', 409)
+    return NextResponse.json(
+      {
+        error: 'You already have a timesheet for that week.',
+        id: existing.id,
+        code: existing.code,
+      },
+      { status: 409 }
+    )
   }
 
   const { data, error } = await supabase
@@ -62,7 +76,31 @@ async function handlePOST(request: NextRequest) {
     .select('id, code')
     .single()
 
-  if (error) return jsonError(friendlyDbError(error), 400)
+  /*
+   * The check above is not a lock, so a double-click can put two inserts in
+   * flight and `timesheets_week_unique` will reject the loser. That is the
+   * constraint doing its job, but "That already exists" is the wrong answer to
+   * "open this week" — the week the caller asked for now demonstrably exists, so
+   * find it and answer the same way the pre-check would have.
+   */
+  if (error) {
+    if (error.code === '23505') {
+      const { data: raced } = await supabase
+        .from('timesheets')
+        .select('id, code')
+        .eq('employee_id', ctx.userId)
+        .eq('week_start', weekStart)
+        .maybeSingle()
+
+      if (raced) {
+        return NextResponse.json(
+          { error: 'You already have a timesheet for that week.', id: raced.id, code: raced.code },
+          { status: 409 }
+        )
+      }
+    }
+    return jsonError(friendlyDbError(error), 400)
+  }
 
   await audit({
     tenantId: ctx.tenantId,

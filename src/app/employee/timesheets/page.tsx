@@ -48,12 +48,34 @@ export default async function EmployeeTimesheetsPage({
 
   const rows = (sheets.data ?? []) as unknown as TimesheetRow[]
 
+  /*
+   * A failed query and an empty workspace are NOT the same screen.
+   *
+   * `sheets.data ?? []` renders "No timesheets yet" for both, and that sentence
+   * is a lie in the first case: it tells someone their week is gone when the
+   * rows are sitting in the database. They then open the week again, find it
+   * empty, and file the same hours twice.
+   */
+  if (sheets.error) {
+    console.error('[employee/timesheets] list query failed', sheets.error)
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Timesheets"
         description="Log your hours a week at a time and send them for approval."
       />
+
+      {sheets.error ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3.5 text-sm text-danger"
+        >
+          Your timesheets could not be loaded just now. Nothing has been lost — please reload the
+          page, and contact your administrator if it keeps happening.
+        </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Timesheets" value={total.count ?? 0} icon={Timer} tone="pink" accent />

@@ -47,7 +47,7 @@ export function withErrorHandler<Args extends unknown[]>(
       }
       if (err instanceof ZodError) {
         return NextResponse.json(
-          { error: 'Please check the highlighted fields', fields: fieldErrors(err) },
+          { error: summarizeZodError(err), fields: fieldErrors(err) },
           { status: 400 }
         )
       }
@@ -55,6 +55,26 @@ export function withErrorHandler<Args extends unknown[]>(
       return jsonError('Something went wrong. Please try again.', 500)
     }
   }
+}
+
+/**
+ * The banner text for a failed validation.
+ *
+ * `fields` is only useful to a form that renders errors against its inputs, and
+ * not every surface can — a grid inside a confirmation dialog has nowhere to put
+ * them. When the request failed for exactly one reason, that reason IS the
+ * message: "Pick a project or describe the task for this line" tells someone
+ * what to do, where "Please check the highlighted fields" sends them looking for
+ * a highlight that may not exist. Several reasons at once fall back to the
+ * generic line, because concatenating them produces a paragraph nobody reads.
+ *
+ * Safe to echo: these strings are written in `schemas.ts` and describe the
+ * REQUEST, never the database.
+ */
+export function summarizeZodError(err: ZodError): string {
+  const messages = new Set(err.issues.map((issue) => issue.message).filter(Boolean))
+  const [only] = Array.from(messages)
+  return messages.size === 1 && only ? only : 'Please check the highlighted fields'
 }
 
 export function fieldErrors(err: ZodError): Record<string, string> {

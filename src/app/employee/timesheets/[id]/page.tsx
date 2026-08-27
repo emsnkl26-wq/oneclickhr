@@ -40,7 +40,7 @@ export default async function EmployeeTimesheetPage({
   const supabase = await createSupabaseServerClient()
 
   // RLS limits an employee to their own sheets, so someone else's id is a 404.
-  const { data: sheet } = await supabase
+  const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
       'id, code, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, comments, attachment_url, attachment_name, review_note, reviewed_at, submitted_at'
@@ -48,9 +48,21 @@ export default async function EmployeeTimesheetPage({
     .eq('id', id)
     .maybeSingle()
 
+  /*
+   * A query that FAILED is not a timesheet that does not exist. Answering both
+   * with notFound() tells someone their week has been deleted when the database
+   * was merely unreachable — and this page is reached from a link they just
+   * followed, so "gone" is the worst available explanation. Throwing hands it to
+   * the error boundary, which offers a retry.
+   */
+  if (sheetError) {
+    console.error('[employee/timesheets/:id] load failed', sheetError)
+    throw new Error('That timesheet could not be loaded. Please try again.')
+  }
+
   if (!sheet) notFound()
 
-  const [{ data: entries }, { data: assignments }] = await Promise.all([
+  const [{ data: entries, error: entriesError }, { data: assignments }] = await Promise.all([
     supabase
       .from('timesheet_entries')
       .select(
@@ -63,6 +75,20 @@ export default async function EmployeeTimesheetPage({
       .select('project:projects(id, code, name, client_name, status)')
       .order('created_at', { ascending: false }),
   ])
+
+  /*
+   * The lines matter more than the header does, so a failure here is fatal to
+   * the page rather than something to render around.
+   *
+   * `entries ?? []` would hand the editor an EMPTY grid for a week that has
+   * hours in it. The employee sees a blank week, retypes it or hits Save, and
+   * the save replaces the week's rows with exactly what the form holds — which
+   * is nothing. A read failure would have destroyed the data it failed to read.
+   */
+  if (entriesError) {
+    console.error('[employee/timesheets/:id] entries load failed', entriesError)
+    throw new Error('The hours on this timesheet could not be loaded. Please try again.')
+  }
 
   const projects = (
     (assignments ?? []) as unknown as Array<{

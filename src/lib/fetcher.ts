@@ -12,12 +12,25 @@
 export class ApiClientError extends Error {
   status: number
   fields?: Record<string, string>
+  /**
+   * The whole error body, for the handful of failures that carry something
+   * actionable beyond the message — a 409 from `POST /api/timesheets` returns
+   * the id of the week that already exists so the caller can offer to open it
+   * instead of stopping at "you already have one".
+   */
+  payload?: Record<string, unknown>
 
-  constructor(message: string, status: number, fields?: Record<string, string>) {
+  constructor(
+    message: string,
+    status: number,
+    fields?: Record<string, string>,
+    payload?: Record<string, unknown>
+  ) {
     super(message)
     this.name = 'ApiClientError'
     this.status = status
     this.fields = fields
+    this.payload = payload
   }
 }
 
@@ -39,7 +52,8 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
     throw new ApiClientError(
       payload?.error || 'Something went wrong. Please try again.',
       res.status,
-      payload?.fields
+      payload?.fields,
+      payload ?? undefined
     )
   }
 
