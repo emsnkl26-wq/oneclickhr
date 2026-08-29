@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Building2, MoreHorizontal, Search } from 'lucide-react'
+import { BadgeCheck, Building2, MoreHorizontal, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,8 @@ interface TenantRow {
   timezone: string
   created_at: string
   onboarded_at: string | null
+  domain: string | null
+  domain_verified_at: string | null
   employeeCount: number
   orgCount: number
   inactiveCount: number
@@ -45,7 +47,13 @@ export function OrganizationList({ tenants }: { tenants: TenantRow[] }) {
     return tenants.filter((tenant) => {
       if (status !== 'all' && tenant.status !== status) return false
       if (!q) return true
-      return tenant.name.toLowerCase().includes(q) || tenant.slug.toLowerCase().includes(q)
+      return (
+        tenant.name.toLowerCase().includes(q) ||
+        tenant.slug.toLowerCase().includes(q) ||
+        // Searchable because "are these two workspaces the same company?" is the
+        // question this page exists to answer, and the domain answers it.
+        (tenant.domain ?? '').includes(q)
+      )
     })
   }, [tenants, query, status])
 
@@ -100,6 +108,23 @@ export function OrganizationList({ tenants }: { tenants: TenantRow[] }) {
           <span className="text-ink-muted"> employees</span>
         </span>
       ),
+    },
+    {
+      key: 'domain',
+      header: 'Website',
+      cell: (row) =>
+        row.domain ? (
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-ink">{row.domain}</span>
+            {row.domain_verified_at ? (
+              <BadgeCheck className="size-3.5 shrink-0 text-emerald-600" aria-label="Verified" />
+            ) : (
+              <span className="shrink-0 text-[11px] text-amber-600">unverified</span>
+            )}
+          </span>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
     },
     {
       key: 'timezone',

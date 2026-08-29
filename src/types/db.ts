@@ -27,6 +27,18 @@ export interface Tenant {
   timezone: string
   work_start_time: string
   onboarded_at: string | null
+  /**
+   * The company website this workspace claims — bare host, already normalized
+   * (013_domain_verification.sql). A CLAIM: unverified ones may collide.
+   */
+  domain: string | null
+  /** When the claim was PROVEN. Unique across the platform while non-null. */
+  domain_verified_at: string | null
+  domain_verification_method: 'meta' | 'dns' | null
+  /** The secret the org publishes. Server-side reads only — never in a payload. */
+  domain_token: string
+  /** Deadline for the banner's tone. Nothing is gated when it passes. */
+  domain_verify_due_at: string
   created_at: string
   updated_at: string
 }
@@ -376,6 +388,9 @@ export interface CurrentProfile {
   tenant_logo_url: string | null
   tenant_primary_color: string | null
   tenant_timezone: string | null
+  tenant_domain: string | null
+  tenant_domain_verified: boolean | null
+  tenant_domain_due_at: string | null
 }
 
 // ---------------------------------------------------------------------------

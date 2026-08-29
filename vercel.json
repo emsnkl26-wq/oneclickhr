@@ -7,6 +7,9 @@
     },
     "src/app/api/integrations/google/webhook/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/org/domain/verify/route.ts": {
+      "maxDuration": 30
     }
   }
 }

@@ -5,8 +5,30 @@ import { withErrorHandler, parseBody, jsonOk, jsonError } from '@/lib/api'
 import { limitAuthByIp, rateLimit, limitKey } from '@/lib/rate-limit'
 import { audit } from '@/lib/audit'
 import { appUrl } from '@/lib/env'
+import { findVerifiedOwner, ownerConflictMessage } from '@/lib/domain-registry'
 
 export const dynamic = 'force-dynamic'
+
+/**
+ * Has some workspace already PROVEN this website?
+ *
+ * This is a check-then-write and therefore a race, which is fine: it exists to
+ * give a person a sentence they can act on at the moment it is useful, not to
+ * enforce anything. The enforcement is `tenants_verified_domain_uq` plus the
+ * re-check inside the verification handler.
+ *
+ * Fails OPEN. If the lookup errors we let the signup through rather than turn a
+ * database blip into "nobody can create an account" — the verification step
+ * that actually matters fails CLOSED instead.
+ */
+async function takenBy(domain: string) {
+  try {
+    return await findVerifiedOwner(domain)
+  } catch (err) {
+    console.warn('[signup] domain availability check failed; allowing', err)
+    return null
+  }
+}
 
 /**
  * Organization self-signup.
@@ -38,6 +60,9 @@ async function handlePOST(request: NextRequest) {
     return jsonError('Too many sign-up attempts for that address. Please try again later.', 429)
   }
 
+  const owner = await takenBy(input.domain)
+  if (owner) return jsonError(ownerConflictMessage(input.domain, owner), 409)
+
   const supabase = await createSupabaseServerClient()
 
   const { error } = await supabase.auth.signUp({
@@ -48,6 +73,10 @@ async function handlePOST(request: NextRequest) {
       data: {
         org_name: input.orgName,
         full_name: input.fullName,
+        // A CLAIM, not a credential. `provision_tenant_for_org()` copies it onto
+        // the new tenant as unverified, re-checking its shape on the way in
+        // because everything in this object is caller-controlled.
+        org_domain: input.domain,
       },
       // Must match the Supabase "Site URL"/redirect allowlist. The confirmation
       // TEMPLATE is what carries the token_hash link (SETUP.md §4); this is the
@@ -146,7 +175,7 @@ async function handlePOST(request: NextRequest) {
   await audit({
     action: 'auth.signup_requested',
     entity: 'auth.users',
-    meta: { org_name: input.orgName },
+    meta: { org_name: input.orgName, domain: input.domain },
     request,
   })
 

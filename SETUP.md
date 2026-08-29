@@ -62,12 +62,66 @@ Run, confirm it succeeds, then move to the next.
 | 7 | `007_fix_employee_provisioning.sql` | **Required.** Closes the escalation described below and repairs accounts it already affected |
 | 8 | `008_employee_onboarding.sql` | The onboarding wizard: the `employee_onboarding` draft table and the profile columns it fills in |
 | 9 | `009_performance.sql` | **Required.** Hoists the RLS session helpers out of the per-row loop, adds the missing indexes, and creates the two functions the app now calls |
+| 10 | `010_projects_timesheets.sql` | Projects, timesheets and the timesheet column guard |
+| 11 | `011_helpdesk.sql` | Tickets and ticket messages |
+| 12 | `012_profiles_and_letters.sql` | Employee work history/education/skills, the company letterhead fields on `tenants`, and `generated_documents` |
+| 13 | `013_domain_verification.sql` | **Required.** One company website, one workspace: the `domain` claim, the partial unique index over *verified* domains, the tenants column guard, and the two fields `current_profile()` now returns |
 
 `009` is not optional either — `/org/documents` and `/super/organizations` call
 `search_documents()` and `platform_tenant_stats()`, and both pages error without
 them. It changes no permissions: the policies keep the predicates `002` wrote,
 rewritten as `(select app.is_org())` so Postgres evaluates them once per
 statement instead of once per row. It is idempotent, so re-running it is safe.
+
+`013` is what stops two people from the same company each creating their own
+workspace. It is safe on a live database — every column is additive and nothing
+it adds gates access. Two parts are worth knowing before you touch it:
+
+- Uniqueness is **partial**: `tenants_verified_domain_uq` covers only rows with
+  `domain_verified_at is not null`. Unverified claims may collide on purpose —
+  a unique constraint on the *claim* would let the first stranger to type
+  `acme.com` lock the real Acme out of the product permanently.
+- **The five domain columns are server-owned, and two independent mechanisms say
+  so.** RLS already lets an org update its own tenant row and cannot express
+  *which column*, so an org admin could otherwise `PATCH domain_verified_at`
+  straight through PostgREST and skip verification entirely.
+  1. `revoke update on public.tenants from authenticated` followed by a
+     `grant update (...)` naming only the columns `/api/org/settings` edits.
+     Postgres checks column privileges before it reaches a policy or a trigger,
+     so those columns are not "guarded" — they are unreachable for that role.
+     Revoking one column does **not** subtract from a table-level grant; the
+     revoke-then-re-grant is the only way to express the restriction.
+  2. `tg_tenants_guard`, the tenants twin of `tg_profiles_guard`, as a second
+     layer that survives someone re-granting the table later. It also closes the
+     same hole on `status` (self-unsuspend) and `slug`.
+  Service-role writes (`auth.uid() is null`) pass through both — that is how the
+  verification endpoint records a result.
+- `domain_token` is **not readable** by `authenticated` either. It is the secret
+  the org publishes, every member of a workspace can read their tenant row, and
+  the one screen that displays it reads it server-side. **If you add a column to
+  `tenants`, add it to the `grant select` list too** or client queries selecting
+  it will 403.
+- `domain_verify_due_at` is a **deadline for the banner's tone, not a kill
+  switch**. Nothing is gated before or after it. It defaults to `now() + 14 days`
+  so existing workspaces get a fair window starting the day you apply this,
+  rather than being overdue the moment it lands.
+
+It also **drops and recreates `current_profile()`**, because `create or replace`
+cannot change a function's return type. Re-running the whole file is safe.
+
+Verify the privileges took:
+
+```sql
+-- Should list ONLY the editable columns, and no domain_* column at all.
+select column_name, privilege_type
+  from information_schema.column_privileges
+ where table_name = 'tenants' and grantee = 'authenticated'
+   and privilege_type = 'UPDATE'
+ order by column_name;
+
+-- Should be false — the token must never reach a browser.
+select has_column_privilege('authenticated', 'public.tenants', 'domain_token', 'SELECT');
+```
 
 `007` is not optional. `admin.createUser({ app_metadata })` writes the auth row
 *first* and the metadata *second*, so the `AFTER INSERT` trigger from `003` ran

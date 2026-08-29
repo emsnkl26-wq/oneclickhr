@@ -10,6 +10,7 @@ import { apiPost, ApiClientError } from '@/lib/fetcher'
 
 export default function SignupPage() {
   const [orgName, setOrgName] = React.useState('')
+  const [domain, setDomain] = React.useState('')
   const [fullName, setFullName] = React.useState('')
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
@@ -26,7 +27,7 @@ export default function SignupPage() {
     setSubmitting(true)
 
     try {
-      await apiPost('/api/auth/signup', { orgName, fullName, email, password })
+      await apiPost('/api/auth/signup', { orgName, domain, fullName, email, password })
       setSent(true)
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -85,6 +86,29 @@ export default function SignupPage() {
             placeholder="Acme Health"
             value={orgName}
             onChange={(e) => setOrgName(e.target.value)}
+            required
+          />
+        </FormField>
+
+        {/*
+          Asked here and nowhere else, because this is the only moment where the
+          answer can PREVENT a duplicate workspace rather than have to merge one
+          later. Nothing is verified yet — that is a banner on the dashboard
+          afterwards, so signup stays four fields and under a minute.
+        */}
+        <FormField
+          label="Company website"
+          error={fields.domain}
+          hint="Used to keep one workspace per company. You'll confirm it later."
+          required
+        >
+          <Input
+            name="domain"
+            autoComplete="url"
+            inputMode="url"
+            placeholder="acme.com"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
             required
           />
         </FormField>

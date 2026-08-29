@@ -6,6 +6,7 @@
  * the user, never a control.
  */
 import { z } from 'zod'
+import { normalizeDomain, domainProblem } from '@/lib/domain'
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -49,13 +50,42 @@ const optionalText = (max: number) =>
 // Auth
 // ---------------------------------------------------------------------------
 
+/**
+ * A company website, normalized to the bare host we store and compare on.
+ *
+ * The transform runs AFTER the check on purpose: `Acme.COM/careers`,
+ * `https://www.acme.com` and `acme.com` are the same organization, and if the
+ * form and the server disagreed about that by one character, the domain someone
+ * verified would stop matching the one recorded against their workspace.
+ */
+export const domainSchema = z
+  .string()
+  .trim()
+  .min(1, 'Enter your company website')
+  .max(300)
+  .superRefine((value, ctx) => {
+    const problem = domainProblem(value)
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem })
+  })
+  .transform((value) => normalizeDomain(value) as string)
+
 export const signupSchema = z.object({
   orgName: z.string().trim().min(2, 'Enter your organization name').max(120),
   fullName: z.string().trim().min(2, 'Enter your name').max(120),
   email: emailSchema,
   password: passwordSchema,
+  /**
+   * Required, and required at SIGNUP rather than at verification: it is what
+   * makes "does this company already have a workspace?" answerable BEFORE the
+   * second one exists. Proving it is a separate, later, optional-feeling step —
+   * see 013_domain_verification.sql.
+   */
+  domain: domainSchema,
 })
 export type SignupInput = z.infer<typeof signupSchema>
+
+/** Setting or correcting the claimed website from the verification page. */
+export const setDomainSchema = z.object({ domain: domainSchema })
 
 export const loginSchema = z.object({
   email: emailSchema,

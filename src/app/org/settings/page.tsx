@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { CalendarDays } from 'lucide-react'
+import { BadgeCheck, CalendarDays, Globe } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
@@ -67,6 +67,37 @@ export default async function SettingsPage() {
 
         <div className="space-y-5">
           <DepartmentManager departments={departments ?? []} />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                Company website
+                {ctx.tenant.domainVerified ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    <BadgeCheck className="size-3" aria-hidden />
+                    Verified
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                    Not verified
+                  </span>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {ctx.tenant.domain
+                  ? `${ctx.tenant.domain} — verifying it reserves this workspace for your company.`
+                  : 'Reserve this workspace for your company so nobody opens a second one.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="secondary">
+                <Link href="/org/settings/domain">
+                  <Globe />
+                  {ctx.tenant.domainVerified ? 'Manage website' : 'Verify website'}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

@@ -42,6 +42,15 @@ export interface AppContext {
     timezone: string
     workStartTime: string
     onboarded: boolean
+    /** The company website this workspace claims. Null on pre-013 workspaces. */
+    domain: string | null
+    /** Whether that claim has been PROVEN. Only this drives the banner. */
+    domainVerified: boolean
+    /**
+     * When the workspace is expected to have proven it. A DEADLINE FOR THE
+     * BANNER'S TONE — nothing is cut off when it passes.
+     */
+    domainVerifyDueAt: string | null
   } | null
 }
 
@@ -132,6 +141,12 @@ async function loadContextUncached(): Promise<ContextResult> {
           timezone: row.tenant_timezone ?? 'Asia/Kolkata',
           workStartTime: row.tenant_work_start_time ?? '09:30',
           onboarded: !!row.tenant_onboarded,
+          domain: row.tenant_domain ?? null,
+          // Defaults FALSE when the column is absent — a database that has not
+          // had 013 applied yet shows the banner rather than silently treating
+          // every workspace as verified.
+          domainVerified: !!row.tenant_domain_verified,
+          domainVerifyDueAt: row.tenant_domain_due_at ?? null,
         }
       : null,
   }

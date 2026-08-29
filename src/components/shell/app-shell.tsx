@@ -1,6 +1,8 @@
 import * as React from 'react'
 import { Sidebar, type ShellBrand, type ShellUser } from '@/components/shell/sidebar'
+import { DomainBanner } from '@/components/shell/domain-banner'
 import { hexToHslTriple, shiftLightness } from '@/lib/utils'
+import { daysUntilDeadline } from '@/lib/domain'
 import type { AppContext } from '@/lib/auth/context'
 
 /**
@@ -71,6 +73,13 @@ export function AppShell({
   // not a customer's workspace.
   const css = ctx.role === 'super_admin' ? null : brandCss(ctx.tenant?.primaryColor)
 
+  /*
+   * Only the ORG owner sees the domain prompt. An employee cannot act on it —
+   * the settings page it links to is behind an org-only guard — so showing it
+   * to them would be an unfixable warning on every screen they open.
+   */
+  const needsDomain = ctx.role === 'org' && !!ctx.tenant && !ctx.tenant.domainVerified
+
   return (
     <div className="min-h-screen bg-page">
       {css ? <style>{css}</style> : null}
@@ -79,6 +88,14 @@ export function AppShell({
           half the width, and the offset has to follow it. */}
       <div className="rail-offset">
         <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          {needsDomain ? (
+            <DomainBanner
+              domain={ctx.tenant?.domain ?? null}
+              /* Counted here, on the server. Inside the client component it
+                 would re-derive against a different clock on hydration. */
+              daysLeft={daysUntilDeadline(ctx.tenant?.domainVerifyDueAt)}
+            />
+          ) : null}
           {children}
         </main>
       </div>

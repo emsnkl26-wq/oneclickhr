@@ -25,7 +25,7 @@ export default async function OrganizationsPage() {
   const [{ data: tenants }, { data: stats }] = await Promise.all([
     admin
       .from('tenants')
-      .select('id, name, slug, status, primary_color, timezone, created_at, onboarded_at')
+      .select('id, name, slug, status, primary_color, timezone, created_at, onboarded_at, domain, domain_verified_at')
       .order('created_at', { ascending: false }),
     admin.rpc('platform_tenant_stats'),
   ])
