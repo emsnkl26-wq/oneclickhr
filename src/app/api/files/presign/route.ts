@@ -14,8 +14,17 @@ import { rateLimit, limitKey } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
-/** Which purposes an employee may upload for. Everything else is org-only. */
-const EMPLOYEE_PURPOSES = new Set(['photo', 'general'])
+/**
+ * Which purposes an employee may upload for. Everything else is org-only.
+ *
+ * `employee_doc` and `work_auth` joined the list with self-service onboarding
+ * (014): the résumé, the ID proof and the visa copy are the employee's own
+ * paperwork, and asking them to email it to an admin who then uploads it is the
+ * chore that flow exists to remove. It widens what an employee may STORE, not
+ * what they may READ — `documents_insert` still pins `owner_id` to them and
+ * `documents_select` still shows an employee only their own rows.
+ */
+const EMPLOYEE_PURPOSES = new Set(['photo', 'general', 'employee_doc', 'work_auth'])
 
 const FOLDERS: Record<string, string> = {
   photo: 'photos',

@@ -141,6 +141,13 @@ export interface CredentialEmailArgs {
   tempPassword: string
   orgName: string
   brandColor?: string
+  /**
+   * The account was created so this person can COMPLETE THEIR OWN ONBOARDING
+   * (014), not merely so they can start using the portal. Same credentials,
+   * different ask — and an email that does not say what is wanted is an email
+   * that gets filed and forgotten.
+   */
+  completeOnboarding?: boolean
 }
 
 /**
@@ -154,6 +161,15 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
   // for a new starter reads as "they sent me a broken password".
   const loginUrl = `${appUrl()}${EMPLOYEE_LOGIN_PATH}`
   const brand = args.brandColor || '#C41E33'
+
+  const ask = args.completeOnboarding
+    ? `
+    <p style="margin:0 0 18px;">Once you are in, you will be asked to complete your onboarding
+    details — your address, work authorization, emergency contact and a few documents. It takes
+    about ten minutes, and you can save and come back to it. ${esc(
+      args.orgName
+    )} reviews what you submit.</p>`
+    : ''
 
   const html = layout(
     `
@@ -177,7 +193,9 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
       </td></tr>
     </table>
 
-    ${button(loginUrl, 'Sign in', brand)}
+    ${ask}
+
+    ${button(loginUrl, args.completeOnboarding ? 'Sign in and finish setup' : 'Sign in', brand)}
 
     <p style="margin:0;font-size:13px;color:#6B7280;">
       You will be asked to choose your own password the first time you sign in — this
@@ -185,10 +203,22 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
       please contact your manager.
     </p>
   `,
-    { brandName: args.orgName, brandColor: brand, preheader: 'Your employee portal sign-in details' }
+    {
+      brandName: args.orgName,
+      brandColor: brand,
+      preheader: args.completeOnboarding
+        ? 'Sign in to complete your onboarding'
+        : 'Your employee portal sign-in details',
+    }
   )
 
-  return sendEmail({ to: args.to, subject: `Your ${args.orgName} portal account`, html })
+  return sendEmail({
+    to: args.to,
+    subject: args.completeOnboarding
+      ? `Complete your onboarding at ${args.orgName}`
+      : `Your ${args.orgName} portal account`,
+    html,
+  })
 }
 
 export interface VisaReminderArgs {

@@ -7,8 +7,9 @@ import { draftFromRow, draftDisplayName, REVIEW_STEP } from '@/lib/onboarding'
 import { accountLast4 } from '@/lib/onboarding-server'
 import { OnboardingWizard } from '../onboarding-wizard'
 import { loadWizardData } from '../wizard-data'
+import type { OnboardingStatus } from '@/types/db'
 
-export const metadata: Metadata = { title: 'Resume onboarding' }
+export const metadata: Metadata = { title: 'Onboarding' }
 export const dynamic = 'force-dynamic'
 
 /**
@@ -49,8 +50,12 @@ export default async function ResumeOnboardingPage({
   }
 
   if (!row) notFound()
-  // A finished onboarding is an employee now — send the org to the person, not
-  // to a form that can no longer be saved.
+  /*
+   * A finished onboarding is an employee now — send the org to the person, not
+   * to a form that can no longer be saved. `invited` and `submitted` also have
+   * an account by then and deliberately do NOT redirect: the paperwork is still
+   * open, and this page is where it gets finished and reviewed.
+   */
   if (row.status === 'completed' && row.employee_profile_id) {
     redirect(`/org/employees/${row.employee_profile_id}`)
   }
@@ -62,11 +67,19 @@ export default async function ResumeOnboardingPage({
     ? (row.completed_steps as number[])
     : []
 
+  const status = row.status as OnboardingStatus
+
   return (
     <div className="space-y-6">
       <PageHeader
         title={draftDisplayName(draft)}
-        description="Picking up where you left off. Nothing is created until you complete the last step."
+        description={
+          status === 'submitted'
+            ? 'They have completed their details. Review everything, then approve it onto their profile.'
+            : status === 'invited'
+              ? 'Their account is live and they are filling in their own details. You can add to it here too.'
+              : 'Picking up where you left off. Nothing is created until you complete the last step.'
+        }
       />
       <OnboardingWizard
         draftId={row.id}
@@ -77,6 +90,9 @@ export default async function ResumeOnboardingPage({
         managers={managers}
         accountLast4={accountLast4(row.account_number_enc)}
         currencySymbol={currencySymbol}
+        initialStatus={status}
+        employeeProfileId={row.employee_profile_id ?? null}
+        submittedAt={row.submitted_at ?? null}
       />
     </div>
   )

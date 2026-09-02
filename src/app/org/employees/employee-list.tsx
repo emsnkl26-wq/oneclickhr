@@ -196,7 +196,9 @@ export function EmployeeList({
           { value: 'team', label: `Team (${employeeCount})` },
           {
             value: 'drafts',
-            label: 'Drafts',
+            // Not "Drafts" any more: the tab also holds onboardings that have an
+            // account and are with the employee, or waiting on a review.
+            label: 'Onboarding',
             badge: draftCount ? (
               <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">
                 {draftCount}

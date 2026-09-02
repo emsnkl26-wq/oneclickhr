@@ -5,9 +5,17 @@
  *
  * THREE RULES THAT SHAPE EVERYTHING HERE
  * --------------------------------------
- * 1. NO ACCOUNT UNTIL THE END. Every save writes to `employee_onboarding` and
- *    nothing else. The auth user, the profile and the visa row are created by
- *    one server call on the last step, which rolls back if any part of it fails.
+ * 1. NO ACCOUNT UNTIL SOMEONE ASKS FOR ONE. Every save writes to
+ *    `employee_onboarding` and nothing else. The auth user, the profile and the
+ *    visa row are created by one server call — on the last step, or earlier if
+ *    the org chooses "Create account & send login", which is the same call
+ *    minus the requirement that all five steps be filled in. Either way it
+ *    rolls back if any part of it fails.
+ *
+ *    That early exit is the point of the whole flow (014): most of these sixty
+ *    fields are the EMPLOYEE'S information, and chasing them by email so an
+ *    admin can retype them is the work this removes. Hand over the credentials,
+ *    let them fill in their own share, review what comes back.
  * 2. NAVIGATION IS NON-LINEAR. Any step is reachable from the sidebar at any
  *    time. Validation reports; it does not imprison. Someone waiting on a bank
  *    letter should still be able to fill in step 5.
@@ -17,10 +25,15 @@
 
 import * as React from 'react'
 import { useProgressRouter } from '@/lib/use-progress-router'
-import { ArrowLeft, ArrowRight, Check, Loader2, Save } from 'lucide-react'
+import {
+  ArrowLeft, ArrowRight, Check, Clock, Loader2, Save, Send, UserCheck, Undo2,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Select } from '@/components/ui/input'
+import { Select, Textarea } from '@/components/ui/input'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
+} from '@/components/ui/primitives'
 import { apiPatch, apiPost, ApiClientError } from '@/lib/fetcher'
 import { cn } from '@/lib/utils'
 import {
@@ -30,7 +43,9 @@ import {
 } from '@/lib/onboarding'
 import { InfoBanner, WizardField, type FieldContext, type Person } from './step-fields'
 import { ReviewStep } from './review-step'
+import { CredentialsDialog } from './credentials-dialog'
 import { stashCredentials, type NewCredentials } from '@/lib/new-credentials'
+import type { OnboardingStatus } from '@/types/db'
 
 const AUTOSAVE_MS = 30_000
 
@@ -47,6 +62,9 @@ export function OnboardingWizard({
   managers,
   accountLast4: initialLast4,
   currencySymbol,
+  initialStatus = 'draft',
+  employeeProfileId = null,
+  submittedAt = null,
 }: {
   draftId: string | null
   initialDraft: OnboardingDraft
@@ -56,6 +74,11 @@ export function OnboardingWizard({
   managers: Person[]
   accountLast4: string | null
   currencySymbol: string
+  /** Where this onboarding stands. Drives which buttons the action bar offers. */
+  initialStatus?: OnboardingStatus
+  /** The account, once one exists. Null while the status is still `draft`. */
+  employeeProfileId?: string | null
+  submittedAt?: string | null
 }) {
   const router = useProgressRouter()
 
@@ -75,6 +98,19 @@ export function OnboardingWizard({
   const [submitting, setSubmitting] = React.useState(false)
   const [uploads, setUploads] = React.useState<string[]>([])
   const [accountMismatch, setAccountMismatch] = React.useState(false)
+
+  /*
+   * The status is STATE, not a prop read once: creating the account changes it
+   * under the org's feet without a navigation, and every button below reads it.
+   */
+  const [status, setStatus] = React.useState<OnboardingStatus>(initialStatus)
+  const [accountId, setAccountId] = React.useState<string | null>(employeeProfileId)
+  const [inviting, setInviting] = React.useState(false)
+  /** The one-time password, held only while its dialog is open. */
+  const [credentials, setCredentials] = React.useState<NewCredentials | null>(null)
+  const [changesOpen, setChangesOpen] = React.useState(false)
+  const [changeNotes, setChangeNotes] = React.useState('')
+  const [requesting, setRequesting] = React.useState(false)
 
   const dirty = React.useRef(false)
   const draftRef = React.useRef(draft)
@@ -228,6 +264,77 @@ export function OnboardingWizard({
     }
   }
 
+  /* --------------------------------------------------------- Early invite */
+
+  /**
+   * Create the account now and hand over the credentials.
+   *
+   * Only three fields are needed, and they are all on step 1 — so the failure
+   * mode is a jump back there with the errors showing, never a silent refusal.
+   * The server re-checks the same three; this is the courtesy copy that saves a
+   * round trip.
+   */
+  async function onInvite() {
+    const missing: Record<string, string> = {}
+    if (!draft.firstName.trim()) missing.firstName = 'Enter their first name'
+    if (!draft.lastName.trim()) missing.lastName = 'Enter their last name'
+    if (!draft.personalEmail.trim()) missing.personalEmail = 'Enter their email address'
+    if (Object.keys(missing).length) {
+      setShownErrors((prev) => ({ ...prev, 1: { ...(prev[1] ?? {}), ...missing } }))
+      setCheckedSteps((prev) => (prev.includes(1) ? prev : [...prev, 1]))
+      setStep(1)
+      toast.error('Add their name and email address first')
+      return
+    }
+
+    setInviting(true)
+    try {
+      const id = await save(step, nextCompleted(step))
+      if (!id) return
+      const result = await apiPost<CompletionResult>(`/api/org/onboarding/${id}/invite`, {
+        sendCredentialsEmail: true,
+      })
+      setStatus('invited')
+      setAccountId(result.id)
+      setCredentials(result)
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        const serverSteps = readSteps(err)
+        if (serverSteps) {
+          const indexes = Object.keys(serverSteps).map(Number)
+          setShownErrors((prev) => ({ ...prev, ...serverSteps }))
+          setCheckedSteps((prev) => Array.from(new Set([...prev, ...indexes])))
+          setStep(Math.min(...indexes))
+        }
+        toast.error(err.message)
+      } else {
+        toast.error('Something went wrong. Please try again.')
+      }
+    } finally {
+      setInviting(false)
+    }
+  }
+
+  /* ------------------------------------------------------------- Send back */
+
+  async function onRequestChanges() {
+    if (!draftId) return
+    setRequesting(true)
+    try {
+      await apiPost(`/api/org/onboarding/${draftId}/request-changes`, { notes: changeNotes.trim() })
+      setChangesOpen(false)
+      setStatus('invited')
+      toast.success('Sent back to the employee with your note')
+      router.push('/org/employees?tab=drafts')
+    } catch (err) {
+      toast.error(
+        err instanceof ApiClientError ? err.message : 'We could not send this back just now'
+      )
+    } finally {
+      setRequesting(false)
+    }
+  }
+
   /* ------------------------------------------------------------ Completion */
 
   async function onComplete() {
@@ -367,6 +474,8 @@ export function OnboardingWizard({
 
       {/* ---------------------------------------------------------- Form --- */}
       <div className="min-w-0 flex-1 space-y-5 pb-24">
+        <StatusBanner status={status} step={step} submittedAt={submittedAt} />
+
         {activeStep ? (
           <div key={activeStep.index} className="animate-fade-in space-y-5">
             {visibleSections(activeStep, draft).map((section) => (
@@ -446,18 +555,167 @@ export function OnboardingWizard({
             </Button>
           ) : null}
 
+          {status === 'draft' ? (
+            <Button
+              variant="secondary"
+              onClick={onInvite}
+              loading={inviting}
+              disabled={saving || submitting || uploads.length > 0}
+              title="Create their account now and let them fill in the rest"
+            >
+              <Send />
+              <span className="hidden sm:inline">Create account &amp; send login</span>
+              <span className="sm:hidden">Send login</span>
+            </Button>
+          ) : null}
+
+          {status === 'submitted' ? (
+            <Button
+              variant="secondary"
+              onClick={() => setChangesOpen(true)}
+              disabled={submitting || inviting}
+            >
+              <Undo2 />
+              <span className="hidden sm:inline">Request changes</span>
+            </Button>
+          ) : null}
+
           {step === REVIEW_STEP ? (
-            <Button onClick={onComplete} loading={submitting} disabled={uploads.length > 0}>
+            <Button
+              onClick={onComplete}
+              loading={submitting}
+              disabled={uploads.length > 0 || inviting}
+            >
               <Check />
-              Complete onboarding
+              {status === 'submitted' ? 'Approve & finish' : 'Complete onboarding'}
             </Button>
           ) : (
-            <Button onClick={onNext} disabled={submitting}>
+            <Button onClick={onNext} disabled={submitting || inviting}>
               Next
               <ArrowRight />
             </Button>
           )}
         </div>
+      </div>
+
+      {/* ------------------------------------------------------ Hand-over --- */}
+      {credentials ? (
+        <CredentialsDialog
+          credentials={credentials}
+          name={[draft.firstName, draft.lastName].filter(Boolean).join(' ').trim() || 'The employee'}
+          open
+          /*
+           * Dismissing it any other way (Escape, the X, the overlay) means the
+           * same thing as "done": the password is gone either way, so the honest
+           * move is to stop pretending it is still available.
+           */
+          onOpenChange={(open) => !open && setCredentials(null)}
+          onContinue={() => setCredentials(null)}
+          onDone={() => {
+            setCredentials(null)
+            router.push(accountId ? `/org/employees/${accountId}` : '/org/employees?tab=drafts')
+          }}
+        />
+      ) : null}
+
+      {/* --------------------------------------------------- Send back --- */}
+      <Dialog open={changesOpen} onOpenChange={(open) => !open && setChangesOpen(false)}>
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Send this back for changes?</DialogTitle>
+            <DialogDescription>
+              Their form reopens and they are notified with your note. Nothing already entered is
+              lost, and their account is unaffected.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="pb-4">
+            <Textarea
+              value={changeNotes}
+              onChange={(e) => setChangeNotes(e.target.value)}
+              rows={4}
+              maxLength={2000}
+              placeholder="e.g. The address looks like your old one — please update it, and re-upload the ID proof, the scan is unreadable."
+              aria-label="What needs changing"
+            />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setChangesOpen(false)} disabled={requesting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={onRequestChanges}
+              loading={requesting}
+              disabled={!changeNotes.trim()}
+            >
+              <Undo2 />
+              Send back
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+/**
+ * Who this onboarding is waiting on, said once at the top of the form.
+ *
+ * On a plain draft it is an OFFER rather than a status: the whole flow only
+ * helps if the person about to type sixty fields knows they do not have to.
+ * That is why it shows on step 1 and then gets out of the way.
+ */
+function StatusBanner({
+  status, step, submittedAt,
+}: {
+  status: OnboardingStatus
+  step: number
+  submittedAt: string | null
+}) {
+  if (status === 'draft') {
+    if (step !== 1) return null
+    return (
+      <InfoBanner>
+        Don&rsquo;t have all their details? Fill in their name and email, then{' '}
+        <strong className="font-semibold text-ink">Create account &amp; send login</strong> — they
+        can sign in and complete the rest themselves, and you review it before it becomes their
+        profile.
+      </InfoBanner>
+    )
+  }
+
+  const submitted = status === 'submitted'
+
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-3 rounded-xl border px-4 py-3.5',
+        submitted ? 'border-emerald-200 bg-emerald-50/60' : 'border-line bg-page'
+      )}
+    >
+      {submitted ? (
+        <UserCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
+      ) : (
+        <Clock className="mt-0.5 size-4 shrink-0 text-ink-muted" aria-hidden />
+      )}
+      <div className="min-w-0 text-sm">
+        <p className="font-semibold">
+          {submitted ? 'Ready for your review' : 'Waiting on the employee'}
+        </p>
+        <p className="mt-0.5 leading-relaxed text-ink-muted">
+          {submitted ? (
+            <>
+              They have filled in their own details{submittedAt ? ' and submitted them' : ''}. Check
+              the review step, then approve — approving is what writes all of this onto their
+              profile. Anything wrong can be corrected here first, or sent back to them.
+            </>
+          ) : (
+            <>
+              Their account exists and they can sign in to complete their details. You can carry on
+              filling this in yourself at any time — whoever gets there first, the review step is
+              where it ends up.
+            </>
+          )}
+        </p>
       </div>
     </div>
   )

@@ -24,7 +24,7 @@ export default async function OnboardEmployeePage() {
     <div className="space-y-6">
       <PageHeader
         title="Onboard an employee"
-        description="Six steps. Save at any point and pick it up later — their account is only created at the end."
+        description="Fill it all in yourself, or add their name and email and let them complete their own details — you review either way."
       />
       <OnboardingWizard
         draftId={null}

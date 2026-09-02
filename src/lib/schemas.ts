@@ -329,9 +329,12 @@ export const onboardingDraftSchema = z.object({
   additionalDocs: z.array(additionalDocSchema).max(15).optional(),
   complianceNotes: draftText(4000),
 
-  // Wizard state
+  // Wizard state. The org's position and the employee's are tracked apart (014)
+  // so an admin resuming their side does not shunt the employee around theirs.
   currentStep: z.coerce.number().int().min(1).max(6).optional(),
   completedSteps: z.array(z.coerce.number().int().min(1).max(6)).max(6).optional(),
+  employeeStep: z.coerce.number().int().min(1).max(6).optional(),
+  employeeCompletedSteps: z.array(z.coerce.number().int().min(1).max(6)).max(6).optional(),
 })
 export type OnboardingDraftInput = z.infer<typeof onboardingDraftSchema>
 
@@ -399,6 +402,37 @@ export const ONBOARDING_STEP_SCHEMAS = [
 /** Send the credential email? The only choice completion asks for. */
 export const completeOnboardingSchema = z.object({
   sendCredentialsEmail: z.boolean().default(true),
+})
+
+/**
+ * Create the account NOW and hand the rest of the form to the employee (014).
+ *
+ * Only what an account cannot exist without: a name to address them by and the
+ * email that becomes their sign-in. Everything else the wizard collects is
+ * exactly what the employee is being invited to fill in, so requiring any of it
+ * here would defeat the point.
+ */
+export const inviteOnboardingSchema = z.object({
+  sendCredentialsEmail: z.boolean().default(true),
+})
+
+/** Send a submitted onboarding back with a note saying what to fix. */
+export const requestChangesSchema = z.object({
+  notes: z
+    .string()
+    .trim()
+    .min(1, 'Say what needs changing')
+    .max(2000, 'Keep this under 2000 characters'),
+})
+
+/**
+ * The three fields an invite cannot do without — checked against the draft the
+ * org has typed so far, not against a separate form.
+ */
+export const inviteReadySchema = z.object({
+  firstName: requiredText('Enter their first name', 80),
+  lastName: requiredText('Enter their last name', 80),
+  personalEmail: emailSchema,
 })
 
 // ---------------------------------------------------------------------------

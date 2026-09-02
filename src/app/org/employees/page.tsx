@@ -21,7 +21,18 @@ const EMPLOYEE_COLUMNS =
  * readable by the `authenticated` role (008_employee_onboarding.sql).
  */
 const DRAFT_COLUMNS =
-  'id, first_name, last_name, personal_email, designation, current_step, completed_steps, created_at, updated_at'
+  'id, first_name, last_name, personal_email, designation, current_step, completed_steps, ' +
+  'status, employee_profile_id, invited_at, submitted_at, created_at, updated_at'
+
+/**
+ * Which onboardings are "open".
+ *
+ * Not just `draft` any more: an `invited` one has an account and is with the
+ * employee, and a `submitted` one is waiting on an admin. Both are unfinished
+ * work that belongs in this list — leaving them out would mean an org invites
+ * someone and then cannot find them anywhere.
+ */
+const OPEN_STATUSES = ['draft', 'invited', 'submitted']
 
 /**
  * Two tabs, and only the open one is fetched.
@@ -59,11 +70,14 @@ export default async function EmployeesPage({
       ? supabase
           .from('employee_onboarding')
           .select('id', { count: 'exact', head: true })
-          .eq('status', 'draft')
+          .in('status', OPEN_STATUSES)
       : supabase
           .from('employee_onboarding')
           .select(DRAFT_COLUMNS, { count: 'exact' })
-          .eq('status', 'draft')
+          .in('status', OPEN_STATUSES)
+          // Submitted first: it is the only one of the three with somebody
+          // waiting on the admin reading this page.
+          .order('submitted_at', { ascending: false, nullsFirst: false })
           .order('updated_at', { ascending: false }),
 
     // Only the team tab has a department filter and a department column.

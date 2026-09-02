@@ -67,8 +67,15 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     .maybeSingle()
 
   if (!existing) return jsonError('That draft was not found.', 404)
-  if (existing.status !== 'draft') {
-    return jsonError('This onboarding has already been completed and cannot be edited.', 409)
+  /*
+   * `invited` and `submitted` stay editable by the ORG (014). The account
+   * exists by then, but the paperwork is still open — an admin correcting a
+   * department or a pay rate while the employee fills in their address is the
+   * normal case, not a conflict. Only a finished or cancelled onboarding is
+   * closed to writes.
+   */
+  if (existing.status === 'completed' || existing.status === 'cancelled') {
+    return jsonError('This onboarding is closed and can no longer be edited.', 409)
   }
 
   if (Object.keys(patch).length) {
@@ -97,13 +104,25 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
 
   const { data: existing } = await supabase
     .from('employee_onboarding')
-    .select('id, status, first_name, last_name, personal_email')
+    .select('id, status, first_name, last_name, personal_email, employee_profile_id')
     .eq('id', draftId)
     .maybeSingle()
 
   if (!existing) return jsonError('That draft was not found.', 404)
-  if (existing.status === 'completed') {
-    return jsonError('This onboarding is complete. Deactivate the employee instead.', 409)
+  /*
+   * Anything that produced an account is undeletable, not just a completed one:
+   * an `invited` row belongs to a real person who can already sign in, and
+   * deleting the row would strand them in front of a form that no longer
+   * exists. The RLS delete policy in 014 refuses these too — this is the
+   * message, that is the guarantee.
+   */
+  if (existing.status !== 'draft') {
+    return jsonError(
+      existing.status === 'completed'
+        ? 'This onboarding is complete. Deactivate the employee instead.'
+        : 'An account already exists for this onboarding. Deactivate the employee instead.',
+      409
+    )
   }
 
   const { error } = await supabase.from('employee_onboarding').delete().eq('id', draftId)

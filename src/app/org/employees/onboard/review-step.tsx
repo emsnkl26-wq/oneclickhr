@@ -1,12 +1,18 @@
 'use client'
 
 /**
- * Step 6 — the read-only summary.
+ * The last step — the read-only summary.
  *
  * Rendered from the same step config as the form, so a field can never be
  * collected and then quietly left out of the review. Each card header is a
  * button back to its step: the fastest fix for "that date is wrong" is one
  * click from where you noticed it.
+ *
+ * WHICH steps is a prop (014). The org reviews all five; the employee reviews
+ * the four they were asked to fill in. Passing the config in rather than
+ * writing a second summary component is what keeps the two honest — a field
+ * added to `ONBOARDING_STEPS` shows up in whichever reviews contain its step,
+ * with no second place to remember.
  */
 
 import * as React from 'react'
@@ -14,7 +20,7 @@ import { AlertCircle, Check, Lock, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   countryLabel, payRateLabel, visibleSections,
-  ONBOARDING_STEPS, type FieldDef, type OnboardingDraft,
+  ONBOARDING_STEPS, type FieldDef, type OnboardingDraft, type StepDef,
 } from '@/lib/onboarding'
 import type { Person } from './step-fields'
 
@@ -26,24 +32,30 @@ export interface ReviewContext {
 }
 
 export function ReviewStep({
-  draft, errorCounts, onJump, ctx,
+  draft, errorCounts, onJump, ctx, steps = ONBOARDING_STEPS, title, intro,
 }: {
   draft: OnboardingDraft
   errorCounts: Record<number, number>
   onJump: (step: number) => void
   ctx: ReviewContext
+  /** Which steps to summarise. Defaults to the organization's full set. */
+  steps?: StepDef[]
+  title?: string
+  intro?: string
 }) {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-[20px] font-bold tracking-[-0.02em]">Let&rsquo;s review everything</h2>
+        <h2 className="text-[20px] font-bold tracking-[-0.02em]">
+          {title ?? 'Let’s review everything'}
+        </h2>
         <p className="mt-1.5 text-sm text-ink-muted">
-          Here&rsquo;s a summary of the employee details. Make sure everything looks good before
-          completing.
+          {intro ??
+            'Here’s a summary of the employee details. Make sure everything looks good before completing.'}
         </p>
       </div>
 
-      {ONBOARDING_STEPS.map((step) => {
+      {steps.map((step) => {
         const errors = errorCounts[step.index] ?? 0
         return (
           <section key={step.index} className="card-surface overflow-hidden">

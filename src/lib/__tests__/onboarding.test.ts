@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   draftFromRow, emptyDraft, errorCountsFor, needsVisaDetail, validateStep, visibleSections,
   ONBOARDING_STEPS, DRAFT_COLUMNS,
+  EMPLOYEE_STEPS, EMPLOYEE_EDITABLE_KEYS, ORG_ONLY_FIELDS,
+  validateEmployeeStep, employeeStepsComplete,
 } from '@/lib/onboarding'
-import { toColumns } from '@/lib/onboarding-server'
+import { toColumns, employeeToColumns } from '@/lib/onboarding-server'
 import { onboardingDraftSchema } from '@/lib/schemas'
 
 /** A draft that satisfies every required field, as a starting point to break. */
@@ -155,5 +157,97 @@ describe('draft patches', () => {
   it('deduplicates and sorts completed steps', () => {
     const patch = toColumns(onboardingDraftSchema.parse({ completedSteps: [3, 1, 3] }))
     expect(patch.completed_steps).toEqual([1, 3])
+  })
+})
+
+/**
+ * The employee's view of the wizard (014).
+ *
+ * These tests exist because the view is DERIVED. A field added to
+ * `ONBOARDING_STEPS` silently joins or does not join the employee's form
+ * depending on where it lands, and the consequence of getting that wrong is
+ * either an employee editing their own pay or an org chasing a field nobody was
+ * ever shown.
+ */
+describe('employee onboarding view', () => {
+  it('drops every organization-owned field', () => {
+    const shown = new Set(
+      EMPLOYEE_STEPS.flatMap((s) => s.sections.flatMap((sec) => sec.fields.map((f) => f.key)))
+    )
+    for (const key of ORG_ONLY_FIELDS) expect(shown.has(key)).toBe(false)
+  })
+
+  it('never shows an admin-only field', () => {
+    const fields = EMPLOYEE_STEPS.flatMap((s) => s.sections.flatMap((sec) => sec.fields))
+    expect(fields.some((f) => f.adminOnly)).toBe(false)
+  })
+
+  it('drops the employment step entirely, since it is nothing but the offer', () => {
+    expect(EMPLOYEE_STEPS.map((s) => s.sourceIndex)).toEqual([1, 2, 4, 5])
+    expect(EMPLOYEE_STEPS.map((s) => s.index)).toEqual([1, 2, 3, 4])
+  })
+
+  it('keeps the fields that are genuinely the employee to answer', () => {
+    for (const key of ['streetAddress', 'workAuthStatus', 'emergencyPhone', 'idProofUrl']) {
+      expect(EMPLOYEE_EDITABLE_KEYS.has(key)).toBe(true)
+    }
+  })
+
+  it('reports only errors for fields the employee can see', () => {
+    // Their step 3 comes from the org's step 4, which also requires pay — and
+    // pay is not on their form, so it must not be held against them.
+    const errors = validateEmployeeStep(3, emptyDraft())
+    expect(Object.keys(errors).sort()).toEqual([
+      'emergencyContactName',
+      'emergencyPhone',
+      'emergencyRelationship',
+    ])
+  })
+
+  it('addresses the person filling it in, not the person being described', () => {
+    expect(validateEmployeeStep(1, emptyDraft()).firstName).toBe('Enter your first name')
+  })
+
+  it('accepts a draft the employee has completed, pay and department still blank', () => {
+    const draft = emptyDraft({
+      firstName: 'Alice',
+      lastName: 'Nguyen',
+      dateOfBirth: '1992-04-11',
+      gender: 'Female',
+      streetAddress: '14 Bell Street',
+      city: 'Austin',
+      stateProvince: 'TX',
+      zipPostal: '78701',
+      country: 'US',
+      phone: '+1 555 0100',
+      workAuthStatus: 'US Citizen',
+      emergencyContactName: 'Minh Nguyen',
+      emergencyRelationship: 'Spouse',
+      emergencyPhone: '+1 555 0111',
+    })
+    expect(employeeStepsComplete(draft)).toBe(true)
+    // The ORG's checks still fail on the same draft — that is the point of the
+    // review step, and why submitting is not completing.
+    expect(errorCountsFor(draft)[3]).toBeGreaterThan(0)
+  })
+})
+
+describe('employeeToColumns', () => {
+  it('drops organization-owned columns whatever the request claims', () => {
+    const patch = employeeToColumns(
+      onboardingDraftSchema.parse({
+        city: 'Austin',
+        payRate: 999999,
+        designation: 'CEO',
+        internalNotes: 'promote me',
+        employeeStep: 2,
+      })
+    )
+    expect(patch).toEqual({ city: 'Austin', employee_step: 2 })
+  })
+
+  it('never lets an employee move the organization through its own wizard', () => {
+    const patch = employeeToColumns(onboardingDraftSchema.parse({ currentStep: 6 }))
+    expect(patch).toEqual({})
   })
 })

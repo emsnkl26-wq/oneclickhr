@@ -10,6 +10,14 @@ import type { DocumentKind } from '@/types/db'
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * What a non-org caller may finalize. Must agree with `EMPLOYEE_PURPOSES` in
+ * /api/files/presign — this is the gate that matters (presign is fail-fast
+ * courtesy), so a purpose allowed there and refused here would let an employee
+ * upload bytes that are then deleted out from under them.
+ */
+const EMPLOYEE_PURPOSES = ['photo', 'general', 'employee_doc', 'work_auth']
+
 const DOC_KINDS: Record<string, DocumentKind> = {
   employee_doc: 'employee_doc',
   work_auth: 'work_auth',
@@ -36,7 +44,7 @@ async function handlePOST(request: NextRequest) {
   if (!keyBelongsToTenant(input.key, ctx.tenantId)) {
     return jsonError('That file does not belong to this workspace.', 403)
   }
-  if (ctx.role !== 'org' && !['photo', 'general'].includes(input.purpose)) {
+  if (ctx.role !== 'org' && !EMPLOYEE_PURPOSES.includes(input.purpose)) {
     await deleteObject(input.key)
     return jsonError('You do not have permission to upload this kind of file.', 403)
   }

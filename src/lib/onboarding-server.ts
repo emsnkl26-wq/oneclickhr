@@ -13,7 +13,10 @@ import 'server-only'
  * four digits, so a compromised session cannot read a number out of the UI.
  */
 import { encryptToken, decryptToken, isEncryptionConfigured } from '@/lib/crypto'
-import { DRAFT_COLUMNS, type DraftFieldKey } from '@/lib/onboarding'
+import {
+  DRAFT_COLUMNS, EMPLOYEE_EDITABLE_KEYS,
+  type DraftFieldKey, type OnboardingDraft,
+} from '@/lib/onboarding'
 import type { OnboardingDraftInput } from '@/lib/schemas'
 
 export class OnboardingPatchError extends Error {
@@ -62,6 +65,12 @@ export function toColumns(input: OnboardingDraftInput): Record<string, unknown> 
   if (input.completedSteps !== undefined) {
     patch.completed_steps = Array.from(new Set(input.completedSteps)).sort((a, b) => a - b)
   }
+  if (input.employeeStep !== undefined) patch.employee_step = input.employeeStep
+  if (input.employeeCompletedSteps !== undefined) {
+    patch.employee_completed_steps = Array.from(new Set(input.employeeCompletedSteps)).sort(
+      (a, b) => a - b
+    )
+  }
 
   return patch
 }
@@ -92,4 +101,101 @@ export function accountLast4(ciphertext: string | null | undefined): string | nu
  */
 export function suggestEmployeeCode(existingCount: number): string {
   return `EMP-${String(existingCount + 1).padStart(4, '0')}`
+}
+
+/**
+ * A draft → the `profiles` columns it becomes.
+ *
+ * ONE definition, used by both writes that ever land a draft on a profile:
+ * `invite` (early, when most of it is still blank) and `complete` (at the end,
+ * when it is not). They used to be one function because there was only one
+ * write; keeping them one function is what stops a column collected by the
+ * wizard from reaching the profile on one path and not the other.
+ *
+ * `account_number_enc` is taken from the ROW, not the draft: it is already
+ * ciphertext, and this copies it across without ever decrypting it.
+ */
+export function profilePatchFromDraft(
+  draft: OnboardingDraft,
+  row: { account_number_enc?: string | null },
+  opts: { fullName: string; email: string; employeeCode: string; timezone: string }
+): Record<string, unknown> {
+  return {
+    full_name: opts.fullName,
+    email: opts.email,
+    phone: draft.phone || null,
+    employee_code: opts.employeeCode,
+    designation: draft.designation || null,
+    department_id: draft.departmentId || null,
+    date_of_joining: draft.hireDate || null,
+    photo_url: draft.photoUrl || null,
+    timezone: opts.timezone,
+    is_active: true,
+
+    preferred_first_name: draft.preferredFirstName || null,
+    preferred_last_name: draft.preferredLastName || null,
+    pronouns: draft.pronouns || null,
+    date_of_birth: draft.dateOfBirth || null,
+    gender: draft.gender || null,
+    street_address: draft.streetAddress || null,
+    apartment: draft.apartment || null,
+    city: draft.city || null,
+    state_province: draft.stateProvince || null,
+    zip_postal: draft.zipPostal || null,
+    country: draft.country || null,
+    home_phone: draft.homePhone || null,
+    work_phone: draft.workPhone || null,
+    work_email: draft.workEmail || null,
+    hire_date: draft.hireDate || null,
+    employment_status: draft.employmentStatus || 'Active',
+    reporting_manager_id: draft.reportingManagerId || null,
+    pay_type: draft.payType || null,
+    pay_rate: draft.payRate === '' ? null : Number(draft.payRate),
+    pay_frequency: draft.payFrequency || null,
+    employment_type: draft.employmentType || null,
+    bank_name: draft.bankName || null,
+    account_holder_name: draft.accountHolderName || null,
+    // Already ciphertext on the draft — copied across, never re-encrypted and
+    // never decrypted on this path.
+    account_number_enc: row.account_number_enc ?? null,
+    routing_code: draft.routingCode || null,
+    account_type: draft.accountType || null,
+    emergency_contact_name: draft.emergencyContactName || null,
+    emergency_relationship: draft.emergencyRelationship || null,
+    emergency_phone: draft.emergencyPhone || null,
+    emergency_email: draft.emergencyEmail || null,
+    resume_url: draft.resumeUrl || null,
+    offer_letter_url: draft.offerLetterUrl || null,
+    id_proof_type: draft.idProofType || null,
+    id_proof_url: draft.idProofUrl || null,
+    additional_docs: draft.additionalDocs,
+    internal_notes: draft.internalNotes || null,
+    compliance_notes: draft.complianceNotes || null,
+  }
+}
+
+/**
+ * The keys an EMPLOYEE may write to their own draft, as a patch.
+ *
+ * The client is told which fields it may show (`EMPLOYEE_STEPS`); this is the
+ * server refusing everything else regardless of what the client sends. Pay,
+ * department, hire date and the admin-only notes are dropped silently rather
+ * than rejected — a stale tab posting a field it used to be allowed should save
+ * the rest of the form, not fail it.
+ */
+export function employeeToColumns(input: OnboardingDraftInput): Record<string, unknown> {
+  const patch = toColumns(input)
+  const allowed: Record<string, unknown> = {}
+  for (const [key, column] of Object.entries(DRAFT_COLUMNS) as [DraftFieldKey, string][]) {
+    if (!EMPLOYEE_EDITABLE_KEYS.has(key)) continue
+    if (column in patch) allowed[column] = patch[column]
+  }
+  if ('additional_docs' in patch) allowed.additional_docs = patch.additional_docs
+  // Their own position in their own wizard. `current_step` is the org's and is
+  // deliberately not reachable from here.
+  if ('employee_step' in patch) allowed.employee_step = patch.employee_step
+  if ('employee_completed_steps' in patch) {
+    allowed.employee_completed_steps = patch.employee_completed_steps
+  }
+  return allowed
 }

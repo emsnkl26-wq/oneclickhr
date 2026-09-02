@@ -537,3 +537,185 @@ export function draftDisplayName(
 export function payRateLabel(payType: string): string {
   return payType === 'Hourly' ? 'Hourly rate' : payType === 'Salaried' ? 'Annual salary' : 'Pay rate'
 }
+
+// ---------------------------------------------------------------------------
+// The employee's half of the wizard (014)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THERE ARE TWO VIEWS OF ONE FORM
+ * -----------------------------------
+ * Most of what onboarding collects is the employee's own information — their
+ * address, their visa, their bank account, their next of kin — and the org has
+ * to chase it out of them by email before it can type it in here. So the org
+ * can hand over the account early and let the person fill their own share in.
+ *
+ * The two views are DERIVED FROM THE SAME CONFIG above rather than written out
+ * again, for exactly the reason the config exists at all: a field added to step
+ * 1 must not silently go missing from whichever view nobody remembered to
+ * update. What the employee sees is `ONBOARDING_STEPS` minus the things that
+ * are the org's to decide.
+ */
+
+/**
+ * Fields an employee may never write, whatever a request body claims.
+ *
+ * Three kinds, and the reasons differ:
+ *   • IDENTITY   — `personalEmail` IS their sign-in. Changing it here would
+ *     desynchronise the draft from `auth.users`, so it is shown in the page
+ *     header instead and never rendered as an input.
+ *   • ADMIN-ONLY — the notes columns, which the subject of the row must not
+ *     even read.
+ *   • THE OFFER  — role, department, hire date, pay. These are the org's side
+ *     of the employment relationship; an employee editing their own pay rate is
+ *     not a form, it is a vulnerability.
+ */
+export const ORG_ONLY_FIELDS: ReadonlySet<DraftFieldKey> = new Set<DraftFieldKey>([
+  'personalEmail',
+  'internalNotes',
+  'complianceNotes',
+  'workPhone',
+  'workEmail',
+  'hireDate',
+  'employmentStatus',
+  'employeeCode',
+  'departmentId',
+  'designation',
+  'reportingManagerId',
+  'payType',
+  'payRate',
+  'payFrequency',
+  'employmentType',
+])
+
+/** An employee step, plus which org step it was cut from. */
+export interface EmployeeStepDef extends StepDef {
+  /** The `ONBOARDING_STEPS` index this view was derived from. */
+  sourceIndex: number
+}
+
+/**
+ * The employee's steps: the org's, with the org's own fields removed and any
+ * section (or whole step) that empties out as a result dropped.
+ *
+ * Step 3 disappears entirely — it is nothing but the offer — so the employee
+ * sees four steps where the org sees five, renumbered 1..4 so the progress
+ * indicator reads honestly.
+ */
+/**
+ * Where the org's wording does not survive the change of audience.
+ *
+ * "Compensation & banking" is the org's step; the employee's version of it has
+ * no compensation in it at all, and a heading that promises one is worse than
+ * no heading. Only the few that actually mislead are overridden — the rest read
+ * the same from either side of the table.
+ */
+const EMPLOYEE_STEP_COPY: Record<number, { title: string; hint: string }> = {
+  4: { title: 'Bank & emergency contact', hint: 'Where you are paid, and who to call' },
+}
+
+/**
+ * Section copy that the pronoun rewrite below cannot save, keyed by title.
+ *
+ * "Visible to the employee in their profile" is written ABOUT the employee;
+ * swapping the pronoun gives "visible to the employee in your profile", which
+ * is worse than the original. When a sentence has the wrong subject, not just
+ * the wrong pronoun, it needs replacing rather than patching.
+ */
+const EMPLOYEE_SECTION_COPY: Record<string, { banner?: string; hint?: string }> = {
+  'Preferred identity': {
+    banner: 'Optional — this is the name shown to your colleagues across the app.',
+  },
+}
+
+export const EMPLOYEE_STEPS: EmployeeStepDef[] = ONBOARDING_STEPS.map((step) => {
+  const sections = step.sections
+    .map((section) => ({
+      ...section,
+      // Same guidance, addressed to the person it is about — see `secondPerson`.
+      hint: EMPLOYEE_SECTION_COPY[section.title]?.hint ?? (section.hint && secondPerson(section.hint)),
+      banner:
+        EMPLOYEE_SECTION_COPY[section.title]?.banner ??
+        (section.banner && secondPerson(section.banner)),
+      fields: section.fields
+        .filter(
+          (field) =>
+            !field.adminOnly &&
+            (field.key === 'additionalDocs' || !ORG_ONLY_FIELDS.has(field.key as DraftFieldKey))
+        )
+        .map((field) => (field.hint ? { ...field, hint: secondPerson(field.hint) } : field)),
+    }))
+    .filter((section) => section.fields.length > 0)
+  return { ...step, ...EMPLOYEE_STEP_COPY[step.index], sourceIndex: step.index, sections }
+})
+  .filter((step) => step.sections.length > 0)
+  .map((step, i) => ({ ...step, index: i + 1 }))
+
+export const EMPLOYEE_REVIEW_STEP = EMPLOYEE_STEPS.length + 1
+export const EMPLOYEE_TOTAL_STEPS = EMPLOYEE_REVIEW_STEP
+
+/**
+ * Every key an employee is allowed to send.
+ *
+ * Derived from the steps they are actually shown, so the server allowlist and
+ * the rendered form cannot disagree — the failure mode that allowlist exists to
+ * prevent is a field that quietly stops being writable, or quietly starts.
+ */
+export const EMPLOYEE_EDITABLE_KEYS: ReadonlySet<string> = new Set(
+  EMPLOYEE_STEPS.flatMap((step) => step.sections.flatMap((s) => s.fields.map((f) => String(f.key))))
+)
+
+/** Employee step 1..N → the org step whose Zod schema governs it. */
+export function employeeStepSource(index: number): number {
+  return EMPLOYEE_STEPS.find((s) => s.index === index)?.sourceIndex ?? index
+}
+
+/**
+ * Validate one EMPLOYEE step.
+ *
+ * Runs the org step's schema — there is only one definition of "required" and
+ * this is it — then keeps only the messages for fields this view actually
+ * shows. Without that filter an employee would be told to fill in a pay rate
+ * they cannot see, on a step that has no such box.
+ */
+export function validateEmployeeStep(index: number, draft: OnboardingDraft): StepErrors {
+  const step = EMPLOYEE_STEPS.find((s) => s.index === index)
+  if (!step) return {}
+  const visible = new Set(
+    visibleSections(step, draft).flatMap((s) => s.fields.map((f) => String(f.key)))
+  )
+  const all = validateStep(step.sourceIndex, draft)
+  const errors: StepErrors = {}
+  for (const [key, message] of Object.entries(all)) {
+    if (visible.has(key)) errors[key] = secondPerson(message)
+  }
+  return errors
+}
+
+/**
+ * "Enter their first name" → "Enter your first name"; "their government ID" →
+ * "your government ID".
+ *
+ * The step schemas are written for the org, who is describing someone else. The
+ * employee is describing themselves, and being told to enter "their" name is
+ * the kind of small wrongness that makes a form feel like it was not meant for
+ * you. Rewriting the pronoun here keeps ONE definition of every rule and every
+ * message — the alternative is a parallel set of schemas that drift.
+ */
+function secondPerson(message: string): string {
+  return message.replace(/\btheir\b/g, 'your').replace(/\bTheir\b/g, 'Your')
+}
+
+/** Error counts per employee step — the sidebar badges, their side. */
+export function employeeErrorCountsFor(draft: OnboardingDraft): Record<number, number> {
+  const counts: Record<number, number> = {}
+  for (const step of EMPLOYEE_STEPS) {
+    counts[step.index] = Object.keys(validateEmployeeStep(step.index, draft)).length
+  }
+  return counts
+}
+
+/** Is every employee-owned step complete? What "Submit" is gated on. */
+export function employeeStepsComplete(draft: OnboardingDraft): boolean {
+  return EMPLOYEE_STEPS.every((s) => Object.keys(validateEmployeeStep(s.index, draft)).length === 0)
+}

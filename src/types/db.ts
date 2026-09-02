@@ -119,7 +119,20 @@ export interface OnboardingAdditionalDoc {
   sizeBytes?: number
 }
 
-export type OnboardingStatus = 'draft' | 'completed' | 'cancelled'
+/**
+ * Where an onboarding has got to.
+ *
+ * `invited` and `submitted` (014) are the self-service path: the account exists
+ * and the employee is filling in their own details, or has finished and is
+ * waiting on an org admin to review them. Both always carry an
+ * `employee_profile_id` — the constraint in 014 makes that a database fact.
+ */
+export type OnboardingStatus =
+  | 'draft'
+  | 'invited'
+  | 'submitted'
+  | 'completed'
+  | 'cancelled'
 
 /** A row of `employee_onboarding` — the resumable draft behind the wizard. */
 export interface EmployeeOnboarding extends ProfileOnboardingFields {
@@ -146,6 +159,14 @@ export interface EmployeeOnboarding extends ProfileOnboardingFields {
   completed_steps: number[]
   employee_profile_id: string | null
   completed_at: string | null
+  /** 014 — the self-service timeline. */
+  invited_at: string | null
+  submitted_at: string | null
+  reviewed_at: string | null
+  /** What the org asked the employee to fix. Shown to the employee. */
+  review_notes: string | null
+  employee_step: number
+  employee_completed_steps: number[]
   created_at: string
   updated_at: string
 }

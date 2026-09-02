@@ -2,14 +2,16 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import {
   CalendarCheck, Clock, TimerReset, ArrowRight, Bell, ClipboardList,
-  Briefcase, Timer, CheckCircle2, XCircle,
+  Briefcase, Timer, CheckCircle2, XCircle, UserRoundPen,
 } from 'lucide-react'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { loadEmployeeOnboarding } from '@/lib/employee-onboarding'
+import { Button } from '@/components/ui/button'
 import { StatCard, PageHeader, EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatLocal, todayIn } from '@/lib/time'
-import { formatHours } from '@/lib/utils'
+import { formatHours, cn } from '@/lib/utils'
 import { ShiftToggle } from './shift-toggle'
 
 export const metadata: Metadata = { title: 'Dashboard' }
@@ -18,6 +20,13 @@ export const dynamic = 'force-dynamic'
 export default async function EmployeeDashboard() {
   const ctx = await requireEmployee()
   const supabase = await createSupabaseServerClient()
+  /*
+   * Is this person still being onboarded? One indexed lookup, and null for
+   * everybody whose onboarding is finished — which is almost everybody, almost
+   * always. It runs before the dashboard queries rather than alongside them
+   * because what it returns decides whether the page leads with a form request.
+   */
+  const onboarding = await loadEmployeeOnboarding(ctx)
   const tz = ctx.tenant.timezone
   const today = todayIn(tz)
   const monthStart = `${today.slice(0, 7)}-01`
@@ -94,6 +103,57 @@ export default async function EmployeeDashboard() {
         title={`Hello${ctx.fullName ? `, ${ctx.fullName.split(' ')[0]}` : ''}`}
         description={formatLocal(new Date(), tz, 'EEEE, d MMMM yyyy')}
       />
+
+      {/*
+        Above everything, including the clock-in control. Someone who has just
+        been handed a login has exactly one thing to do here, and burying it
+        under seven stat cards is how it goes undone for a fortnight.
+      */}
+      {onboarding ? (
+        <div
+          className={cn(
+            'flex flex-col gap-4 rounded-2xl border p-5 sm:flex-row sm:items-center sm:p-6',
+            onboarding.status === 'submitted'
+              ? 'border-line bg-page'
+              : 'border-brand-200 bg-brand-50/60'
+          )}
+        >
+          <span
+            className={cn(
+              'grid size-11 shrink-0 place-items-center rounded-full',
+              onboarding.status === 'submitted'
+                ? 'bg-card text-ink-muted'
+                : 'bg-brand-600 text-white'
+            )}
+          >
+            {onboarding.status === 'submitted' ? (
+              <CheckCircle2 className="size-5" aria-hidden />
+            ) : (
+              <UserRoundPen className="size-5" aria-hidden />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">
+              {onboarding.status === 'submitted'
+                ? 'Your onboarding details are being reviewed'
+                : onboarding.reviewNotes
+                  ? `${ctx.tenant.name} asked for a change to your details`
+                  : 'Complete your onboarding details'}
+            </p>
+            <p className="mt-0.5 text-sm leading-relaxed text-ink-muted">
+              {onboarding.status === 'submitted'
+                ? `${ctx.tenant.name} has everything you submitted. You will be notified if anything needs changing.`
+                : 'Your address, work authorization, emergency contact and a few documents. About ten minutes, and you can save and come back.'}
+            </p>
+          </div>
+          <Button asChild variant={onboarding.status === 'submitted' ? 'secondary' : 'default'}>
+            <Link href="/employee/onboarding">
+              {onboarding.status === 'submitted' ? 'View what you sent' : 'Fill in my details'}
+              <ArrowRight />
+            </Link>
+          </Button>
+        </div>
+      ) : null}
 
       <ShiftToggle
         initialState={
