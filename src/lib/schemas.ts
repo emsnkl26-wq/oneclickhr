@@ -888,3 +888,145 @@ export const generatedDocumentSchema = z.object({
   documentId: uuid.nullable().optional(),
   payload: z.record(z.unknown()).default({}),
 })
+
+// ---------------------------------------------------------------------------
+// Jobs
+//
+// `status` is absent from `jobSchema` on purpose. Publishing is a decision, not
+// a field: it moves through PATCH /api/org/jobs/[id] with its own schema, so a
+// create form cannot accidentally push a half-written posting onto a public page
+// by sending one extra key.
+// ---------------------------------------------------------------------------
+
+export const JOB_TYPES = ['full_time', 'part_time', 'contract', 'internship', 'temporary'] as const
+export const JOB_WORKPLACES = ['onsite', 'remote', 'hybrid'] as const
+export const JOB_STATUSES = ['draft', 'published', 'closed'] as const
+export const SALARY_PERIODS = ['hour', 'day', 'month', 'year'] as const
+
+export const APPLICATION_STATUSES = [
+  'new', 'reviewing', 'shortlisted', 'interviewing', 'offered', 'hired', 'rejected',
+] as const
+
+/** A number field that arrives from a form as '' when the user left it blank. */
+const optionalNumber = (max: number, message: string) =>
+  z
+    .union([z.coerce.number(), z.literal('')])
+    .optional()
+    .transform((v) => (v === '' || v === undefined || Number.isNaN(v) ? null : Number(v)))
+    .refine((v) => v === null || (v >= 0 && v <= max), message)
+
+export const jobSchema = z
+  .object({
+    title: z.string().trim().min(2, 'Give the role a title').max(160),
+    description: z
+      .string()
+      .trim()
+      .min(20, 'Describe the role in at least a couple of sentences')
+      .max(20000),
+    responsibilities: optionalText(10000),
+    requirements: optionalText(10000),
+    departmentId: uuid.nullable().optional(),
+    employmentType: z.enum(JOB_TYPES).default('full_time'),
+    workplace: z.enum(JOB_WORKPLACES).default('onsite'),
+    location: optionalText(160),
+    experienceMin: optionalNumber(60, 'Enter years of experience between 0 and 60'),
+    experienceMax: optionalNumber(60, 'Enter years of experience between 0 and 60'),
+    salaryMin: optionalNumber(1_000_000_000, 'Enter a salary of 0 or more'),
+    salaryMax: optionalNumber(1_000_000_000, 'Enter a salary of 0 or more'),
+    salaryCurrency: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{3}$/, 'Use a 3-letter currency code, e.g. INR')
+      .default('INR'),
+    salaryPeriod: z.enum(SALARY_PERIODS).default('year'),
+    salaryDisclosed: z.boolean().default(false),
+    openings: z.coerce.number().int().min(1, 'There is at least one opening').max(999).default(1),
+    skills: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
+    closesAt: isoDate.nullable().optional(),
+  })
+  .refine((v) => v.experienceMin === null || v.experienceMax === null || v.experienceMax >= v.experienceMin, {
+    message: 'The maximum experience cannot be below the minimum',
+    path: ['experienceMax'],
+  })
+  .refine((v) => v.salaryMin === null || v.salaryMax === null || v.salaryMax >= v.salaryMin, {
+    message: 'The maximum salary cannot be below the minimum',
+    path: ['salaryMax'],
+  })
+  /*
+   * You may not advertise a band you have not entered. Without this, ticking
+   * "show the salary" on an empty pair publishes a posting whose salary line
+   * reads as blank — which candidates read as "they are hiding it", the exact
+   * impression the tick box was meant to avoid.
+   */
+  .refine((v) => !v.salaryDisclosed || v.salaryMin !== null || v.salaryMax !== null, {
+    message: 'Enter a salary range, or turn off showing it on the posting',
+    path: ['salaryMin'],
+  })
+export type JobInput = z.infer<typeof jobSchema>
+
+export const jobStatusSchema = z.object({
+  status: z.enum(JOB_STATUSES),
+})
+
+// ---------------------------------------------------------------------------
+// Applications
+//
+// This is the ONLY schema in this file parsed on behalf of someone who is not a
+// user of this product and may never become one. Everything about it is
+// therefore stricter than the org-facing shapes above: bounded lengths on every
+// free-text field, and a URL check that refuses anything but http(s) so a
+// `javascript:` link cannot be stored and later rendered into an org's inbox.
+// ---------------------------------------------------------------------------
+
+const httpUrl = (message: string) =>
+  z
+    .string()
+    .trim()
+    .max(400)
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine((v) => v === null || /^https?:\/\/\S+$/i.test(v), message)
+
+export const jobApplicationSchema = z.object({
+  jobId: uuid,
+  fullName: z.string().trim().min(2, 'Enter your full name').max(120),
+  email: emailSchema,
+  phone: optionalText(40),
+  location: optionalText(160),
+  linkedinUrl: httpUrl('Enter a full LinkedIn address starting with https://'),
+  portfolioUrl: httpUrl('Enter a full web address starting with https://'),
+  coverLetter: optionalText(8000),
+  yearsExperience: optionalNumber(60, 'Enter years of experience between 0 and 60'),
+  currentCompany: optionalText(160),
+  noticePeriod: optionalText(80),
+  resumeKey: optionalText(300),
+  resumeName: optionalText(255),
+  /*
+   * The honeypot. Rendered off-screen and unlabelled, so a person never sees it
+   * and a form-filling bot cannot resist it. Anything here means the submission
+   * is discarded — silently, with a 200, because telling a bot why it failed is
+   * how it learns to pass.
+   */
+  website: z.string().max(200).optional(),
+})
+export type JobApplicationInput = z.infer<typeof jobApplicationSchema>
+
+export const applicationReviewSchema = z.object({
+  status: z.enum(APPLICATION_STATUSES).optional(),
+  notes: optionalText(8000),
+})
+
+/**
+ * The anonymous presign request.
+ *
+ * Narrower than `presignSchema` in every dimension, because the caller is
+ * unauthenticated: one purpose rather than six, a 10MB ceiling rather than 50,
+ * and a `jobId` so an upload URL is only ever minted against a real posting.
+ */
+export const resumePresignSchema = z.object({
+  jobId: uuid,
+  fileName: z.string().trim().min(1).max(255),
+  contentType: z.string().trim().min(1).max(160),
+  sizeBytes: z.number().int().positive().max(10 * 1024 * 1024, 'Keep your CV under 10MB'),
+})

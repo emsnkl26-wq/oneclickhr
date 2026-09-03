@@ -20,6 +20,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { randomUUID } from 'crypto'
@@ -286,4 +287,45 @@ export async function deleteObject(key: string): Promise<void> {
 /** Strip anything that would break — or inject into — a Content-Disposition header. */
 function sanitizeDispositionName(name: string): string {
   return (name || 'download').replace(/[\r\n"\\]/g, '_').slice(0, 200)
+}
+
+export interface ListedObject {
+  key: string
+  lastModified: Date | null
+  size: number
+}
+
+/**
+ * List objects under a prefix, one page at a time.
+ *
+ * Added for the orphaned-résumé sweep (/api/cron/jobs-gc), which is the only
+ * thing in this product that has to reason about what is in the bucket rather
+ * than about a key it already holds. Deliberately paged rather than exhaustive:
+ * a sweep that tried to enumerate the whole prefix in one invocation would be
+ * the first thing to break when the portal gets busy.
+ */
+export async function listObjects(
+  prefix: string,
+  limit = 1000,
+  continuationToken?: string
+): Promise<{ objects: ListedObject[]; nextToken?: string }> {
+  const res = await getR2().send(
+    new ListObjectsV2Command({
+      Bucket: r2Config.bucket,
+      Prefix: prefix,
+      MaxKeys: Math.min(Math.max(limit, 1), 1000),
+      ContinuationToken: continuationToken,
+    })
+  )
+
+  return {
+    objects: (res.Contents ?? [])
+      .filter((item): item is typeof item & { Key: string } => !!item.Key)
+      .map((item) => ({
+        key: item.Key,
+        lastModified: item.LastModified ?? null,
+        size: Number(item.Size ?? 0),
+      })),
+    nextToken: res.IsTruncated ? res.NextContinuationToken : undefined,
+  }
 }

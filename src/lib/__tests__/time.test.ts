@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   localDate, isLateLogin, hoursBetween, daysUntil, inclusiveDays, weekDates,
-  isValidTimezone, safeTimezone,
+  isValidTimezone, safeTimezone, formatDateLabel, formatInstantLabel,
 } from '@/lib/time'
 
 /**
@@ -135,5 +135,58 @@ describe('timezone validation', () => {
     expect(safeTimezone('Not/AZone')).toBe('Asia/Kolkata')
     expect(safeTimezone(null)).toBe('Asia/Kolkata')
     expect(safeTimezone('Europe/London')).toBe('Europe/London')
+  })
+})
+
+/**
+ * These exist because of a real bug on the jobs list.
+ *
+ * `published_at` is a `timestamptz` and was passed to `formatDateLabel`, which
+ * is written for a plain `date`. It fell through its own guard and returned the
+ * input unchanged, so the page rendered
+ * `2026-09-03T05:56:56.566014+00:00` at the user, inside a table column and
+ * again as a 28px stat number that overflowed its card.
+ */
+describe('date labels', () => {
+  it('formats a plain date column', () => {
+    expect(formatDateLabel('2026-09-03')).toBe('Sep 3, 2026')
+    expect(formatDateLabel('2026-12-31')).toBe('Dec 31, 2026')
+  })
+
+  it('never renders a raw ISO timestamp at a user', () => {
+    const label = formatDateLabel('2026-09-03T05:56:56.566014+00:00')
+    expect(label).not.toContain('T05:56')
+    expect(label).toBe('Sep 3, 2026')
+  })
+
+  it('shows an em dash for nothing rather than "null"', () => {
+    expect(formatDateLabel(null)).toBe('—')
+    expect(formatDateLabel(undefined)).toBe('—')
+    expect(formatDateLabel('')).toBe('—')
+  })
+
+  it('does not invent a month from a malformed value', () => {
+    // 13 is not a month: returning the input beats printing "undefined 3, 2026".
+    expect(formatDateLabel('2026-13-03')).toBe('2026-13-03')
+    expect(formatDateLabel('not-a-date')).toBe('not-a-date')
+  })
+})
+
+describe('instant labels', () => {
+  it('formats a timestamptz as a short calendar day', () => {
+    expect(formatInstantLabel('2026-09-03T05:56:56.566014+00:00')).toBe('3 Sep 2026')
+    expect(formatInstantLabel('2026-01-31T23:59:00Z')).toBe('31 Jan 2026')
+  })
+
+  it('reads the instant in UTC, so every viewer sees the same day', () => {
+    // Same moment, two offsets. Both are 3 Sep in UTC and must agree.
+    expect(formatInstantLabel('2026-09-03T00:30:00+00:00')).toBe('3 Sep 2026')
+    expect(formatInstantLabel('2026-09-03T06:00:00+05:30')).toBe('3 Sep 2026')
+  })
+
+  it('handles null and garbage without throwing', () => {
+    expect(formatInstantLabel(null)).toBe('—')
+    expect(formatInstantLabel(undefined)).toBe('—')
+    expect(formatInstantLabel('nonsense')).toBe('—')
   })
 })

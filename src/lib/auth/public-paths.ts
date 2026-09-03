@@ -23,6 +23,24 @@ export const PUBLIC_HUMAN_PATHS = [
   '/api/auth/signup',
   '/api/auth/forgot-password',
   '/api/auth/signout',
+  /*
+   * THE JOB PORTAL — the only part of this product that is public by intent
+   * rather than by necessity.
+   *
+   * `/jobs` covers `/jobs/<id>` and `/jobs/company/<slug>` through the sub-path
+   * rule below; `/api/jobs` covers `apply`, `resume-presign` and `logo`. Note
+   * what is NOT here: `/org/jobs` and `/super/jobs` are the ADMIN side of the
+   * same feature and stay behind their guards. The near-identical names are the
+   * trap in this entry — an over-eager `/jobs` prefix rule that also matched
+   * those would publish every draft posting and every applicant's CV.
+   *
+   * `/robots.txt` and `/sitemap.xml` are here because a portal a crawler cannot
+   * read is not a portal; both are generated from published jobs only.
+   */
+  '/jobs',
+  '/api/jobs',
+  '/robots.txt',
+  '/sitemap.xml',
 ] as const
 
 /**

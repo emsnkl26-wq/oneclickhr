@@ -153,3 +153,54 @@ export async function uploadFile(
     documentId: finalized.documentId,
   }
 }
+
+/**
+ * Upload one CV from the PUBLIC job portal.
+ *
+ * Separate from `uploadFile` because the applicant has no session, so neither
+ * `/api/files/presign` nor `/api/files/finalize` will speak to them. The shape is
+ * the same two-phase presigned PUT; what differs is where each phase lives and
+ * what happens at the end.
+ *
+ * THERE IS NO FINALIZE STEP. `uploadFile` finalizes because every upload inside
+ * the product becomes a `documents` row, and finalize is what writes it after
+ * sniffing the bytes. A CV becomes nothing until the application is submitted, so
+ * the byte check moves there instead — `/api/jobs/apply` re-reads the object and
+ * deletes it if it is not a real PDF or Word file. Finalizing here would create a
+ * document row for a stranger inside a tenant, which is exactly wrong.
+ *
+ * An upload that is never submitted is therefore just an orphan, collected by
+ * the nightly sweep at /api/cron/jobs-gc.
+ */
+export async function uploadResume(
+  file: File,
+  jobId: string
+): Promise<{ key: string; fileName: string }> {
+  const presigned = await apiPost<{ url: string; key: string }>('/api/jobs/resume-presign', {
+    jobId,
+    fileName: file.name,
+    contentType: file.type || 'application/octet-stream',
+    sizeBytes: file.size,
+  })
+
+  let put: Response
+  try {
+    put = await fetch(presigned.url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+  } catch {
+    throw new ApiClientError(
+      'Could not reach file storage. Please try again, or check your connection.',
+      0
+    )
+  }
+
+  if (!put.ok) {
+    console.error('[upload] storage rejected the CV', put.status)
+    throw new ApiClientError('The upload did not complete. Please try again.', 502)
+  }
+
+  return { key: presigned.key, fileName: file.name }
+}

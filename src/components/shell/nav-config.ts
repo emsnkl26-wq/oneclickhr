@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Users, CalendarCheck, CalendarOff, Wallet, FileText, Bell,
   Building2, ShieldCheck, Activity, Settings, KanbanSquare, CalendarDays,
   BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
-  LifeBuoy, FileSignature, UserRound,
+  LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { UserRole } from '@/types/db'
@@ -33,6 +33,7 @@ const SUPER_NAV: NavSection[] = [
       { href: '/super', label: 'Overview', icon: LayoutDashboard },
       { href: '/super/organizations', label: 'Organizations', icon: Building2, prefix: true },
       { href: '/super/users', label: 'Users', icon: Users },
+      { href: '/super/jobs', label: 'Jobs', icon: BriefcaseBusiness, prefix: true },
     ],
   },
   {
@@ -53,6 +54,10 @@ const ORG_NAV: NavSection[] = [
     label: 'People',
     items: [
       { href: '/org/employees', label: 'Employees', icon: Users, prefix: true },
+      // `BriefcaseBusiness`, not `Briefcase` — that one is already Projects, and
+      // two identical icons in one sidebar is worse than a slightly odd second
+      // choice.
+      { href: '/org/jobs', label: 'Jobs', icon: BriefcaseBusiness, prefix: true },
       { href: '/org/attendance', label: 'Attendance', icon: CalendarCheck },
       { href: '/org/leaves', label: 'Leaves', icon: CalendarOff },
       { href: '/org/visa', label: 'Work authorization', icon: BadgeCheck },
@@ -120,6 +125,22 @@ const EMPLOYEE_NAV: NavSection[] = [
     items: [
       { href: '/employee/payslips', label: 'My payslips', icon: Wallet },
       { href: '/employee/notifications', label: 'Notifications', icon: Bell },
+    ],
+  },
+  /*
+   * The one section that leaves the workspace.
+   *
+   * `/jobs` is the PUBLIC portal, outside every role prefix, so an employee
+   * following this link sees the same page an anonymous visitor does — every
+   * company's openings, not just their employer's. Their applications are
+   * private from their employer by construction (see 015_jobs.sql), which is why
+   * "My applications" can sit in this sidebar at all.
+   */
+  {
+    label: 'Careers',
+    items: [
+      { href: '/jobs', label: 'Job board', icon: BriefcaseBusiness },
+      { href: '/employee/applications', label: 'My applications', icon: Send },
     ],
   },
 ]

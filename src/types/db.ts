@@ -615,3 +615,135 @@ export interface CompanyDetails {
   signatoryTitle: string | null
   signatoryPhone: string | null
 }
+
+// ---------------------------------------------------------------------------
+// Jobs & applications (015_jobs.sql)
+// ---------------------------------------------------------------------------
+
+export type JobType = 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary'
+export type JobWorkplace = 'onsite' | 'remote' | 'hybrid'
+export type JobStatus = 'draft' | 'published' | 'closed'
+export type SalaryPeriod = 'hour' | 'day' | 'month' | 'year'
+
+export type ApplicationStatus =
+  | 'new'
+  | 'reviewing'
+  | 'shortlisted'
+  | 'interviewing'
+  | 'offered'
+  | 'hired'
+  | 'rejected'
+
+export interface Job {
+  id: string
+  /**
+   * NULL means a PLATFORM job — Oneclickhr hiring for itself. Read it as
+   * "Oneclickhr", never as "unscoped": every other table in this schema uses a
+   * null tenant to mean nothing of the sort.
+   */
+  tenant_id: string | null
+  posted_by: string | null
+  title: string
+  description: string
+  responsibilities: string | null
+  requirements: string | null
+  department_id: string | null
+  employment_type: JobType
+  workplace: JobWorkplace
+  location: string | null
+  experience_min: number | null
+  experience_max: number | null
+  salary_min: number | null
+  salary_max: number | null
+  salary_currency: string
+  salary_period: SalaryPeriod
+  /** Whether the band above is ADVERTISED. The numbers are stored either way. */
+  salary_disclosed: boolean
+  openings: number
+  skills: string[]
+  status: JobStatus
+  /** Set once by the database the first time the job goes live, then kept. */
+  published_at: string | null
+  closes_at: string | null
+  application_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface JobApplication {
+  id: string
+  job_id: string
+  /**
+   * The HIRING tenant, copied from the job. This is what stops an employee's
+   * current employer from seeing that they applied elsewhere — see the privacy
+   * note in 015_jobs.sql before using it for anything else.
+   */
+  tenant_id: string | null
+  full_name: string
+  email: string
+  phone: string | null
+  location: string | null
+  linkedin_url: string | null
+  portfolio_url: string | null
+  cover_letter: string | null
+  /**
+   * An R2 key under the `applications/` prefix — deliberately outside every
+   * tenant prefix, so `/api/files/view` cannot serve it. Résumés are read only
+   * through `/api/org/jobs/applications/[id]/resume`.
+   */
+  resume_key: string | null
+  resume_name: string | null
+  years_experience: number | null
+  current_company: string | null
+  notice_period: string | null
+  applicant_profile_id: string | null
+  source: 'public' | 'internal'
+  status: ApplicationStatus
+  org_notes: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * A job as the PUBLIC PORTAL sees it: the posting plus the name of the company
+ * behind it, and not one column more.
+ *
+ * A separate shape from `Job` on purpose. The portal serves anonymous visitors
+ * through the service role, so nothing but RLS-free discipline keeps internal
+ * columns off the page; giving that path its own narrow type means an internal
+ * field cannot be rendered by accident, only by someone widening this interface.
+ */
+export interface PublicJob {
+  id: string
+  title: string
+  description: string
+  responsibilities: string | null
+  requirements: string | null
+  employmentType: JobType
+  workplace: JobWorkplace
+  location: string | null
+  experienceMin: number | null
+  experienceMax: number | null
+  /** Already resolved against `salary_disclosed` — null means "do not show". */
+  salaryLabel: string | null
+  openings: number
+  skills: string[]
+  publishedAt: string | null
+  closesAt: string | null
+  company: PublicCompany
+}
+
+/** The employer behind a posting. `slug` is null for Oneclickhr's own jobs. */
+export interface PublicCompany {
+  id: string | null
+  name: string
+  slug: string | null
+  /** True for a platform job, which the portal badges as Oneclickhr. */
+  isPlatform: boolean
+  /** `/api/jobs/logo?tenant=…`, or null when the org has not uploaded one. */
+  logoUrl: string | null
+  website: string | null
+  location: string | null
+}

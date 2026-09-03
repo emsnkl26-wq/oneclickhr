@@ -203,9 +203,45 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 /** `2026-08-18` -> `Aug 18, 2026`, with no timezone in the way. */
 export function formatDateLabel(date: string | null | undefined): string {
   if (!date) return '—'
-  const [y, m, d] = date.split('-').map(Number)
-  if (!y || !m || !d) return date
+  /*
+   * Tolerate a TIMESTAMP where a `date` was expected.
+   *
+   * This function is for a plain `YYYY-MM-DD` column, and it used to fall
+   * through to `return date` for anything else — so a caller who passed a
+   * `timestamptz` by mistake got the raw `2026-09-03T05:56:56.566014+00:00`
+   * rendered into the page, which is exactly what happened on the jobs list.
+   * Failing by printing machine text at a user is the worst available outcome,
+   * so the date half is taken and the rest discarded.
+   *
+   * This is a SAFETY NET, not a substitute for `formatInstantLabel` below: the
+   * split happens in UTC, so an instant late in the day can name the previous
+   * calendar date for a reader further east. Pass instants to the right helper.
+   */
+  const dayPart = date.includes('T') ? date.slice(0, date.indexOf('T')) : date
+  const [y, m, d] = dayPart.split('-').map(Number)
+  if (!y || !m || !d || !MONTH_ABBR[m - 1]) return date
   return `${MONTH_ABBR[m - 1]} ${d}, ${y}`
+}
+
+/**
+ * A `timestamptz` as a short calendar label — "3 Sep 2026".
+ *
+ * The rest of this app formats instants in the ORG'S timezone, because an
+ * attendance day or a meeting time is meaningless without one. The job portal is
+ * the exception that needs this helper: its pages are read by anonymous visitors
+ * (no tenant at all) and by the platform console (every tenant at once), so
+ * there is no single workspace timezone to be correct in.
+ *
+ * UTC is therefore the honest choice rather than a lazy one — it is the same
+ * answer for every reader, and the value is a posting date where being a few
+ * hours out around midnight changes nothing anyone acts on. Anywhere a tenant
+ * timezone IS available and the precision matters, use `formatLocal`.
+ */
+export function formatInstantLabel(instant: string | null | undefined): string {
+  if (!instant) return '—'
+  const d = new Date(instant)
+  if (Number.isNaN(d.getTime())) return '—'
+  return `${d.getUTCDate()} ${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
 /** `2026-08-18` -> `Mon, 08/18`, the label under each column of the grid. */

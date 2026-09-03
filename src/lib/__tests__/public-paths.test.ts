@@ -45,6 +45,44 @@ describe('middleware public paths', () => {
     }
   })
 
+  /*
+   * The job portal is the first surface in this product that is public on
+   * purpose. These two tests are a pair and neither is much use alone: the first
+   * says the portal is reachable, the second says the ADMIN half of the same
+   * feature is not. Getting the second wrong publishes every draft posting and
+   * every applicant's CV to the internet.
+   */
+  it('opens the public job portal to anyone', () => {
+    for (const path of [
+      '/jobs',
+      '/jobs/9d0b0d3a-6f4a-4a3b-9c2e-0a1b2c3d4e5f',
+      '/jobs/company/acme',
+      '/api/jobs/apply',
+      '/api/jobs/resume-presign',
+      '/api/jobs/logo',
+      '/robots.txt',
+      '/sitemap.xml',
+    ]) {
+      expect(isPublicPath(path), `${path} must be public`).toBe(true)
+    }
+  })
+
+  it('does NOT open the admin half of the jobs feature', () => {
+    for (const path of [
+      '/org/jobs',
+      '/org/jobs/9d0b0d3a-6f4a-4a3b-9c2e-0a1b2c3d4e5f',
+      '/super/jobs',
+      '/api/org/jobs',
+      '/api/super/jobs',
+      '/employee/applications',
+      // Near-misses that must not inherit the portal's free pass.
+      '/jobs-evil',
+      '/jobsx',
+    ]) {
+      expect(isPublicPath(path), `${path} must NOT be public`).toBe(false)
+    }
+  })
+
   it('exposes no duplicates', () => {
     expect(new Set(PUBLIC_PATHS).size).toBe(PUBLIC_PATHS.length)
   })

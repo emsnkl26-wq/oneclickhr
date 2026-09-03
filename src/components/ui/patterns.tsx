@@ -57,9 +57,16 @@ export function StatCard({
           </span>
         ) : null}
       </div>
+      {/*
+        * `break-words` and a little line-height are the difference between a
+        * long value WRAPPING and a long value spilling out of the card over
+        * whatever sits beside it. Most values here are a two-digit count, but
+        * some are a date or a currency range, and `leading-none` with no wrap
+        * rule made those overflow the tile entirely.
+        */}
       <p
         className={cn(
-          'tabular mt-3 text-[28px] font-bold leading-none tracking-[-0.02em]',
+          'tabular mt-3 break-words text-[28px] font-bold leading-[1.1] tracking-[-0.02em]',
           accent ? 'text-brand-600' : 'text-ink'
         )}
       >

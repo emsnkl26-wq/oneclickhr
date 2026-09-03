@@ -567,16 +567,23 @@ Hobby plan only allows one run per day (too infrequent for the calendar
 fallback), and pg_net is fire-and-forget, so a 500 from the app would show up as
 a green run.
 
-Sign up at [cron-job.org](https://cron-job.org), then create **two** jobs. Both
+Sign up at [cron-job.org](https://cron-job.org), then create **three** jobs. All
 use the same settings apart from the URL and the schedule:
 
-| Setting | Visa reminders | Calendar sync fallback |
-| --- | --- | --- |
-| URL | `https://your-domain.com/api/cron/visa-reminders` | `https://your-domain.com/api/cron/calendar-sync` |
-| Schedule | Daily at **03:30 UTC** | Every **15 minutes** |
-| Request method | `POST` | `POST` |
-| Header | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` |
-| Save responses | on | on |
+| Setting | Visa reminders | Calendar sync fallback | Résumé sweep |
+| --- | --- | --- | --- |
+| URL | `https://your-domain.com/api/cron/visa-reminders` | `https://your-domain.com/api/cron/calendar-sync` | `https://your-domain.com/api/cron/jobs-gc` |
+| Schedule | Daily at **03:30 UTC** | Every **15 minutes** | Daily at **04:00 UTC** |
+| Request method | `POST` | `POST` | `POST` |
+| Header | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` |
+| Save responses | on | on | on |
+
+> **The résumé sweep is not optional if you run the job portal.**
+> `/api/jobs/resume-presign` is the one write an unauthenticated visitor can
+> cause, so a CV attached by someone who then closed the tab leaves an object no
+> row will ever reference. Without this job those accumulate indefinitely — other
+> people's personal data, stored forever, for no reason. It only deletes objects
+> older than 24 hours that no application points at.
 
 For each job:
 

@@ -332,3 +332,84 @@ export async function sendAnnouncement(args: AnnouncementArgs): Promise<SendResu
 
   return sendEmail({ to: args.to, subject: `${args.orgName}: ${args.title}`, html })
 }
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+export interface ApplicationReceivedArgs {
+  to: string
+  applicantName: string
+  jobTitle: string
+  companyName: string
+  brandColor?: string
+}
+
+/**
+ * The applicant's receipt.
+ *
+ * Sent to an address nobody has verified, which shapes what it may contain: the
+ * role and the company, and nothing about the application itself. If the address
+ * was mistyped into a stranger's inbox, the worst that leaks is that someone
+ * applied for a job — not their CV, their phone number or their current employer.
+ *
+ * It also deliberately promises nothing about a reply. Hiring goes quiet all the
+ * time, and an email that says "we will be in touch shortly" on the org's behalf
+ * makes a commitment this product cannot keep for them.
+ */
+export async function sendApplicationReceived(args: ApplicationReceivedArgs): Promise<SendResult> {
+  const subject = `Application received — ${args.jobTitle}`
+
+  const html = layout(
+    `
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">Thanks for applying</h1>
+    <p style="margin:0 0 8px;">Hi ${esc(args.applicantName || 'there')},</p>
+    <p style="margin:0 0 18px;">We have passed your application for <strong>${esc(
+      args.jobTitle
+    )}</strong> to the hiring team at <strong>${esc(
+      args.companyName
+    )}</strong>. They will contact you directly if they would like to take it further.</p>
+    <p style="margin:0 0 18px;color:#6B7280;font-size:13px;">You are receiving this because this address was used to apply through the Oneclickhr job portal. If that was not you, you can ignore this message.</p>
+    ${button(`${appUrl()}/jobs`, 'Browse more roles', args.brandColor || '#C41E33')}
+  `,
+    { brandName: args.companyName, brandColor: args.brandColor, preheader: subject }
+  )
+
+  return sendEmail({ to: args.to, subject, html })
+}
+
+export interface NewApplicationArgs {
+  to: string | string[]
+  applicantName: string
+  jobTitle: string
+  jobId: string
+  /** Where to review it — differs for a platform posting. */
+  reviewPath: string
+  orgName: string
+  brandColor?: string
+}
+
+/**
+ * The org's alert.
+ *
+ * Carries the applicant's NAME and nothing else about them — no email, no phone,
+ * no CV link. Everything worth reading is one click away behind the session that
+ * is allowed to see it, and mail is the wrong place to keep a stranger's contact
+ * details: it gets forwarded, auto-archived and read on shared screens.
+ */
+export async function sendNewApplicationAlert(args: NewApplicationArgs): Promise<SendResult> {
+  const subject = `New application: ${args.jobTitle}`
+
+  const html = layout(
+    `
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">${esc(subject)}</h1>
+    <p style="margin:0 0 18px;"><strong>${esc(
+      args.applicantName
+    )}</strong> has applied for <strong>${esc(args.jobTitle)}</strong>.</p>
+    ${button(`${appUrl()}${args.reviewPath}`, 'Review the application', args.brandColor || '#C41E33')}
+  `,
+    { brandName: args.orgName, brandColor: args.brandColor, preheader: subject }
+  )
+
+  return sendEmail({ to: args.to, subject, html })
+}
