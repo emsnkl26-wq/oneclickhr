@@ -1,41 +1,34 @@
 import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { PageHeader } from '@/components/ui/patterns'
-import { emptyDraft } from '@/lib/onboarding'
-import { OnboardingWizard } from './onboarding-wizard'
-import { loadWizardData } from './wizard-data'
+import { CreateEmployeeForm } from './create-employee-form'
 
-export const metadata: Metadata = { title: 'Onboard an employee' }
+export const metadata: Metadata = { title: 'Add an employee' }
 export const dynamic = 'force-dynamic'
 
 /**
- * A brand-new onboarding.
+ * Adding someone to the team.
  *
- * No draft row is created up front — an org that opens this page and changes
- * its mind should leave nothing behind. The row appears on the first save
- * (autosave, "Next", or "Save for later"), and the wizard swaps the URL to
- * /org/employees/onboard/<id> at that moment so a refresh resumes.
+ * This used to open the six-step onboarding wizard on a blank draft, with no
+ * account created until the last field was filled. It now opens a three-field
+ * form that creates the account immediately — see `create-employee-form.tsx`
+ * for why, and for the fork that follows it.
+ *
+ * The wizard still exists and is still the only place the full details are
+ * entered; it simply lives one step further in, at
+ * /org/employees/onboard/<draftId>, where there is always a real account behind
+ * it. Drafts started under the old flow resume there unchanged.
  */
-export default async function OnboardEmployeePage() {
-  const ctx = await requireOrg()
-  const { departments, managers, currencySymbol } = await loadWizardData(ctx)
+export default async function AddEmployeePage() {
+  await requireOrg()
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Onboard an employee"
-        description="Fill it all in yourself, or add their name and email and let them complete their own details — you review either way."
+        title="Add an employee"
+        description="Create their account first — it takes three fields. The rest of the onboarding details can be filled in by you or by them."
       />
-      <OnboardingWizard
-        draftId={null}
-        initialDraft={emptyDraft({ country: 'US', employmentStatus: 'Active' })}
-        initialStep={1}
-        initialCompletedSteps={[]}
-        departments={departments}
-        managers={managers}
-        accountLast4={null}
-        currencySymbol={currencySymbol}
-      />
+      <CreateEmployeeForm />
     </div>
   )
 }

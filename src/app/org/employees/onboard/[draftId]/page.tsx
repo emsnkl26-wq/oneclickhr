@@ -77,7 +77,7 @@ export default async function ResumeOnboardingPage({
           status === 'submitted'
             ? 'They have completed their details. Review everything, then approve it onto their profile.'
             : status === 'invited'
-              ? 'Their account is live and they are filling in their own details. You can add to it here too.'
+              ? 'Their account is live. Fill the rest in here, or leave it to them — either way you approve it at the end.'
               : 'Picking up where you left off. Nothing is created until you complete the last step.'
         }
       />

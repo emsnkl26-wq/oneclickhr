@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Download, FileText, FileSignature, FilePlus2, Eye, Briefcase, Timer } from 'lucide-react'
+import {
+  ArrowLeft, ArrowRight, ClipboardList, Download, FileText, FileSignature, FilePlus2,
+  Eye, Briefcase, Timer,
+} from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader, StatCard, StatusChip, EmptyState } from '@/components/ui/patterns'
@@ -13,7 +16,7 @@ import {
   type ExperienceItem, type EducationItem,
 } from '@/components/profile/profile-sections'
 import { formatLocal, todayIn, formatPeriod } from '@/lib/time'
-import { initials, formatHours } from '@/lib/utils'
+import { initials, formatHours, cn } from '@/lib/utils'
 import { DOCUMENT_TYPE_LABELS } from '@/lib/document-templates'
 import { EMPLOYEE_LOGIN_PATH } from '@/lib/routes'
 import { appUrl } from '@/lib/env'
@@ -67,6 +70,7 @@ export default async function EmployeeDetailPage({
     { data: letters },
     { data: assignments },
     { data: timesheets },
+    { data: onboarding },
   ] = await Promise.all([
       supabase.from('departments').select('id, name').order('name'),
       supabase
@@ -112,6 +116,19 @@ export default async function EmployeeDetailPage({
         .eq('employee_id', id)
         .order('week_start', { ascending: false })
         .limit(8),
+      /*
+       * The onboarding this account came from, if it is still open. This is the
+       * page an admin lands on when they finally have the missing paperwork, so
+       * it is where the way back into the form belongs.
+       */
+      supabase
+        .from('employee_onboarding')
+        .select('id, status, submitted_at')
+        .eq('employee_profile_id', id)
+        .in('status', ['invited', 'submitted'])
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
 
   const records = attendance ?? []
@@ -175,6 +192,43 @@ export default async function EmployeeDetailPage({
         }
       />
 
+      {onboarding ? (
+        <div
+          className={cn(
+            'flex flex-col gap-4 rounded-xl border p-5 sm:flex-row sm:items-center',
+            onboarding.status === 'submitted'
+              ? 'border-emerald-200 bg-emerald-50/60'
+              : 'border-amber-200 bg-amber-50/60'
+          )}
+        >
+          <ClipboardList
+            className={cn(
+              'size-5 shrink-0',
+              onboarding.status === 'submitted' ? 'text-emerald-600' : 'text-amber-600'
+            )}
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">
+              {onboarding.status === 'submitted'
+                ? 'Their onboarding details are ready for review'
+                : 'Onboarding is not finished'}
+            </p>
+            <p className="mt-0.5 text-sm leading-relaxed text-ink-muted">
+              {onboarding.status === 'submitted'
+                ? 'They have filled in their own details. Approving is what writes them onto this profile.'
+                : 'They can sign in and complete their own details, or you can fill them in here. Until it is approved they are not counted as an active member of the team.'}
+            </p>
+          </div>
+          <Button asChild variant={onboarding.status === 'submitted' ? 'default' : 'secondary'}>
+            <Link href={`/org/employees/onboard/${onboarding.id}`}>
+              {onboarding.status === 'submitted' ? 'Review and approve' : 'Open onboarding form'}
+              <ArrowRight />
+            </Link>
+          </Button>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-card p-5 shadow-sm">
         <Avatar className="size-16">
           {employee.photo_url ? (
@@ -191,7 +245,13 @@ export default async function EmployeeDetailPage({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[17px] font-semibold">{employee.full_name || 'Unnamed'}</p>
-            <StatusChip status={employee.is_active ? 'active' : 'inactive'} />
+            {!employee.is_active ? (
+              <StatusChip status="inactive" />
+            ) : onboarding ? (
+              <StatusChip status="onboarding" label="Onboarding" tone="warning" />
+            ) : (
+              <StatusChip status="active" />
+            )}
             {employee.must_change_password ? (
               <StatusChip status="pending" label="Has not set a password yet" />
             ) : null}

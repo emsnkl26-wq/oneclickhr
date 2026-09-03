@@ -39,6 +39,7 @@ export interface EmployeeRow {
  */
 export function EmployeeList({
   employees, employeeCount, departments, drafts, draftCount, tab, timezone,
+  onboardingIds = [],
 }: {
   employees: EmployeeRow[] | null
   employeeCount: number
@@ -47,6 +48,12 @@ export function EmployeeList({
   draftCount: number
   tab: 'team' | 'drafts'
   timezone: string
+  /**
+   * Accounts whose onboarding is still open. They can sign in — that is the
+   * point — but they are not a finished member of the team yet, so they get
+   * their own status rather than being counted among the active.
+   */
+  onboardingIds?: string[]
 }) {
   const router = useRouter()
   const [query, setQuery] = React.useState('')
@@ -60,18 +67,23 @@ export function EmployeeList({
     [departments]
   )
 
+  const onboarding = React.useMemo(() => new Set(onboardingIds), [onboardingIds])
+
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase()
     return (employees ?? []).filter((e) => {
-      if (status === 'active' && !e.is_active) return false
+      // "Active" means finished AND switched on. Someone mid-onboarding is
+      // neither deactivated nor done, so they answer to their own filter.
+      if (status === 'active' && (!e.is_active || onboarding.has(e.id))) return false
       if (status === 'inactive' && e.is_active) return false
+      if (status === 'onboarding' && !onboarding.has(e.id)) return false
       if (department !== 'all' && e.department_id !== department) return false
       if (!q) return true
       return [e.full_name, e.email, e.employee_code, e.designation, e.phone]
         .filter(Boolean)
         .some((field) => field!.toLowerCase().includes(q))
     })
-  }, [employees, query, department, status])
+  }, [employees, query, department, status, onboarding])
 
   async function toggleActive(employee: EmployeeRow) {
     setBusy(true)
@@ -160,7 +172,14 @@ export function EmployeeList({
     {
       key: 'status',
       header: 'Status',
-      cell: (row) => <StatusChip status={row.is_active ? 'active' : 'inactive'} />,
+      cell: (row) =>
+        !row.is_active ? (
+          <StatusChip status="inactive" />
+        ) : onboarding.has(row.id) ? (
+          <StatusChip status="onboarding" label="Onboarding" tone="warning" />
+        ) : (
+          <StatusChip status="active" />
+        ),
     },
     {
       key: 'actions',
@@ -186,7 +205,10 @@ export function EmployeeList({
     },
   ]
 
-  const activeCount = (employees ?? []).filter((e) => e.is_active).length
+  const activeCount = (employees ?? []).filter(
+    (e) => e.is_active && !onboarding.has(e.id)
+  ).length
+  const onboardingCount = (employees ?? []).filter((e) => onboarding.has(e.id)).length
 
   return (
     <div className="space-y-4">
@@ -244,10 +266,35 @@ export function EmployeeList({
               className="sm:w-40"
             >
               <option value="active">Active ({activeCount})</option>
+              <option value="onboarding">Onboarding ({onboardingCount})</option>
               <option value="inactive">Deactivated</option>
               <option value="all">All</option>
             </Select>
           </div>
+
+          {/*
+            Nobody vanishes without being told where they went.
+
+            "Active" deliberately excludes people who are still onboarding, which
+            means an admin who has just added someone would otherwise look at
+            this table and not find them. One line, and a way straight to them.
+          */}
+          {status === 'active' && onboardingCount > 0 ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-amber-200 bg-amber-50/60 px-3.5 py-2.5 text-[13px] text-amber-900">
+              <span>
+                {onboardingCount === 1
+                  ? '1 more person is still being onboarded and is not shown here.'
+                  : `${onboardingCount} more people are still being onboarded and are not shown here.`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setStatus('onboarding')}
+                className="focus-ring rounded font-semibold underline underline-offset-2"
+              >
+                Show them
+              </button>
+            </p>
+          ) : null}
 
           <DataTable
             columns={columns}
@@ -258,7 +305,7 @@ export function EmployeeList({
                 <EmptyState
                   icon={Users}
                   title="No employees yet"
-                  description="Add your team and each person gets an account with sign-in details sent to their email."
+                  description="Adding someone takes three fields — they get an account and sign-in details straight away, and the onboarding details can follow."
                   action={
                     <Button asChild>
                       <Link href="/org/employees/onboard">Add your first employee</Link>

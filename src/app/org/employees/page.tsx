@@ -57,7 +57,7 @@ export default async function EmployeesPage({
 
   const teamOpen = active === 'team'
 
-  const [employees, drafts, departments] = await Promise.all([
+  const [employees, drafts, departments, onboarding] = await Promise.all([
     teamOpen
       ? supabase
           .from('profiles')
@@ -84,6 +84,22 @@ export default async function EmployeesPage({
     teamOpen
       ? supabase.from('departments').select('id, name').order('name')
       : Promise.resolve({ data: [] as { id: string; name: string }[], count: 0 }),
+
+    /*
+     * Who is still being onboarded.
+     *
+     * An invited employee has a real account and can sign in — they must be
+     * able to, or they could not fill in their own details — but they are not
+     * yet a finished member of the team, and the table says so rather than
+     * showing them as plainly "Active". Two indexed columns, ids only.
+     */
+    teamOpen
+      ? supabase
+          .from('employee_onboarding')
+          .select('employee_profile_id')
+          .in('status', ['invited', 'submitted'])
+          .not('employee_profile_id', 'is', null)
+      : Promise.resolve({ data: [] as { employee_profile_id: string | null }[] }),
   ])
 
   return (
@@ -106,6 +122,9 @@ export default async function EmployeesPage({
         departments={departments.data ?? []}
         drafts={teamOpen ? null : ((drafts.data ?? []) as unknown as DraftRow[])}
         draftCount={drafts.count ?? 0}
+        onboardingIds={(onboarding.data ?? [])
+          .map((row) => row.employee_profile_id)
+          .filter((id): id is string => !!id)}
         tab={active}
         timezone={ctx.tenant.timezone}
       />

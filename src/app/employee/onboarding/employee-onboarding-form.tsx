@@ -479,7 +479,11 @@ function stepWithKey(key: string): number | null {
  * the error object simply carries it along as an extra property.
  */
 function readSteps(err: unknown): Record<number, Record<string, string>> | null {
-  const steps = (err as { steps?: unknown })?.steps
+  // `payload`, not the error itself: `ApiClientError` copies the response body
+  // there and lifts only `message` and `fields` onto its own surface. Reading
+  // `err.steps` looked right and was always undefined, which is why a duplicate
+  // email used to arrive as a toast with no field marked.
+  const steps = (err as { payload?: { steps?: unknown } })?.payload?.steps
   if (!steps || typeof steps !== 'object') return null
   const parsed = steps as Record<number, Record<string, string>>
   return Object.keys(parsed).length ? parsed : null
