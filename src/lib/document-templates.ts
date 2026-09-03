@@ -37,6 +37,11 @@ export interface TemplateVars {
   workLocation: string
   governingState: string
   visaType: string
+  hoursPerWeek: string
+  /** Who the offer says the employee reports to — usually the signatory. */
+  reportingManagerName: string
+  reportingManagerTitle: string
+  registrationNumber: string
 }
 
 export const EMPLOYMENT_TYPE_OPTIONS = [
@@ -66,29 +71,88 @@ export function defaultResponsibilities(jobTitle: string): string[] {
   ]
 }
 
-/** The opening paragraph of the short offer letter. */
+/**
+ * The opening paragraph of the short offer letter.
+ *
+ * Modelled on a real, signed offer letter rather than a form-letter summary:
+ * one flowing paragraph that states the position, the hours, who the hire
+ * reports to and where they'll work — the same information a "Position
+ * Details" bullet list would have carried, but read the way an employer
+ * actually writes it.
+ */
 export function defaultOfferIntro(vars: TemplateVars): string {
+  const managerLine = vars.reportingManagerName
+    ? ` You will be reporting to ${vars.reportingManagerName}` +
+      `${vars.reportingManagerTitle ? ` (${vars.reportingManagerTitle})` : ''}.`
+    : ''
+  const locationLine = vars.workLocation
+    ? ` Your primary work location will be ${vars.workLocation}.`
+    : ''
+
   return (
-    `We are pleased to offer you the position of ${vars.jobTitle || 'the role'} with ` +
-    `${vars.companyName}. This is a ${(vars.employmentType || 'full-time').toLowerCase()} ` +
-    `position focused on the design, development and maintenance of the products and ` +
-    `services this team is responsible for.`
+    `On behalf of ${vars.companyName}, we are pleased to offer you the position of ` +
+    `${vars.jobTitle || 'the role'}. As a ${(vars.employmentType || 'full-time').toLowerCase()} ` +
+    `employee you will be working ${vars.hoursPerWeek || '40'} hours per week for ` +
+    `${vars.companyName}.${managerLine}${locationLine}`
+  )
+}
+
+/** The second paragraph — start date, stated the way an offer letter states it. */
+export function defaultStartDateText(vars: TemplateVars): string {
+  return `Your start date with our company is ${vars.startDate || 'to be confirmed'}.`
+}
+
+/** The third paragraph — compensation, in prose rather than a bullet. */
+export function defaultCompensationText(vars: TemplateVars): string {
+  return (
+    `You will be working on ${vars.salaryText}. Your compensation will be evaluated and paid ` +
+    `to you in accordance with the company's current payroll policies and will be subject to ` +
+    `periodic review based on your experience and duration with the company.`
+  )
+}
+
+/** E-Verify registration statement. Blank — and so omitted — without an EIN on file. */
+export function defaultEVerifyText(vars: TemplateVars): string {
+  if (!vars.registrationNumber) return ''
+  return (
+    `We certify that our organization is registered with E-Verify. Employer name listed in ` +
+    `E-Verify as ${vars.companyName}. Employer Identification Number: ${vars.registrationNumber}.`
+  )
+}
+
+/** The contingent-upon-signing / at-will paragraph most US offer letters carry. */
+export function defaultContingencyText(): string {
+  return (
+    `This offer of employment is contingent upon your signing of this offer letter and the ` +
+    `successful and satisfactory completion of any reference checks. The term of your ` +
+    `employment with the company shall be at will. Therefore, both you and the company reserve ` +
+    `the right to terminate the employment relationship for any reason, or no reason, and ` +
+    `without any notice.`
   )
 }
 
 export function defaultOfferClosing(vars: TemplateVars): string {
-  return `We look forward to supporting your professional growth and welcoming you to the ${vars.companyName} team.`
+  const name = vars.employeeName || 'We'
+  return (
+    `${name}, we are delighted to have you join us. If the foregoing terms are acceptable to ` +
+    `you, please sign and date the original and the enclosed copy of this letter; return the ` +
+    `original to the company and retain the copy for your records.`
+  )
 }
 
 /** The opening paragraph of the internship / short-form letter. */
 export function defaultInternshipIntro(vars: TemplateVars): string {
+  const managerLine = vars.reportingManagerName
+    ? ` You will be reporting to ${vars.reportingManagerName}` +
+      `${vars.reportingManagerTitle ? ` (${vars.reportingManagerTitle})` : ''}.`
+    : ''
+
   return (
-    `We are pleased to offer you the position of ${vars.jobTitle || 'the role'} at ` +
-    `${vars.companyName}. This is a ${(vars.employmentType || 'full-time').toLowerCase()} ` +
-    `position with responsibilities focused on the design, development and maintenance of ` +
-    `software applications and data-driven solutions, including building scalable systems, ` +
-    `developing APIs, and working on data and analytics pipelines that support business ` +
-    `intelligence and decision-making.`
+    `On behalf of ${vars.companyName}, we are pleased to offer you the position of ` +
+    `${vars.jobTitle || 'the role'}. This is a ${(vars.employmentType || 'full-time').toLowerCase()} ` +
+    `internship, working ${vars.hoursPerWeek || '40'} hours per week, with responsibilities ` +
+    `focused on the design, development and maintenance of software applications and ` +
+    `data-driven solutions.${managerLine}`
   )
 }
 

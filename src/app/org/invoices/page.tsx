@@ -76,6 +76,8 @@ export default async function InvoicesPage({
         filtered={!!search || !!status}
         suggestedNumber={suggested}
         orgName={ctx.tenant.name}
+        orgLogoUrl={ctx.tenant.logoUrl}
+        orgPrimaryColor={ctx.tenant.primaryColor}
         timezone={ctx.tenant.timezone}
       />
     </div>

@@ -169,6 +169,10 @@ describe('buildAgreementSections', () => {
     workLocation: 'Remote',
     governingState: 'Maryland',
     visaType: 'H1B',
+    hoursPerWeek: '40',
+    reportingManagerName: 'Alex Morgan',
+    reportingManagerTitle: 'Managing Director',
+    registrationNumber: '88-1959249',
   }
 
   it('produces every clause with the org and role interpolated', () => {

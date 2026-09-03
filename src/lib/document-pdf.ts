@@ -66,7 +66,15 @@ export interface OfferLetterInput {
   salary: string
   workLocation: string
   intro: string
+  /** Second paragraph — start date, and any joining contingency. */
+  startDateText: string
+  /** Third paragraph — compensation, in prose rather than a bullet. */
+  compensationText: string
   responsibilities: string[]
+  /** E-Verify registration statement. Empty prints nothing. */
+  eVerifyText: string
+  /** At-will / contingent-upon-signing paragraph. Empty prints nothing. */
+  contingencyText: string
   closing: string
   acceptanceDeadline: string
   signatory: SignatureBlock
@@ -110,6 +118,7 @@ type Doc = {
   setDrawColor(r: number, g: number, b: number): void
   setLineWidth(w: number): void
   text(text: string | string[], x: number, y: number, options?: Record<string, unknown>): void
+  textWithLink(text: string, x: number, y: number, options: { url: string }): void
   line(x1: number, y1: number, x2: number, y2: number): void
   splitTextToSize(text: string, width: number): string[]
   getTextWidth(text: string): number
@@ -128,6 +137,9 @@ type Doc = {
 const INK: [number, number, number] = [26, 28, 35]
 const MUTED: [number, number, number] = [90, 96, 110]
 const RULE: [number, number, number] = [200, 204, 212]
+
+/** Where the platform-branding footer line points. Ours, never the org's. */
+export const ONECLICKHR_URL = 'https://oneclickhr.app'
 
 /* ------------------------------------------------------------- Logo loading */
 
@@ -361,6 +373,21 @@ class DocWriter {
     this.y += 26
   }
 
+  /** Left-aligned, underlined subject line — "Offer of Employment – Jane Doe". */
+  subjectLine(text: string): void {
+    this.ensure(this.lineHeight() * 2)
+    this.doc.setFont(this.options.family, 'bold')
+    this.doc.setFontSize(11)
+    this.doc.setTextColor(...INK)
+    this.doc.text(text, this.margin, this.y)
+
+    const width = this.doc.getTextWidth(text)
+    this.doc.setDrawColor(...INK)
+    this.doc.setLineWidth(0.6)
+    this.doc.line(this.margin, this.y + 3, this.margin + width, this.y + 3)
+    this.y += this.lineHeight() + 10
+  }
+
   /** A left-aligned bold line — "Position Details", "Dear …". */
   heading(text: string, size = 10.5): void {
     this.ensure(this.lineHeight() * 2)
@@ -539,6 +566,49 @@ class DocWriter {
     this.doc.line(lineStart, this.y + 2, lineEnd, this.y + 2)
   }
 
+  /**
+   * The two-column sign-off every real offer letter ends with: "Sincerely,"
+   * over the employer's signature on the left, "Accepted and signed by," over
+   * the candidate's on the right — the layout of the sample this template
+   * follows, rather than a single stacked acknowledgment block.
+   */
+  twoColumnSignoff(org: LetterheadOrg, signatory: SignatureBlock, employeeName: string): void {
+    this.ensure(130)
+    const leftX = this.margin
+    const rightX = this.margin + this.contentWidth / 2 + 12
+    const colWidth = this.contentWidth / 2 - 12
+
+    this.doc.setFont(this.options.family, 'bold')
+    this.doc.setFontSize(this.options.bodySize)
+    this.doc.setTextColor(...INK)
+    this.doc.text('Sincerely,', leftX, this.y)
+    this.doc.text('Accepted and signed by,', rightX, this.y)
+
+    this.y += 44
+    this.doc.setDrawColor(...INK)
+    this.doc.setLineWidth(0.5)
+    this.doc.line(leftX, this.y, leftX + colWidth, this.y)
+    this.doc.line(rightX, this.y, rightX + colWidth, this.y)
+    this.y += 14
+
+    this.doc.setFontSize(this.options.bodySize)
+    if (signatory.name) {
+      this.doc.setFont(this.options.family, 'bold')
+      this.doc.text(signatory.name, leftX, this.y)
+    }
+    this.doc.setFont(this.options.family, 'normal')
+    this.doc.text(`[${employeeName || 'Employee Name'}]`, rightX, this.y)
+    this.y += this.lineHeight()
+
+    this.doc.setFont(this.options.family, 'normal')
+    if (signatory.title) this.doc.text(signatory.title, leftX, this.y)
+    this.doc.text('Date: ______________________', rightX, this.y)
+    this.y += this.lineHeight()
+
+    this.doc.text(org.name, leftX, this.y)
+    this.y += this.lineHeight()
+  }
+
   /* -------------------------------------------------------------- Footer */
 
   /**
@@ -561,7 +631,9 @@ class DocWriter {
       this.doc.setFont(this.options.family, 'normal')
       this.doc.setFontSize(7.5)
       this.doc.setTextColor(...MUTED)
-      this.doc.text('Powered by OneClickHR', this.margin, y)
+      // Clickable — the only place in the document that points away from the
+      // org's own site, so it links to ours, not theirs.
+      this.doc.textWithLink('Powered by OneClickHR', this.margin, y, { url: ONECLICKHR_URL })
 
       if (this.options.pageNumbers || total > 1) {
         this.doc.text(`Page ${page} of ${total}`, this.pageWidth - this.margin, y, {
@@ -589,57 +661,40 @@ export async function renderOfferLetter(input: OfferLetterInput): Promise<Blob> 
     pageNumbers: false,
   })
 
-  w.heading(`Date: ${input.date}`)
-  w.heading(`Subject: Offer of Employment – ${input.jobTitle}`)
-  w.space(6)
+  w.paragraph(input.date)
+  w.space(4)
+  w.paragraph('To,')
+  w.cursor -= 10
+  w.paragraph(input.employeeName)
+  w.space(2)
+
+  w.subjectLine(`Offer of Employment – ${input.employeeName}`)
   w.heading(`Dear ${input.employeeName},`)
 
   w.paragraph(input.intro)
-  w.space(4)
-
-  w.heading('Position Details')
-  w.definitions([
-    ['Position Title', input.jobTitle],
-    ['Employment Type', input.employmentType],
-    ['Start Date', input.startDate],
-    ['Compensation', input.salary],
-    ['Work Location', input.workLocation],
-  ])
+  if (input.startDateText) w.paragraph(input.startDateText)
+  if (input.compensationText) w.paragraph(input.compensationText)
 
   if (input.responsibilities.length) {
-    w.heading('Roles and Responsibilities')
-    w.paragraph(`As a ${input.jobTitle}, you will work on:`)
+    w.heading('Job Duties and Responsibilities')
+    w.paragraph(`As a ${input.jobTitle}, your responsibilities include, but are not limited to:`)
     w.bullets(input.responsibilities)
   }
 
-  w.paragraph(input.closing)
-  w.space(10)
-
-  writeSignatory(w, input.org, input.signatory)
+  if (input.eVerifyText) w.paragraph(input.eVerifyText)
+  if (input.contingencyText) w.paragraph(input.contingencyText)
 
   if (input.acceptanceDeadline) {
-    w.space(6)
     w.paragraph(
       `Please confirm your acceptance of this offer by signing and returning a copy of this ` +
         `letter no later than ${input.acceptanceDeadline}.`
     )
   }
 
-  w.space(6)
-  // The acknowledgment, its sentence and both signature rules move together: a
-  // page whose only content is two ruled lines does not read as a document
-  // anyone is meant to sign.
-  w.ensure(140)
-  w.heading('Candidate Acknowledgment')
-  w.paragraph(
-    `I, ${input.employeeName}, accept the terms above and confirm my joining on ` +
-      `${input.startDate}.`
-  )
+  w.paragraph(input.closing)
+  w.space(10)
 
-  w.space(18)
-  w.signatureLine('Signature:', w.margin, 260)
-  w.cursor += 34
-  w.signatureLine('Date:', w.margin, 260)
+  w.twoColumnSignoff(input.org, input.signatory, input.employeeName)
 
   w.finish()
   return doc.output('blob')
@@ -655,24 +710,22 @@ export async function renderInternshipOffer(input: InternshipOfferInput): Promis
     pageNumbers: false,
   })
 
-  w.heading(`Date: ${input.date}`)
+  w.paragraph(input.date)
   w.space(4)
+  w.paragraph('To,')
+  w.cursor -= 10
+  w.paragraph(input.employeeName)
+  w.space(2)
+
+  w.subjectLine(`Offer of Internship – ${input.employeeName}`)
   w.heading(`Dear ${input.employeeName},`)
 
   w.paragraph(input.intro)
-  w.space(4)
-
-  w.heading('Position Details')
-  w.definitions([
-    ['Position Title', input.jobTitle],
-    ['Start Date', input.startDate],
-    ['Type', input.employmentType],
-    ['Stipend / Salary', input.salary],
-    ['Company Address', input.companyAddress],
-  ])
+  if (input.startDateText) w.paragraph(input.startDateText)
+  if (input.compensationText) w.paragraph(input.compensationText)
 
   if (input.responsibilities.length) {
-    w.heading('Training Focus & Responsibilities')
+    w.heading('Training Focus and Responsibilities')
     w.paragraph(
       `As a ${input.jobTitle}, you will receive structured training and work on projects that ` +
         `focus on the following areas:`
@@ -680,7 +733,9 @@ export async function renderInternshipOffer(input: InternshipOfferInput): Promis
     w.bullets(input.responsibilities)
   }
 
-  w.heading('Acceptance')
+  if (input.eVerifyText) w.paragraph(input.eVerifyText)
+  if (input.contingencyText) w.paragraph(input.contingencyText)
+
   if (input.acceptanceDeadline) {
     w.paragraph(
       `Please confirm your acceptance of this offer by signing and returning a copy of this ` +
@@ -688,19 +743,9 @@ export async function renderInternshipOffer(input: InternshipOfferInput): Promis
     )
   }
   w.paragraph(input.closing)
-  w.space(8)
+  w.space(10)
 
-  writeSignatory(w, input.org, input.signatory)
-
-  w.space(14)
-  w.ensure(140)
-  w.heading('Candidate Acknowledgment and Acceptance')
-  w.paragraph(`I, ${input.employeeName}, accept the offer as outlined above.`)
-
-  w.space(18)
-  w.signatureLine('Signature:', w.margin, 260)
-  w.cursor += 34
-  w.signatureLine('Date:', w.margin, 260)
+  w.twoColumnSignoff(input.org, input.signatory, input.employeeName)
 
   w.finish()
   return doc.output('blob')
@@ -767,26 +812,6 @@ export async function renderEmploymentAgreement(input: AgreementInput): Promise<
 
   w.finish()
   return doc.output('blob')
-}
-
-/** The signature block both short letters end with. */
-function writeSignatory(w: DocWriter, org: LetterheadOrg, signatory: SignatureBlock): void {
-  w.ensure(80)
-  w.paragraph('Sincerely,')
-  w.space(8)
-  if (signatory.name) {
-    w.paragraph(signatory.name, { bold: true })
-    w.cursor -= 10
-  }
-  if (signatory.title) {
-    w.paragraph(signatory.title)
-    w.cursor -= 12
-  }
-  w.paragraph(org.name)
-  if (signatory.phone) {
-    w.cursor -= 12
-    w.paragraph(`Phone: ${signatory.phone}`)
-  }
 }
 
 /* ------------------------------------------------------------------ Facade */

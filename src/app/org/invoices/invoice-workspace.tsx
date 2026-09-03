@@ -30,7 +30,8 @@ const EMPTY_ITEM: DraftItem = { description: '', quantity: '1', rate: '0' }
 
 /** `invoices` is one page; the search and status filter live in the URL. */
 export function InvoiceWorkspace({
-  invoices, total, page, perPage, filtered, suggestedNumber, orgName, timezone,
+  invoices, total, page, perPage, filtered, suggestedNumber, orgName, orgLogoUrl, orgPrimaryColor,
+  timezone,
 }: {
   invoices: Invoice[]
   total: number
@@ -39,6 +40,8 @@ export function InvoiceWorkspace({
   filtered: boolean
   suggestedNumber: string
   orgName: string
+  orgLogoUrl: string | null
+  orgPrimaryColor: string | null
   timezone: string
 }) {
   const router = useRouter()
@@ -126,7 +129,9 @@ export function InvoiceWorkspace({
             size="icon"
             variant="ghost"
             aria-label={`Print ${row.invoice_number}`}
-            onClick={() => downloadInvoicePdf(row, orgName)}
+            onClick={() =>
+              downloadInvoicePdf(row, orgName, { logoUrl: orgLogoUrl, primaryColor: orgPrimaryColor })
+            }
           >
             <Printer />
           </Button>

@@ -22,6 +22,7 @@ import {
   DOCUMENT_TYPE_LABELS, DOCUMENT_TYPE_DESCRIPTIONS, EMPLOYMENT_TYPE_OPTIONS,
   SALARY_CADENCES, buildAgreementSections, composeSalaryText, defaultResponsibilities,
   defaultOfferIntro, defaultOfferClosing, defaultInternshipIntro, defaultAgreementIntro,
+  defaultStartDateText, defaultCompensationText, defaultEVerifyText, defaultContingencyText,
   type AgreementSectionValue, type TemplateVars,
 } from '@/lib/document-templates'
 import {
@@ -98,6 +99,7 @@ export function DocumentGenerator({
   const [salaryAmount, setSalaryAmount] = React.useState('')
   const [salaryCadence, setSalaryCadence] = React.useState<string>('annual')
   const [workLocation, setWorkLocation] = React.useState('')
+  const [hoursPerWeek, setHoursPerWeek] = React.useState('40')
   const [acceptanceDeadline, setAcceptanceDeadline] = React.useState('')
   const [honorific, setHonorific] = React.useState('')
   const [governingState, setGoverningState] = React.useState('')
@@ -106,7 +108,11 @@ export function DocumentGenerator({
 
   // --- Content -------------------------------------------------------------
   const [intro, setIntro] = React.useState('')
+  const [startDateText, setStartDateText] = React.useState('')
+  const [compensationText, setCompensationText] = React.useState('')
   const [responsibilities, setResponsibilities] = React.useState('')
+  const [eVerifyText, setEVerifyText] = React.useState('')
+  const [contingencyText, setContingencyText] = React.useState('')
   const [closing, setClosing] = React.useState('')
   const [sections, setSections] = React.useState<AgreementSectionValue[]>([])
 
@@ -153,10 +159,17 @@ export function DocumentGenerator({
       workLocation,
       governingState,
       visaType,
+      hoursPerWeek,
+      // The letter's "you will be reporting to" line is, in practice, the
+      // person who signs it — so the signature block doubles as the source.
+      reportingManagerName: signatoryName,
+      reportingManagerTitle: signatoryTitle,
+      registrationNumber: company.registrationNumber ?? '',
     }),
     [
-      company.name, employeeName, jobTitle, employmentType, startDate,
-      salaryAmount, salaryCadence, workLocation, governingState, visaType,
+      company.name, company.registrationNumber, employeeName, jobTitle, employmentType, startDate,
+      salaryAmount, salaryCadence, workLocation, governingState, visaType, hoursPerWeek,
+      signatoryName, signatoryTitle,
     ]
   )
 
@@ -212,6 +225,10 @@ export function DocumentGenerator({
     setResponsibilities(defaultResponsibilities(title).join('\n'))
     setSections(buildAgreementSections(vars))
     setIntro(docType === 'internship_offer' ? defaultInternshipIntro(vars) : docType === 'employment_agreement' ? defaultAgreementIntro(vars) : defaultOfferIntro(vars))
+    setStartDateText(defaultStartDateText(vars))
+    setCompensationText(defaultCompensationText(vars))
+    setEVerifyText(defaultEVerifyText(vars))
+    setContingencyText(defaultContingencyText())
     setClosing(defaultOfferClosing(vars))
   }, [employeeId, docType, employee, companyAddress, company.stateProvince])
 
@@ -289,7 +306,11 @@ export function DocumentGenerator({
       salary: composeSalaryText(salaryAmount, salaryCadence),
       workLocation,
       intro,
+      startDateText,
+      compensationText,
       responsibilities: bullets,
+      eVerifyText,
+      contingencyText,
       closing,
       acceptanceDeadline: acceptanceDeadline ? formatDateLabel(acceptanceDeadline) : '',
       signatory,
@@ -357,8 +378,9 @@ export function DocumentGenerator({
         documentId: uploaded.documentId ?? null,
         payload: {
           letterDate, jobTitle, employmentType, startDate, salaryAmount, salaryCadence,
-          workLocation, acceptanceDeadline, honorific, governingState, visaType,
-          intro, responsibilities, closing, signatoryName, signatoryTitle, signatoryPhone,
+          workLocation, hoursPerWeek, acceptanceDeadline, honorific, governingState, visaType,
+          intro, startDateText, compensationText, responsibilities, eVerifyText, contingencyText,
+          closing, signatoryName, signatoryTitle, signatoryPhone,
         },
       })
 
@@ -519,6 +541,17 @@ export function DocumentGenerator({
               </FormField>
             </div>
 
+            {!isAgreement ? (
+              <FormField label="Hours per week" hint="Printed in the opening paragraph.">
+                <Input
+                  value={hoursPerWeek}
+                  onChange={(event) => setHoursPerWeek(event.target.value)}
+                  placeholder="40"
+                  inputMode="numeric"
+                />
+              </FormField>
+            ) : null}
+
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Compensation" hint="Just the number — the wording is added.">
                 <Input
@@ -604,7 +637,11 @@ export function DocumentGenerator({
                     ? defaultInternshipIntro(templateVars)
                     : defaultOfferIntro(templateVars)
                 )
+                setStartDateText(defaultStartDateText(templateVars))
+                setCompensationText(defaultCompensationText(templateVars))
                 setResponsibilities(defaultResponsibilities(jobTitle).join('\n'))
+                setEVerifyText(defaultEVerifyText(templateVars))
+                setContingencyText(defaultContingencyText())
                 setClosing(defaultOfferClosing(templateVars))
                 toast.success('Wording reset to the template')
               }}
@@ -618,11 +655,27 @@ export function DocumentGenerator({
               <Textarea rows={4} value={intro} onChange={(event) => setIntro(event.target.value)} />
             </FormField>
 
+            <FormField label="Start date paragraph">
+              <Textarea
+                rows={2}
+                value={startDateText}
+                onChange={(event) => setStartDateText(event.target.value)}
+              />
+            </FormField>
+
+            <FormField label="Compensation paragraph">
+              <Textarea
+                rows={3}
+                value={compensationText}
+                onChange={(event) => setCompensationText(event.target.value)}
+              />
+            </FormField>
+
             <FormField
               label={
                 docType === 'internship_offer'
                   ? 'Training focus & responsibilities'
-                  : 'Roles and responsibilities'
+                  : 'Job duties and responsibilities'
               }
               hint="One bullet per line."
             >
@@ -630,6 +683,22 @@ export function DocumentGenerator({
                 rows={9}
                 value={responsibilities}
                 onChange={(event) => setResponsibilities(event.target.value)}
+              />
+            </FormField>
+
+            <FormField label="E-Verify statement" hint="Leave blank to omit it entirely.">
+              <Textarea
+                rows={2}
+                value={eVerifyText}
+                onChange={(event) => setEVerifyText(event.target.value)}
+              />
+            </FormField>
+
+            <FormField label="Contingency / at-will paragraph" hint="Leave blank to omit it entirely.">
+              <Textarea
+                rows={3}
+                value={contingencyText}
+                onChange={(event) => setContingencyText(event.target.value)}
               />
             </FormField>
 

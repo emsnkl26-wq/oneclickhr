@@ -12,33 +12,67 @@
  * for the many people who look at the invoice list and never export one.
  */
 import { formatMoney } from '@/lib/utils'
+import { loadOrgLogo, ONECLICKHR_URL } from '@/lib/document-pdf'
 import type { Invoice } from '@/types/db'
 
-export async function downloadInvoicePdf(invoice: Invoice, orgName: string): Promise<void> {
+/** `#C41E33` → `[196, 30, 51]`. Falls back to the platform default on a bad value. */
+function hexToRgb(hex: string | null | undefined): [number, number, number] {
+  const match = /^#?([0-9a-f]{6})$/i.exec((hex ?? '').trim())
+  if (!match) return [196, 30, 51]
+  const value = match[1]
+  return [
+    parseInt(value.slice(0, 2), 16),
+    parseInt(value.slice(2, 4), 16),
+    parseInt(value.slice(4, 6), 16),
+  ]
+}
+
+export interface InvoiceOrgBranding {
+  logoUrl: string | null
+  primaryColor: string | null
+}
+
+export async function downloadInvoicePdf(
+  invoice: Invoice,
+  orgName: string,
+  org?: InvoiceOrgBranding
+): Promise<void> {
   const { default: jsPDF } = await import('jspdf')
   const autoTableModule = await import('jspdf-autotable')
   const autoTable = (autoTableModule.default ??
     autoTableModule) as unknown as (doc: unknown, options: Record<string, unknown>) => void
+  const logo = await loadOrgLogo(org?.logoUrl ?? null)
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const margin = 48
-  const brand: [number, number, number] = [196, 30, 51] // #C41E33
+  const brand = hexToRgb(org?.primaryColor) // the org's own color, not ours
   const muted: [number, number, number] = [107, 114, 128]
 
   // --- Header --------------------------------------------------------------
   doc.setFillColor(22, 24, 31)
   doc.rect(0, 0, pageWidth, 96, 'F')
 
+  // The org's own logo, never ours — this document is theirs, on their letterhead.
+  let titleX = margin
+  if (logo) {
+    const size = 40
+    const ratio = logo.width / logo.height
+    const w = ratio >= 1 ? size : size * ratio
+    const h = ratio >= 1 ? size / ratio : size
+    doc.addImage(logo.dataUrl, logo.format, margin, 28, w, h)
+    titleX = margin + size + 14
+  }
+
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(18)
-  doc.text(orgName, margin, 46)
+  doc.text(orgName, titleX, 46)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
   doc.setTextColor(200, 202, 210)
-  doc.text('INVOICE', margin, 66)
+  doc.text('INVOICE', titleX, 66)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
@@ -179,6 +213,19 @@ export async function downloadInvoicePdf(invoice: Invoice, orgName: string): Pro
       ny += 12
     }
   }
+
+  // --- Footer ----------------------------------------------------------------
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const footerY = pageHeight - margin + 6
+  doc.setDrawColor(231, 233, 238)
+  doc.setLineWidth(0.5)
+  doc.line(margin, footerY - 12, pageWidth - margin, footerY - 12)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7.5)
+  doc.setTextColor(...muted)
+  // Clickable — this is the only branding on an invoice that isn't the org's own.
+  doc.textWithLink('Powered by OneClickHR', margin, footerY, { url: ONECLICKHR_URL })
 
   doc.save(`${invoice.invoice_number}.pdf`)
 }
