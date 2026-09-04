@@ -19,7 +19,8 @@ interface LetterWithEmployee {
   title: string
   file_url: string
   file_name: string | null
-  employee_id: string
+  employee_id: string | null
+  recipient_name: string
   created_at: string
   employee: { full_name: string | null; email: string | null; photo_url: string | null } | null
   author: { full_name: string | null; email: string | null } | null
@@ -28,9 +29,15 @@ interface LetterWithEmployee {
 /**
  * Every offer letter and agreement this workspace has issued.
  *
- * `!inner` on the employee embed keeps the search able to filter PARENT rows by
- * the recipient's name; without it the filter would prune only the embedded
- * object and leave the letter behind with nobody attached to it.
+ * THE RECIPIENT IS A COLUMN, not a join. Most rows here are offer letters,
+ * written before the person has an account at all, so there is frequently no
+ * profile to embed — an `!inner` join would hide exactly the letters this screen
+ * exists for. `recipient_name` is written on every row (historical ones included,
+ * backfilled by migration 016), which is also what lets the search filter parent
+ * rows directly instead of pruning an embed that may not be there.
+ *
+ * The employee embed survives only to show a face and link to a profile on the
+ * documents that happen to have been generated from one.
  */
 export default async function LettersPage({
   searchParams,
@@ -50,14 +57,14 @@ export default async function LettersPage({
   let query = supabase
     .from('generated_documents')
     .select(
-      'id, doc_type, title, file_url, file_name, employee_id, created_at, employee:profiles!generated_documents_employee_id_fkey!inner(full_name, email, photo_url), author:profiles!generated_documents_created_by_fkey(full_name, email)',
+      'id, doc_type, title, file_url, file_name, employee_id, recipient_name, created_at, employee:profiles!generated_documents_employee_id_fkey(full_name, email, photo_url), author:profiles!generated_documents_created_by_fkey(full_name, email)',
       { count: 'exact' }
     )
     .order('created_at', { ascending: false })
     .range(offset, offset + PER_PAGE - 1)
 
   if (docType) query = query.eq('doc_type', docType)
-  if (search) query = query.ilike('employee.full_name', `%${search}%`)
+  if (search) query = query.ilike('recipient_name', `%${search}%`)
 
   const { data, count } = await query
 
@@ -68,7 +75,8 @@ export default async function LettersPage({
     fileKey: letter.file_url,
     fileName: letter.file_name,
     employeeId: letter.employee_id,
-    employeeName: letter.employee?.full_name || letter.employee?.email || 'Employee',
+    employeeName:
+      letter.recipient_name || letter.employee?.full_name || letter.employee?.email || 'Recipient',
     employeePhoto: letter.employee?.photo_url ?? null,
     authorName: letter.author?.full_name || letter.author?.email || null,
     createdAt: letter.created_at,

@@ -19,12 +19,20 @@ const EMPLOYEE_COLUMNS =
 /**
  * The generator form.
  *
- * EVERYTHING IS PREFILLED AND EVERYTHING IS EDITABLE. The employee's profile
- * supplies the name, address, title, salary and start date; org settings supply
- * the letterhead and the default signatory. Neither is treated as final —
- * a letter is a negotiated document, and forcing someone back to Settings to fix
- * a job title before they can send an offer is how people end up keeping the
- * templates in Word instead.
+ * THERE IS NO EMPLOYEE PICKER, and that is the point. An offer letter is what
+ * you send BEFORE the person is in the system: they receive it, they accept, and
+ * only then do they onboard and get a profile. Asking "which employee is this
+ * for?" put the steps in the wrong order and forced orgs to create a placeholder
+ * account just to address a letter. The recipient is typed in instead.
+ *
+ * An employee CAN still be the starting point — the "Generate document" button
+ * on someone's profile passes `?employee=`, which prefills their name, address,
+ * title, salary and start date and files the finished PDF against their record.
+ * That is a shortcut, not a requirement.
+ *
+ * EVERYTHING PREFILLED IS EDITABLE. A letter is a negotiated document, and
+ * forcing someone back to Settings to fix a job title before they can send an
+ * offer is how people end up keeping the templates in Word instead.
  *
  * What the org CANNOT edit here is the letterhead itself: it comes from Settings
  * so that every document a workspace issues agrees with every other one.
@@ -38,13 +46,20 @@ export default async function NewLetterPage({
   const supabase = await createSupabaseServerClient()
   const params = await searchParams
 
-  const [{ data: employees }, { data: tenant }] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select(EMPLOYEE_COLUMNS)
-      .eq('role', 'employee')
-      .eq('is_active', true)
-      .order('full_name'),
+  // Only ever ONE profile is read, and only when the page was opened from an
+  // employee's record. The old version loaded every employee in the workspace to
+  // fill a dropdown that no longer exists.
+  const employeeId = params.employee?.trim() || ''
+
+  const [{ data: linked }, { data: tenant }] = await Promise.all([
+    employeeId
+      ? supabase
+          .from('profiles')
+          .select(EMPLOYEE_COLUMNS)
+          .eq('id', employeeId)
+          .eq('role', 'employee')
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
     supabase
       .from('tenants')
       .select('name, logo_url, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone')
@@ -100,8 +115,7 @@ export default async function NewLetterPage({
 
       <DocumentGenerator
         company={company}
-        employees={(employees ?? []) as unknown as GeneratorEmployee[]}
-        initialEmployeeId={params.employee ?? ''}
+        employee={(linked ?? null) as unknown as GeneratorEmployee | null}
         initialType={initialType}
         today={todayIn(ctx.tenant.timezone)}
       />

@@ -879,8 +879,17 @@ export const GENERATED_DOCUMENT_TYPES = [
   'internship_offer',
 ] as const
 
+/**
+ * A generated letter names a RECIPIENT, and only sometimes an employee.
+ *
+ * Offer letters are sent before the person exists in the system — they accept,
+ * then they onboard — so `employeeId` is optional and only carries a value when
+ * the document was generated from an existing employee's page.
+ */
 export const generatedDocumentSchema = z.object({
-  employeeId: uuid,
+  employeeId: uuid.nullable().optional(),
+  recipientName: z.string().trim().min(1).max(160),
+  recipientEmail: z.string().trim().email().max(200).optional().or(z.literal('')),
   docType: z.enum(GENERATED_DOCUMENT_TYPES),
   title: z.string().trim().min(1).max(200),
   key: z.string().trim().min(1).max(300),

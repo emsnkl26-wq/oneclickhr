@@ -22,8 +22,8 @@ export const dynamic = 'force-dynamic'
  *     searchable exactly like an uploaded one, with no second storage path.
  *
  * What is left for this handler is the part that must not be decided by a
- * client: proving the key belongs to this tenant, proving the employee does,
- * and writing the row that links the two.
+ * client: proving the key belongs to this tenant, proving the employee does
+ * when one is named at all, and writing the row that records the letter.
  */
 async function handlePOST(request: NextRequest) {
   const gate = await apiRequireOrg()
@@ -38,20 +38,30 @@ async function handlePOST(request: NextRequest) {
 
   const supabase = await createSupabaseServerClient()
 
-  const { data: employee } = await supabase
-    .from('profiles')
-    .select('id, full_name, email')
-    .eq('id', input.employeeId)
-    .eq('role', 'employee')
-    .maybeSingle()
+  /*
+   * The employee link is OPTIONAL, because an offer letter is written before
+   * its recipient has an account — that is the whole point of sending one. It is
+   * present only when the document was generated from someone's employee page,
+   * and when it is present it still has to be proved to belong to this tenant.
+   */
+  if (input.employeeId) {
+    const { data: employee } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', input.employeeId)
+      .eq('role', 'employee')
+      .maybeSingle()
 
-  if (!employee) return jsonError('That employee was not found.', 404)
+    if (!employee) return jsonError('That employee was not found.', 404)
+  }
 
   const { data, error } = await supabase
     .from('generated_documents')
     .insert({
       tenant_id: ctx.tenantId,
-      employee_id: input.employeeId,
+      employee_id: input.employeeId ?? null,
+      recipient_name: input.recipientName,
+      recipient_email: input.recipientEmail || null,
       doc_type: input.docType,
       title: input.title,
       file_url: input.key,
@@ -72,7 +82,11 @@ async function handlePOST(request: NextRequest) {
     action: 'document.generated',
     entity: 'generated_documents',
     entityId: data.id,
-    meta: { docType: input.docType, employeeId: input.employeeId },
+    meta: {
+      docType: input.docType,
+      employeeId: input.employeeId ?? null,
+      recipientName: input.recipientName,
+    },
     request,
   })
 

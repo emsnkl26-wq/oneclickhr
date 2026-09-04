@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
   FileText, FileSignature, GraduationCap, Eye, Download, AlertCircle,
-  ChevronDown, RotateCcw, Info,
+  ChevronDown, RotateCcw, Info, UserCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -65,16 +65,21 @@ const TYPE_ICONS: Record<GeneratedDocumentType, React.ReactNode> = {
  * and recorded in the document library exactly like an uploaded one. Only after
  * that does `/api/org/letters` write the row that links it to the employee.
  *
+ * WHO IT IS FOR is typed, not picked. A letter of offer precedes the account it
+ * eventually creates, so there is no employee to choose from at the moment it is
+ * written. `employee` is non-null only when the page was opened from an existing
+ * profile, in which case it prefills the form and files the PDF against that
+ * record — a shortcut, never a requirement.
+ *
  * WHEN THE TEXT IS REBUILT. Only when the TEMPLATE or the EMPLOYEE changes.
  * Rebuilding on every keystroke would erase a paragraph someone was in the
  * middle of rewriting the moment they corrected the job title in it.
  */
 export function DocumentGenerator({
-  company, employees, initialEmployeeId, initialType, today,
+  company, employee, initialType, today,
 }: {
   company: CompanyDetails
-  employees: GeneratorEmployee[]
-  initialEmployeeId: string
+  employee: GeneratorEmployee | null
   initialType: GeneratedDocumentType
   today: string
 }) {
@@ -82,14 +87,13 @@ export function DocumentGenerator({
   const progressRouter = useProgressRouter()
 
   const [docType, setDocType] = React.useState<GeneratedDocumentType>(initialType)
-  const [employeeId, setEmployeeId] = React.useState(
-    employees.some((person) => person.id === initialEmployeeId)
-      ? initialEmployeeId
-      : (employees[0]?.id ?? '')
-  )
 
-  const employee = employees.find((person) => person.id === employeeId) ?? null
-  const employeeName = employee?.full_name || employee?.email || ''
+  // --- Recipient -----------------------------------------------------------
+  const [employeeName, setEmployeeName] = React.useState(
+    employee?.full_name || employee?.email || ''
+  )
+  const [recipientEmail, setRecipientEmail] = React.useState(employee?.email ?? '')
+  const employeeId = employee?.id ?? ''
 
   // --- Position details ----------------------------------------------------
   const [letterDate, setLetterDate] = React.useState(today)
@@ -114,6 +118,7 @@ export function DocumentGenerator({
   const [eVerifyText, setEVerifyText] = React.useState('')
   const [contingencyText, setContingencyText] = React.useState('')
   const [closing, setClosing] = React.useState('')
+  const [closingEdited, setClosingEdited] = React.useState(false)
   const [sections, setSections] = React.useState<AgreementSectionValue[]>([])
 
   // --- Signature -----------------------------------------------------------
@@ -185,44 +190,50 @@ export function DocumentGenerator({
   varsRef.current = templateVars
 
   React.useEffect(() => {
-    if (!employee) return
-
-    const title = employee.designation ?? ''
-    const type = employee.employment_type || 'Full-Time'
-    const start = employee.hire_date || employee.date_of_joining || ''
-    const rate = employee.pay_rate != null ? String(employee.pay_rate) : ''
-    const cadence = employee.pay_type?.toLowerCase() === 'hourly' ? 'hourly' : 'annual'
+    const title = employee?.designation ?? ''
+    const type = employee?.employment_type || 'Full-Time'
+    const start = employee?.hire_date || employee?.date_of_joining || ''
+    const rate = employee?.pay_rate != null ? String(employee.pay_rate) : ''
+    const cadence = employee?.pay_type?.toLowerCase() === 'hourly' ? 'hourly' : 'annual'
     const location = companyAddress || 'Remote'
 
-    setJobTitle(title)
-    setEmploymentType(type)
-    setStartDate(start)
-    setSalaryAmount(rate)
-    setSalaryCadence(cadence)
+    // Only the profile-derived fields are overwritten, and only when there IS a
+    // profile. With no employee the position fields keep whatever is in them —
+    // which on the first render is empty, and after a template switch is
+    // whatever the person filling the form has already typed.
+    if (employee) {
+      setJobTitle(title)
+      setEmploymentType(type)
+      setStartDate(start)
+      setSalaryAmount(rate)
+      setSalaryCadence(cadence)
+      setAddressLines(
+        [
+          employee.street_address,
+          employee.apartment,
+          [employee.city, employee.state_province, employee.zip_postal].filter(Boolean).join(', '),
+          employee.country,
+        ]
+          .filter(Boolean)
+          .join('\n')
+      )
+    }
     setWorkLocation(location)
     setGoverningState(company.stateProvince ?? '')
-    setAddressLines(
-      [
-        employee.street_address,
-        employee.apartment,
-        [employee.city, employee.state_province, employee.zip_postal].filter(Boolean).join(', '),
-        employee.country,
-      ]
-        .filter(Boolean)
-        .join('\n')
-    )
 
-    const vars: TemplateVars = {
-      ...varsRef.current,
-      employeeName: employee.full_name || employee.email || '',
-      jobTitle: title,
-      employmentType: type,
-      startDate: formatDateLabel(start),
-      salaryText: composeSalaryText(rate, cadence),
-      workLocation: location,
-    }
+    const vars: TemplateVars = employee
+      ? {
+          ...varsRef.current,
+          employeeName: employee.full_name || employee.email || '',
+          jobTitle: title,
+          employmentType: type,
+          startDate: formatDateLabel(start),
+          salaryText: composeSalaryText(rate, cadence),
+          workLocation: location,
+        }
+      : { ...varsRef.current, workLocation: location }
 
-    setResponsibilities(defaultResponsibilities(title).join('\n'))
+    setResponsibilities(defaultResponsibilities(vars.jobTitle).join('\n'))
     setSections(buildAgreementSections(vars))
     setIntro(docType === 'internship_offer' ? defaultInternshipIntro(vars) : docType === 'employment_agreement' ? defaultAgreementIntro(vars) : defaultOfferIntro(vars))
     setStartDateText(defaultStartDateText(vars))
@@ -230,7 +241,18 @@ export function DocumentGenerator({
     setEVerifyText(defaultEVerifyText(vars))
     setContingencyText(defaultContingencyText())
     setClosing(defaultOfferClosing(vars))
-  }, [employeeId, docType, employee, companyAddress, company.stateProvince])
+    setClosingEdited(false)
+  }, [docType, employee, companyAddress, company.stateProvince])
+
+  /*
+   * The closing paragraph is the ONE piece of boilerplate that names the
+   * recipient, and the recipient is now typed after the template is built. So it
+   * tracks the name — until somebody edits it, after which their wording stands.
+   */
+  React.useEffect(() => {
+    if (closingEdited || docType === 'employment_agreement') return
+    setClosing(defaultOfferClosing({ ...varsRef.current, employeeName }))
+  }, [employeeName, closingEdited, docType])
 
   React.useEffect(
     () => () => {
@@ -322,8 +344,7 @@ export function DocumentGenerator({
   }
 
   function validate(): string | null {
-    if (!employeeId) return 'Choose the employee this document is for.'
-    if (!employeeName) return 'That employee has no name on their profile yet.'
+    if (!employeeName.trim()) return 'Enter the name of the person this document is for.'
     if (docType !== 'employment_agreement' && !jobTitle.trim()) {
       return 'Enter the position title.'
     }
@@ -367,10 +388,16 @@ export function DocumentGenerator({
       // Through the ordinary pipeline: presign, PUT to storage, finalize. The
       // finalize step writes the `documents` row, whose id links the letter to
       // the library so deleting one can remove the other.
-      const uploaded = await uploadFile(file, 'employee_doc', { employeeId })
+      const uploaded = await uploadFile(
+        file,
+        'employee_doc',
+        employeeId ? { employeeId } : {}
+      )
 
       await apiPost('/api/org/letters', {
-        employeeId,
+        employeeId: employeeId || null,
+        recipientName: employeeName.trim(),
+        recipientEmail: recipientEmail.trim(),
         docType,
         title: documentTitle,
         key: uploaded.key,
@@ -444,23 +471,40 @@ export function DocumentGenerator({
         <Card>
           <CardHeader>
             <CardTitle>Who it is for</CardTitle>
-            <CardDescription>Details are prefilled from their profile.</CardDescription>
+            <CardDescription>
+              {employee
+                ? 'Prefilled from their profile — edit anything that has changed.'
+                : 'The person you are writing to. They do not need an account yet.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FormField label="Employee" required>
-              <Select
-                value={employeeId}
-                onChange={(event) => setEmployeeId(event.target.value)}
-                placeholder="Choose an employee"
-              >
-                {employees.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.full_name || person.email}
-                    {person.designation ? ` — ${person.designation}` : ''}
-                  </option>
-                ))}
-              </Select>
-            </FormField>
+            {employee ? (
+              <p className="flex items-start gap-2 rounded-lg bg-page px-3.5 py-2.5 text-[13px] text-ink-muted">
+                <UserCheck className="mt-px size-4 shrink-0" aria-hidden />
+                This document will be filed against {employee.full_name || employee.email}&apos;s
+                employee record.
+              </p>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Recipient name" required hint="Printed on the letter.">
+                <Input
+                  value={employeeName}
+                  onChange={(event) => setEmployeeName(event.target.value)}
+                  placeholder="Jordan Ellis"
+                  autoComplete="off"
+                />
+              </FormField>
+              <FormField label="Recipient email" hint="Optional — kept with the record.">
+                <Input
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(event) => setRecipientEmail(event.target.value)}
+                  placeholder="jordan@example.com"
+                  autoComplete="off"
+                />
+              </FormField>
+            </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Document date" required>
@@ -706,7 +750,10 @@ export function DocumentGenerator({
               <Textarea
                 rows={3}
                 value={closing}
-                onChange={(event) => setClosing(event.target.value)}
+                onChange={(event) => {
+                  setClosing(event.target.value)
+                  setClosingEdited(true)
+                }}
               />
             </FormField>
           </CardContent>
@@ -750,8 +797,9 @@ export function DocumentGenerator({
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-card px-5 py-4 shadow-sm">
         <p className="flex items-start gap-2 text-sm text-ink-muted">
           <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
-          Generating saves the PDF to {employeeName || 'the employee'}&apos;s profile and to your
-          document library.
+          {employee
+            ? `Generating saves the PDF to your document library and to ${employee.full_name || employee.email}'s profile.`
+            : 'Generating saves the PDF to your document library, filed under this recipient.'}
         </p>
         <div className="ml-auto flex items-center gap-2">
           <Button variant="secondary" loading={busy === 'preview'} disabled={busy !== null} onClick={preview}>

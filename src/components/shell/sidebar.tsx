@@ -164,33 +164,59 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
   }
 
   function renderBrand(inDrawer: boolean) {
+    const mark = brand.logoUrl ? (
+      <Image
+        src={brand.logoUrl}
+        alt=""
+        width={32}
+        height={32}
+        className="size-8 shrink-0 rounded-lg object-cover"
+        unoptimized
+      />
+    ) : (
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white shadow-sm">
+        {brand.name.charAt(0).toUpperCase()}
+      </span>
+    )
+
     return (
       <div className="rail-center flex h-16 shrink-0 items-center justify-between gap-2.5 border-b border-sidebar-border px-4">
+        {/*
+         * Collapsed, the logo's slot IS the expand control: the mark sits there
+         * until the pointer enters the rail, and fades out under the toggle. It
+         * costs no extra row, and the one place a collapsed rail invites a click
+         * is the only place worth putting the way back out.
+         */}
+        {!inDrawer ? (
+          <div className="rail-collapsed-only relative size-8 shrink-0 place-items-center">
+            <Link
+              href="/"
+              aria-label={brand.name}
+              className="focus-ring rounded-lg opacity-100 transition-opacity duration-150 group-hover/rail:pointer-events-none group-hover/rail:opacity-0"
+            >
+              {mark}
+            </Link>
+            <span className="pointer-events-none absolute inset-0 grid place-items-center opacity-0 transition-opacity duration-150 group-hover/rail:pointer-events-auto group-hover/rail:opacity-100">
+              <CollapseButton collapsed onToggle={toggleCollapsed} />
+            </span>
+          </div>
+        ) : null}
+
         <Link
           href="/"
-          className="focus-ring flex min-w-0 items-center gap-2.5 rounded-lg"
+          className={cn(
+            'focus-ring flex min-w-0 items-center gap-2.5 rounded-lg',
+            !inDrawer && 'rail-expanded-only'
+          )}
           aria-label={brand.name}
         >
-          {brand.logoUrl ? (
-            <Image
-              src={brand.logoUrl}
-              alt=""
-              width={32}
-              height={32}
-              className="size-8 shrink-0 rounded-lg object-cover"
-              unoptimized
-            />
-          ) : (
-            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white shadow-sm">
-              {brand.name.charAt(0).toUpperCase()}
-            </span>
-          )}
+          {mark}
           <span className="rail-label text-[15px] font-semibold tracking-[-0.015em] text-sidebar-fg">
             {brand.name}
           </span>
         </Link>
 
-        <div className="rail-expanded-only flex shrink-0 items-center gap-0.5">
+        <div className={cn('flex shrink-0 items-center gap-0.5', !inDrawer && 'rail-expanded-only')}>
           <ThemeToggle />
           {inDrawer ? (
             <button
@@ -294,16 +320,9 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
       </div>
 
       {/* Desktop rail */}
-      <aside className="rail fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <aside className="rail group/rail fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-sidebar-border bg-sidebar lg:flex">
         {renderBrand(false)}
         {renderNav(false)}
-        {/* Collapsed, the header has no room for the toggle, so it moves to the
-            foot of the rail where it is still one click away. */}
-        {collapsed ? (
-          <div className="flex justify-center border-t border-sidebar-border py-2">
-            <CollapseButton collapsed onToggle={toggleCollapsed} />
-          </div>
-        ) : null}
         {renderAccount(false)}
       </aside>
 

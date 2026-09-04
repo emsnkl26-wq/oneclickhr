@@ -95,6 +95,12 @@
   .rail-label {
     @apply min-w-0 flex-1 truncate;
   }
+  /* The mirror of `rail-expanded-only`: shown ONLY on a collapsed desktop rail.
+     The brand header uses it to swap the logo for the expand control on hover,
+     so the toggle keeps a home without stealing a row at the foot of the rail. */
+  .rail-collapsed-only {
+    display: none;
+  }
 
   @media (min-width: 1024px) {
     .rail-offset {
@@ -121,6 +127,9 @@
     }
     html[data-sidebar='collapsed'] .rail .rail-divider {
       display: block;
+    }
+    html[data-sidebar='collapsed'] .rail .rail-collapsed-only {
+      display: grid;
     }
     html[data-sidebar='collapsed'] .rail .rail-center {
       justify-content: center;

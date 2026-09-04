@@ -26,7 +26,8 @@ export interface LetterRow {
   title: string
   fileKey: string
   fileName: string | null
-  employeeId: string
+  /** Null for the common case: an offer written before the person had an account. */
+  employeeId: string | null
   employeeName: string
   employeePhoto: string | null
   authorName: string | null
@@ -86,7 +87,10 @@ export function LettersList({
     },
     {
       key: 'employee',
-      header: 'Employee',
+      header: 'Recipient',
+      // Only a recipient WITH a profile gets a link. The rest are people who
+      // have been sent an offer and have not accepted it yet — there is nowhere
+      // for their name to lead, and a dead link would suggest otherwise.
       cell: (row) => (
         <div className="flex items-center gap-2.5">
           <Avatar className="size-8">
@@ -100,12 +104,16 @@ export function LettersList({
               {initials(row.employeeName, null)}
             </AvatarFallback>
           </Avatar>
-          <Link
-            href={`/org/employees/${row.employeeId}`}
-            className="min-w-0 truncate hover:underline"
-          >
-            {row.employeeName}
-          </Link>
+          {row.employeeId ? (
+            <Link
+              href={`/org/employees/${row.employeeId}`}
+              className="min-w-0 truncate hover:underline"
+            >
+              {row.employeeName}
+            </Link>
+          ) : (
+            <span className="min-w-0 truncate">{row.employeeName}</span>
+          )}
         </div>
       ),
     },
@@ -180,7 +188,7 @@ export function LettersList({
         />
         <SearchField
           param="q"
-          placeholder="Search by employee"
+          placeholder="Search by recipient"
           label="Search documents"
           className="sm:max-w-72 sm:flex-none"
         />
@@ -196,7 +204,7 @@ export function LettersList({
             title={searching ? 'Nothing matches that' : 'No documents generated yet'}
             description={
               searching
-                ? 'Try a different employee or template.'
+                ? 'Try a different name or template.'
                 : 'Generate an offer letter or an employment agreement on your own letterhead.'
             }
             action={
