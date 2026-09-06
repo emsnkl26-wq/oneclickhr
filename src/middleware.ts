@@ -199,7 +199,17 @@ export const config = {
     /*
      * Everything except static assets and image files. Auth cookies must be
      * refreshed on real navigations, not on every icon request.
+     *
+     * `/api/files/view` is excluded for the same reason, and it is the one that
+     * matters at scale: it is a QUERY-STRING url with no file extension, so the
+     * image rules above cannot catch it, and it is requested once per avatar —
+     * a 200-row employee table is 200 middleware invocations, each decoding a
+     * cookie to reach the `/api/` early return and do nothing with it. Skipping
+     * them removes no check: the route calls `apiRequireUser()` itself and then
+     * proves the object belongs to the caller's tenant, which was always the
+     * real gate. Session refresh is unaffected — that rides on the navigation
+     * requests, which still run this in full.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/files/view|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

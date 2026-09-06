@@ -5,32 +5,22 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { useTheme } from '@/components/theme-provider'
+import { usePalette } from './dashboard-palette'
 
 /**
- * The dashboard's two plots.
+ * The dashboard's two plots — everything here that depends on `recharts`.
  *
- * WHY THE COLOURS ARE LITERALS AND NOT TOKENS. Recharts writes `fill` and
- * `stroke` as SVG PRESENTATION ATTRIBUTES, and `var(--token)` is not resolved
- * there — it is only valid inside a CSS declaration. So the theme is read once
- * through `useTheme()` and the matching hex is handed to the chart. Two steps of
- * one blue, each chosen for its own surface, rather than one colour dimmed.
+ * NOTHING ELSE MAY IMPORT THIS MODULE DIRECTLY. It is reached through
+ * `dashboard-charts-loader.tsx`, which pulls it in on the client only; a static
+ * import from the page would put the whole charting library back into the
+ * initial bundle and undo the split. The palette and the gauge live in their own
+ * modules for the same reason.
  *
  * ONE SERIES PER PLOT, deliberately. Both charts answer a single question —
  * "how many people clocked in?" — so there is nothing for a second hue to name,
  * no legend to read and no colour-blind pair to get wrong. The comparison line
  * is headcount, drawn as a rule, not as a rival series.
  */
-
-const PALETTE = {
-  light: { series: '#2a78d6', fillTop: 0.22, grid: '#E7E9EE', axis: '#6B7280' },
-  dark: { series: '#3987e5', fillTop: 0.3, grid: '#2A2E39', axis: '#9AA0AE' },
-}
-
-function usePalette() {
-  const { theme } = useTheme()
-  return theme === 'dark' ? PALETTE.dark : PALETTE.light
-}
 
 /* ------------------------------------------------------------------ Tooltip */
 
@@ -185,65 +175,6 @@ export function HoursTrend({ data }: { data: HoursPoint[] }) {
           />
         </AreaChart>
       </ResponsiveContainer>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------- Gauge */
-
-/**
- * Today's attendance rate as a ring.
- *
- * Hand-drawn SVG rather than a charting component: it is one number, and the
- * ring is a frame for it, not a plot. The percentage is printed in the middle,
- * so the colour is decoration and the value is always readable — including in
- * forced-colours mode, where the arc may not render at all.
- */
-export function AttendanceGauge({
-  present, total,
-}: {
-  present: number
-  total: number
-}) {
-  const palette = usePalette()
-  const rate = total > 0 ? Math.round((present / total) * 100) : 0
-
-  const radius = 62
-  const circumference = 2 * Math.PI * radius
-  const dash = (Math.min(rate, 100) / 100) * circumference
-
-  return (
-    <div className="flex flex-col items-center">
-      <div className="relative">
-        <svg width="160" height="160" viewBox="0 0 160 160" role="img" aria-label={`${rate}% of the team has clocked in today`}>
-          <circle
-            cx="80" cy="80" r={radius}
-            fill="none" stroke={palette.grid} strokeWidth="12"
-          />
-          <circle
-            cx="80" cy="80" r={radius}
-            fill="none" stroke={palette.series} strokeWidth="12" strokeLinecap="round"
-            strokeDasharray={`${dash} ${circumference}`}
-            transform="rotate(-90 80 80)"
-            className="transition-[stroke-dasharray] duration-700 ease-out"
-          />
-        </svg>
-        <div className="absolute inset-0 grid place-items-center">
-          <div className="text-center">
-            <p className="tabular text-[30px] font-bold leading-none tracking-[-0.02em] text-ink">
-              {rate}%
-            </p>
-            <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-              Clocked in
-            </p>
-          </div>
-        </div>
-      </div>
-      <p className="mt-3 text-[13px] text-ink-muted">
-        <span className="tabular font-semibold text-ink">{present}</span> of{' '}
-        <span className="tabular font-semibold text-ink">{total}</span>{' '}
-        {total === 1 ? 'person' : 'people'}
-      </p>
     </div>
   )
 }

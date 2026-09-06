@@ -13,10 +13,14 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { todayIn, formatLocal, daysUntil, addDays } from '@/lib/time'
 import { cn, initials } from '@/lib/utils'
-import {
-  AttendanceTrend, HoursTrend, AttendanceGauge,
-  type AttendancePoint, type HoursPoint,
-} from './dashboard-charts'
+// The two plots come from the loader, not from `dashboard-charts` directly:
+// importing them statically would pull ~105kB of recharts into this route's
+// bundle, which is what made the landing page of the org portal the heaviest
+// screen in the app. The gauge is hand-drawn SVG and stays eager — it is one
+// number above the fold and costs nothing.
+import { AttendanceTrend, HoursTrend } from './dashboard-charts-loader'
+import { AttendanceGauge } from './dashboard-gauge'
+import type { AttendancePoint, HoursPoint } from './dashboard-charts'
 
 export const metadata: Metadata = { title: 'Dashboard' }
 export const dynamic = 'force-dynamic'

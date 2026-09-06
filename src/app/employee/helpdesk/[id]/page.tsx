@@ -38,11 +38,31 @@ export default async function EmployeeTicketPage({
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
-  const { data: ticket, error: ticketError } = await supabase
-    .from('tickets')
-    .select('id, code, subject, description, priority, status, attachment_url, attachment_name, created_at, employee_id')
-    .eq('id', id)
-    .maybeSingle()
+  /*
+   * Both reads at once. The thread is keyed on the id from the URL, not on
+   * anything the ticket row supplies, so waiting for the ticket before asking
+   * for its messages bought nothing and cost a second serial round trip on
+   * every open of a thread.
+   *
+   * Racing them does not widen what this employee can read: `ticket_messages`
+   * carries its own RLS policy, so a colleague's thread comes back empty on its
+   * own account, exactly as the ticket does.
+   */
+  const [
+    { data: ticket, error: ticketError },
+    { data: messages },
+  ] = await Promise.all([
+    supabase
+      .from('tickets')
+      .select('id, code, subject, description, priority, status, attachment_url, attachment_name, created_at, employee_id')
+      .eq('id', id)
+      .maybeSingle(),
+    supabase
+      .from('ticket_messages')
+      .select('id, author_id, author_role, body, attachment_url, attachment_name, created_at, author:profiles(full_name, email, photo_url)')
+      .eq('ticket_id', id)
+      .order('created_at', { ascending: true }),
+  ])
 
   // A read that FAILED is not a record that is missing. Answering both with
   // notFound() tells someone it was deleted when the database was simply
@@ -53,12 +73,6 @@ export default async function EmployeeTicketPage({
   }
 
   if (!ticket) notFound()
-
-  const { data: messages } = await supabase
-    .from('ticket_messages')
-    .select('id, author_id, author_role, body, attachment_url, attachment_name, created_at, author:profiles(full_name, email, photo_url)')
-    .eq('ticket_id', id)
-    .order('created_at', { ascending: true })
 
   return (
     <div className="space-y-6">

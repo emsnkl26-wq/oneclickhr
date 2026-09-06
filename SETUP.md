@@ -30,6 +30,31 @@ in a state you can verify before moving on.
 1. At [supabase.com/dashboard](https://supabase.com/dashboard) create a new
    project. Choose a region close to your users — every query in the app is a
    round trip to it.
+
+   > **This choice and `regions` in `vercel.json` must be made together, and it
+   > cannot be changed later.** Supabase has no region move: correcting it means
+   > creating a NEW project and migrating to it (see `REGION_MIGRATION.md`), so
+   > it is worth one minute of thought now.
+   >
+   > The serverless functions make SEVERAL round trips to Postgres per page
+   > render (the auth resolution, then the page's own queries); the browser makes
+   > only ONE to the function. So the function must sit next to the database, and
+   > the pair of them near the users.
+   >
+   > The users are in the **United States**, so the project belongs in
+   > **East US (North Virginia)** — `us-east-1` — and `vercel.json` pins the
+   > functions to `iad1` (Washington DC), the same metro. That is a ~1-2 ms hop
+   > between function and database.
+   >
+   > Getting this wrong is expensive and invisible: an earlier project sat in
+   > `ap-northeast-1` (Tokyo) while the functions defaulted to `iad1`, which put
+   > ~170 ms of Pacific crossing on every one of those round trips — several
+   > hundred milliseconds on every page load, before a line of application code
+   > ran.
+   >
+   > Vercel region codes worth knowing: `iad1` (Washington DC, `us-east-1`),
+   > `sfo1` (San Francisco, `us-west-1`), `hnd1` (Tokyo, `ap-northeast-1`),
+   > `bom1` (Mumbai, `ap-south-1`).
 2. Save the database password somewhere safe; you will not be shown it again.
 3. Once provisioning finishes, go to **Project Settings → API** and copy:
 
