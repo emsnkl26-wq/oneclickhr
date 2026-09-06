@@ -278,6 +278,17 @@ async function checkEndToEndSignup() {
       fullName: 'Auth Doctor',
       email: SIGNUP_AS,
       password: `Doctor-${crypto.randomBytes(6).toString('hex')}1`,
+      /*
+       * Required by signupSchema since 013 added domain verification, and its
+       * absence is why this check answered `400: Required` rather than anything
+       * about email — the request never reached the mail path at all.
+       *
+       * `example.com` rather than a `.example` or `.test` name: domainProblem()
+       * rejects those as unreachable on the public internet, and it is right to.
+       * example.com is IANA-reserved for documentation, so it resolves, and no
+       * real customer will ever claim it as their workspace.
+       */
+      domain: 'example.com',
     }),
     redirect: 'manual',
   })
