@@ -650,7 +650,12 @@ export interface Job {
   department_id: string | null
   employment_type: JobType
   workplace: JobWorkplace
+  /** The one-line display string, DERIVED from the four parts below (021). */
   location: string | null
+  country: string | null
+  state: string | null
+  city: string | null
+  address: string | null
   experience_min: number | null
   experience_max: number | null
   salary_min: number | null

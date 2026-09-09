@@ -113,6 +113,7 @@ export function DocumentGenerator({
   // --- Content -------------------------------------------------------------
   const [intro, setIntro] = React.useState('')
   const [startDateText, setStartDateText] = React.useState('')
+  const [startDateTextEdited, setStartDateTextEdited] = React.useState(false)
   const [compensationText, setCompensationText] = React.useState('')
   const [responsibilities, setResponsibilities] = React.useState('')
   const [eVerifyText, setEVerifyText] = React.useState('')
@@ -242,7 +243,21 @@ export function DocumentGenerator({
     setContingencyText(defaultContingencyText())
     setClosing(defaultOfferClosing(vars))
     setClosingEdited(false)
+    setStartDateTextEdited(false)
   }, [docType, employee, companyAddress, company.stateProvince])
+
+  /*
+   * The start-date paragraph spells out the date typed into the "Start date"
+   * field above it, so it has to follow that field rather than freeze at
+   * whatever the profile said on load. Same rule as the closing: it tracks the
+   * date until somebody edits the wording, after which their wording stands.
+   */
+  React.useEffect(() => {
+    if (startDateTextEdited) return
+    setStartDateText(
+      defaultStartDateText({ ...varsRef.current, startDate: formatDateLabel(startDate) })
+    )
+  }, [startDate, startDateTextEdited])
 
   /*
    * The closing paragraph is the ONE piece of boilerplate that names the
@@ -682,6 +697,7 @@ export function DocumentGenerator({
                     : defaultOfferIntro(templateVars)
                 )
                 setStartDateText(defaultStartDateText(templateVars))
+                setStartDateTextEdited(false)
                 setCompensationText(defaultCompensationText(templateVars))
                 setResponsibilities(defaultResponsibilities(jobTitle).join('\n'))
                 setEVerifyText(defaultEVerifyText(templateVars))
@@ -703,7 +719,10 @@ export function DocumentGenerator({
               <Textarea
                 rows={2}
                 value={startDateText}
-                onChange={(event) => setStartDateText(event.target.value)}
+                onChange={(event) => {
+                  setStartDateText(event.target.value)
+                  setStartDateTextEdited(true)
+                }}
               />
             </FormField>
 

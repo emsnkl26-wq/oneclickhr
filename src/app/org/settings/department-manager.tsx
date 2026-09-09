@@ -59,7 +59,7 @@ export function DepartmentManager({
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Nursing"
+            placeholder="Engineering"
             aria-label="New department name"
             required
           />

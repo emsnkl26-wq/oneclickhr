@@ -16,6 +16,7 @@ import {
   NON_VISA_STATUSES, PAY_FREQUENCIES, PAY_TYPES, PRONOUNS, WORK_AUTH_STATUSES,
   ONBOARDING_STEP_SCHEMAS, type AdditionalDoc,
 } from '@/lib/schemas'
+import { COUNTRY_CODES, countryName } from '@/lib/geo'
 
 export type { AdditionalDoc }
 
@@ -438,7 +439,85 @@ export function needsVisaDetail(status: string): boolean {
 
 /** Sections visible for the current draft (step 2 hides its detail conditionally). */
 export function visibleSections(step: StepDef, draft: OnboardingDraft): SectionDef[] {
-  return step.sections.filter((s) => !s.visaOnly || needsVisaDetail(draft.workAuthStatus))
+  return step.sections
+    .filter((s) => !s.visaOnly || needsVisaDetail(draft.workAuthStatus))
+    .map((section) => ({
+      ...section,
+      fields: section.fields.map((field) => localizeField(field, draft.country)),
+    }))
+}
+
+/**
+ * The same field, asked the way the employee's own country asks it.
+ *
+ * A handful of these fields are US-shaped by default and read as a mistake
+ * anywhere else: an employee in Bengaluru is asked for a "ZIP / postal code" and
+ * a "Routing / IFSC / SWIFT code" and has to work out which half applies to
+ * them. The underlying COLUMN is unchanged — this is wording and examples only,
+ * so nothing here can affect validation, storage or an existing record.
+ *
+ * An unlisted country falls back to the neutral wording the config already had.
+ */
+export function localizeField(field: FieldDef, country: string): FieldDef {
+  const overrides = FIELD_WORDING[field.key]?.[country]
+  return overrides ? { ...field, ...overrides } : field
+}
+
+type FieldWording = Partial<Pick<FieldDef, 'label' | 'hint' | 'placeholder'>>
+
+const FIELD_WORDING: Partial<Record<FieldDef['key'], Record<string, FieldWording>>> = {
+  stateProvince: {
+    US: { label: 'State' },
+    CA: { label: 'Province' },
+    GB: { label: 'County' },
+    IE: { label: 'County' },
+    IN: { label: 'State' },
+    AU: { label: 'State / territory' },
+    NZ: { label: 'Region' },
+    DE: { label: 'State (Bundesland)' },
+    ES: { label: 'Province' },
+    IT: { label: 'Province' },
+    NL: { label: 'Province' },
+    AE: { label: 'Emirate' },
+    ZA: { label: 'Province' },
+    MX: { label: 'State' },
+    BR: { label: 'State' },
+    JP: { label: 'Prefecture' },
+    SG: { label: 'District' },
+    PH: { label: 'Province' },
+  },
+  zipPostal: {
+    US: { label: 'ZIP code', placeholder: '78701' },
+    CA: { label: 'Postal code', placeholder: 'M5V 2T6' },
+    GB: { label: 'Postcode', placeholder: 'SW1A 1AA' },
+    IE: { label: 'Eircode', placeholder: 'D02 AF30' },
+    IN: { label: 'PIN code', placeholder: '560001' },
+    AU: { label: 'Postcode', placeholder: '2000' },
+    NZ: { label: 'Postcode', placeholder: '6011' },
+    DE: { label: 'Postleitzahl', placeholder: '10115' },
+    SG: { label: 'Postal code', placeholder: '018956' },
+    JP: { label: 'Postal code', placeholder: '100-0001' },
+  },
+  routingCode: {
+    US: { label: 'Routing number', placeholder: '021000021' },
+    CA: { label: 'Transit and institution number', placeholder: '00022-001' },
+    GB: { label: 'Sort code', placeholder: '20-00-00' },
+    IE: { label: 'IBAN', placeholder: 'IE29 AIBK 9311 5212 3456 78' },
+    IN: { label: 'IFSC code', placeholder: 'HDFC0000123' },
+    AU: { label: 'BSB number', placeholder: '062-000' },
+    NZ: { label: 'Bank and branch number', placeholder: '01-0002' },
+    DE: { label: 'IBAN', placeholder: 'DE89 3704 0044 0532 0130 00' },
+    FR: { label: 'IBAN' },
+    ES: { label: 'IBAN' },
+    IT: { label: 'IBAN' },
+    NL: { label: 'IBAN' },
+    SE: { label: 'IBAN' },
+    AE: { label: 'IBAN' },
+    SG: { label: 'Bank and branch code' },
+    ZA: { label: 'Branch code' },
+    BR: { label: 'Agência and conta' },
+    JP: { label: 'Bank and branch code' },
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -479,7 +558,6 @@ function candidateFor(stepIndex: number, draft: OnboardingDraft): Record<string,
   const out: Record<string, unknown> = {}
   for (const section of step.sections) {
     for (const field of section.fields) {
-      if (field.key === 'additionalDocs') continue
       const value = draft[field.key]
       out[field.key] = value === '' ? undefined : value
     }
@@ -504,25 +582,16 @@ export function errorCountsFor(draft: OnboardingDraft): Record<number, number> {
  * A short, sane country list with the US first.
  *
  * A function rather than a constant so the step config above can call it before
- * the module's const bindings are initialised (hoisting).
+ * the module's const bindings are initialised (hoisting). The list itself lives
+ * in src/lib/geo.ts, which job postings share — two country dropdowns offering
+ * different countries is the kind of thing nobody notices until a customer does.
  */
 export function COUNTRIES(): readonly string[] {
-  return [
-    'US', 'CA', 'GB', 'IE', 'IN', 'AU', 'NZ', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE',
-    'AE', 'SG', 'PH', 'ZA', 'MX', 'BR', 'JP',
-  ]
-}
-
-const COUNTRY_NAMES: Record<string, string> = {
-  US: 'United States', CA: 'Canada', GB: 'United Kingdom', IE: 'Ireland', IN: 'India',
-  AU: 'Australia', NZ: 'New Zealand', DE: 'Germany', FR: 'France', ES: 'Spain',
-  IT: 'Italy', NL: 'Netherlands', SE: 'Sweden', AE: 'United Arab Emirates',
-  SG: 'Singapore', PH: 'Philippines', ZA: 'South Africa', MX: 'Mexico', BR: 'Brazil',
-  JP: 'Japan',
+  return COUNTRY_CODES
 }
 
 export function countryLabel(code: string): string {
-  return COUNTRY_NAMES[code] ?? code
+  return countryName(code)
 }
 
 /** The display name a draft has earned so far. Never an empty string. */

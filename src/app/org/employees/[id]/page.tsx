@@ -87,7 +87,7 @@ export default async function EmployeeDetailPage({
         .limit(10),
       supabase
         .from('documents')
-        .select('id, file_url, file_name, kind, created_at')
+        .select('id, file_url, file_name, label, kind, created_at')
         .eq('employee_id', id)
         .order('created_at', { ascending: false }),
       supabase
@@ -370,8 +370,18 @@ export default async function EmployeeDetailPage({
                 {(documents ?? []).map((doc) => (
                   <li key={doc.id} className="flex items-center gap-3 px-5 py-2.5">
                     <FileText className="size-4 shrink-0 text-ink-muted" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      {doc.file_name || 'Untitled'}
+                    {/* The label says what the file IS; the file name is
+                        whatever their scanner called it, so it drops to a
+                        subtitle once there is something better to lead with. */}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">
+                        {doc.label || doc.file_name || 'Untitled'}
+                      </span>
+                      {doc.label && doc.file_name ? (
+                        <span className="block truncate text-xs text-ink-muted">
+                          {doc.file_name}
+                        </span>
+                      ) : null}
                     </span>
                     <Button asChild size="icon" variant="ghost" aria-label="Download">
                       <a

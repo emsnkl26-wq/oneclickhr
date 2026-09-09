@@ -5,6 +5,7 @@ import {
   domainsConflict, parentDomains, daysUntilDeadline, deadlineLabel,
 } from '@/lib/domain'
 import { isPublicAddress } from '@/lib/domain-verify'
+import { ownerConflictMessage } from '@/lib/domain-registry'
 
 const TOKEN = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
 
@@ -259,5 +260,31 @@ describe('isPublicAddress', () => {
     for (const ip of ['', 'not-an-ip', '1.2.3', '1.2.3.4.5', '999.1.1.1', 'gg::1']) {
       expect(isPublicAddress(ip), ip).toBe(false)
     }
+  })
+})
+
+describe('domain conflict message', () => {
+  it('says VERIFIED when the other workspace proved it', () => {
+    const message = ownerConflictMessage('acme.com', {
+      tenantId: 't1', domain: 'acme.com', verified: true,
+    })
+    expect(message).toContain('already verified by')
+    expect(message).toContain('acme.com')
+  })
+
+  it('says REGISTERED for a reservation, never claiming proof that does not exist', () => {
+    const message = ownerConflictMessage('acme.com', {
+      tenantId: 't1', domain: 'acme.com', verified: false,
+    })
+    expect(message).toContain('already registered to')
+    expect(message).not.toContain('verified')
+  })
+
+  it('names the domain that actually collided when it is a parent', () => {
+    const message = ownerConflictMessage('careers.acme.com', {
+      tenantId: 't1', domain: 'acme.com', verified: true,
+    })
+    expect(message).toContain('acme.com is already verified by')
+    expect(message).toContain('careers.acme.com belongs to it')
   })
 })

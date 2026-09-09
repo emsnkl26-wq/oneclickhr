@@ -4,7 +4,7 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { rateLimit, limitKey, getClientIp } from '@/lib/rate-limit'
 import { verifyDomainOwnership } from '@/lib/domain-verify'
-import { findVerifiedOwner, ownerConflictMessage } from '@/lib/domain-registry'
+import { findDomainOwner, ownerConflictMessage } from '@/lib/domain-registry'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -84,9 +84,15 @@ async function handlePOST(request: NextRequest) {
    * Asked here, before the network call, purely so an org that cannot win does
    * not wait fourteen seconds to be told. The check that actually decides is
    * the second one, below.
+   *
+   * ONLY A VERIFIED OWNER BLOCKS. Since 020 an unverified claim reserves a
+   * domain against new claimants, but it must not outrank PROOF: an org that
+   * can publish our token on `acme.com` beats a stranger who merely typed
+   * `careers.acme.com` into a signup form. Reservations gate claiming; they do
+   * not gate verifying.
    */
-  const owner = await findVerifiedOwner(tenant.domain, ctx.tenantId)
-  if (owner) return jsonError(ownerConflictMessage(tenant.domain, owner), 409)
+  const owner = await findDomainOwner(tenant.domain, ctx.tenantId)
+  if (owner?.verified) return jsonError(ownerConflictMessage(tenant.domain, owner), 409)
 
   const result = await verifyDomainOwnership(tenant.domain, tenant.domain_token)
 
@@ -112,7 +118,7 @@ async function handlePOST(request: NextRequest) {
    * in which another workspace could have verified. Asking again here shrinks
    * that window to the milliseconds between this query and the update below.
    *
-   * It is not redundant with the index. `tenants_verified_domain_uq` makes an
+   * It is not redundant with the index. `tenants_domain_uq` makes an
    * EXACT collision impossible — two workspaces cannot both hold `acme.com`,
    * whatever the timing. What the index cannot see is the SUBDOMAIN case:
    * `acme.com` and `careers.acme.com` are two different strings to Postgres and
@@ -122,8 +128,8 @@ async function handlePOST(request: NextRequest) {
    * lock on every verification, and the outcome is visible in the platform
    * console, where the organization list shows each workspace's domain.
    */
-  const lateOwner = await findVerifiedOwner(tenant.domain, ctx.tenantId)
-  if (lateOwner) return jsonError(ownerConflictMessage(tenant.domain, lateOwner), 409)
+  const lateOwner = await findDomainOwner(tenant.domain, ctx.tenantId)
+  if (lateOwner?.verified) return jsonError(ownerConflictMessage(tenant.domain, lateOwner), 409)
 
   const { error: writeError } = await admin
     .from('tenants')

@@ -237,7 +237,8 @@ export function toSkills(value: unknown): string[] {
 /** The row shape every job query in the app selects. Keep it in one place. */
 export const JOB_COLUMNS =
   'id, tenant_id, posted_by, title, description, responsibilities, requirements, ' +
-  'department_id, employment_type, workplace, location, experience_min, experience_max, ' +
+  'department_id, employment_type, workplace, location, country, state, city, address, ' +
+  'experience_min, experience_max, ' +
   'salary_min, salary_max, salary_currency, salary_period, salary_disclosed, openings, ' +
   'skills, status, published_at, closes_at, application_count, created_at, updated_at'
 

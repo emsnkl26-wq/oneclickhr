@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  CalendarDays, ExternalLink, Lock, Pencil, Plus, Trash2, Video,
+  CalendarDays, Check, ExternalLink, Lock, Pencil, Plus, Trash2, Video, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { EmptyState, StatusChip } from '@/components/ui/patterns'
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/primitives'
 import { apiPost, apiPatch, apiDelete, ApiClientError } from '@/lib/fetcher'
 import { formatLocal } from '@/lib/time'
-import type { Meeting } from '@/types/db'
+import type { Meeting, MeetingAttendee } from '@/types/db'
 
 /** `datetime-local` needs `YYYY-MM-DDTHH:mm` in LOCAL time, not an ISO instant. */
 function toLocalInput(iso: string): string {
@@ -27,12 +27,20 @@ function toLocalInput(iso: string): string {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
+export interface Teammate {
+  id: string
+  full_name: string | null
+  email: string | null
+  photo_url: string | null
+}
+
 export function MeetingsWorkspace({
-  meetings, connected, timezone,
+  meetings, connected, timezone, teammates,
 }: {
   meetings: Meeting[]
   connected: boolean
   timezone: string
+  teammates: Teammate[]
 }) {
   const router = useRouter()
   const [tab, setTab] = React.useState<'upcoming' | 'past'>('upcoming')
@@ -191,6 +199,7 @@ export function MeetingsWorkspace({
       <MeetingDialog
         open={creating || !!editing}
         meeting={editing}
+        teammates={teammates}
         onClose={() => {
           setCreating(false)
           setEditing(null)
@@ -229,10 +238,11 @@ export function MeetingsWorkspace({
 }
 
 function MeetingDialog({
-  open, meeting, onClose, onSaved,
+  open, meeting, teammates, onClose, onSaved,
 }: {
   open: boolean
   meeting: Meeting | null
+  teammates: Teammate[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -241,7 +251,7 @@ function MeetingDialog({
   const [location, setLocation] = React.useState('')
   const [startTime, setStartTime] = React.useState('')
   const [endTime, setEndTime] = React.useState('')
-  const [attendees, setAttendees] = React.useState('')
+  const [attendees, setAttendees] = React.useState<MeetingAttendee[]>([])
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
@@ -256,7 +266,7 @@ function MeetingDialog({
       setLocation(meeting.location ?? '')
       setStartTime(toLocalInput(meeting.start_time))
       setEndTime(toLocalInput(meeting.end_time))
-      setAttendees((meeting.attendees ?? []).map((a) => a.email).join(', '))
+      setAttendees(meeting.attendees ?? [])
     } else {
       const start = new Date()
       start.setHours(start.getHours() + 1, 0, 0, 0)
@@ -266,7 +276,7 @@ function MeetingDialog({
       setLocation('')
       setStartTime(toLocalInput(start.toISOString()))
       setEndTime(toLocalInput(end.toISOString()))
-      setAttendees('')
+      setAttendees([])
     }
   }, [open, meeting])
 
@@ -283,11 +293,7 @@ function MeetingDialog({
       // browser's zone and toISOString normalises it to the UTC instant we store.
       startTime: new Date(startTime).toISOString(),
       endTime: new Date(endTime).toISOString(),
-      attendees: attendees
-        .split(/[,\s]+/)
-        .map((email) => email.trim())
-        .filter(Boolean)
-        .map((email) => ({ email })),
+      attendees: attendees.map((a) => ({ email: a.email, name: a.name || undefined })),
     }
 
     try {
@@ -351,13 +357,12 @@ function MeetingDialog({
             <FormField
               label="Attendees"
               error={fields.attendees}
-              hint="Comma-separated email addresses. They receive a Google invite when Calendar is connected."
+              hint="Pick teammates, or add anyone else by email. They receive a Google invite when Calendar is connected."
             >
-              <Textarea
-                rows={2}
+              <AttendeePicker
+                teammates={teammates}
                 value={attendees}
-                onChange={(e) => setAttendees(e.target.value)}
-                placeholder="alice@company.com, bob@company.com"
+                onChange={setAttendees}
               />
             </FormField>
 
@@ -380,5 +385,141 @@ function MeetingDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Attendees are teammates far more often than outsiders, so the picker leads
+ * with the workspace roster and keeps a plain email box for everyone else.
+ * Selection is keyed by email because that is what Google Calendar invites on,
+ * and what an externally-added guest has instead of a profile.
+ */
+function AttendeePicker({
+  teammates, value, onChange,
+}: {
+  teammates: Teammate[]
+  value: MeetingAttendee[]
+  onChange: (next: MeetingAttendee[]) => void
+}) {
+  const [query, setQuery] = React.useState('')
+  const [guest, setGuest] = React.useState('')
+
+  const chosen = new Set(value.map((a) => a.email.toLowerCase()))
+
+  const matches = React.useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return teammates.filter((t) => {
+      if (!t.email) return false
+      if (!q) return true
+      return (t.full_name ?? '').toLowerCase().includes(q) || t.email.toLowerCase().includes(q)
+    })
+  }, [teammates, query])
+
+  function toggle(mate: Teammate) {
+    if (!mate.email) return
+    const email = mate.email
+    if (chosen.has(email.toLowerCase())) {
+      onChange(value.filter((a) => a.email.toLowerCase() !== email.toLowerCase()))
+    } else {
+      onChange([...value, { email, name: mate.full_name ?? undefined }])
+    }
+  }
+
+  function addGuest() {
+    const email = guest.trim()
+    // Shape only — the server's zod schema is the real check.
+    if (!email || !email.includes('@')) return
+    if (!chosen.has(email.toLowerCase())) onChange([...value, { email }])
+    setGuest('')
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {value.map((a) => (
+            <li
+              key={a.email}
+              className="flex items-center gap-1 rounded-full bg-page py-1 pl-2.5 pr-1 text-xs"
+            >
+              <span className="max-w-[14rem] truncate">{a.name || a.email}</span>
+              <button
+                type="button"
+                onClick={() => onChange(value.filter((x) => x.email !== a.email))}
+                aria-label={`Remove ${a.name || a.email}`}
+                className="rounded-full p-0.5 text-ink-muted hover:bg-card hover:text-ink"
+              >
+                <X className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <Input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search teammates"
+        aria-label="Search teammates"
+      />
+
+      <div className="max-h-44 overflow-y-auto rounded-lg border border-line">
+        {matches.length === 0 ? (
+          <p className="px-3 py-2.5 text-xs text-ink-muted">No teammates match that search.</p>
+        ) : (
+          <ul>
+            {matches.map((mate) => {
+              const selected = chosen.has((mate.email ?? '').toLowerCase())
+              return (
+                <li key={mate.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggle(mate)}
+                    aria-pressed={selected}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-page"
+                  >
+                    <span
+                      className={`flex size-4 shrink-0 items-center justify-center rounded border ${
+                        selected ? 'border-brand bg-brand text-white' : 'border-line'
+                      }`}
+                    >
+                      {selected ? <Check className="size-3" /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {mate.full_name || mate.email}
+                    </span>
+                    {mate.full_name ? (
+                      <span className="hidden min-w-0 max-w-[12rem] truncate text-xs text-ink-muted sm:block">
+                        {mate.email}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          type="email"
+          value={guest}
+          onChange={(e) => setGuest(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              // Otherwise Enter submits the meeting form instead of adding a guest.
+              e.preventDefault()
+              addGuest()
+            }
+          }}
+          placeholder="Add someone outside the workspace"
+          aria-label="Guest email address"
+        />
+        <Button type="button" variant="secondary" onClick={addGuest} disabled={!guest.trim()}>
+          Add
+        </Button>
+      </div>
+    </div>
   )
 }

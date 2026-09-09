@@ -25,7 +25,10 @@ export interface JobFormValues {
   departmentId: string
   employmentType: JobType
   workplace: JobWorkplace
-  location: string
+  country: string
+  state: string
+  city: string
+  address: string
   /**
    * Numbers are held as STRINGS throughout the form.
    *
@@ -55,7 +58,10 @@ export const EMPTY_JOB_FORM: JobFormValues = {
   departmentId: '',
   employmentType: 'full_time',
   workplace: 'onsite',
-  location: '',
+  country: '',
+  state: '',
+  city: '',
+  address: '',
   experienceMin: '',
   experienceMax: '',
   salaryMin: '',
@@ -78,7 +84,10 @@ export function toFormValues(row: {
   department_id: string | null
   employment_type: JobType
   workplace: JobWorkplace
-  location: string | null
+  country: string | null
+  state: string | null
+  city: string | null
+  address: string | null
   experience_min: number | null
   experience_max: number | null
   salary_min: number | string | null
@@ -100,7 +109,10 @@ export function toFormValues(row: {
     departmentId: row.department_id ?? '',
     employmentType: row.employment_type,
     workplace: row.workplace,
-    location: row.location ?? '',
+    country: row.country ?? '',
+    state: row.state ?? '',
+    city: row.city ?? '',
+    address: row.address ?? '',
     experienceMin: text(row.experience_min),
     experienceMax: text(row.experience_max),
     salaryMin: text(row.salary_min),

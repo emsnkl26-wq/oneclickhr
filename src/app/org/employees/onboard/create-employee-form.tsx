@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * "Add employee", in three fields.
+ * "Add employee", in four fields.
  *
  * WHY THIS IS THE FRONT DOOR AND THE WIZARD IS NOT
  * -----------------------------------------------
@@ -33,11 +33,12 @@ import { useProgressRouter } from '@/lib/use-progress-router'
 import { ArrowRight, CheckCircle2, ClipboardList, Send, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Input, Select } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
 import { Checkbox } from '@/components/ui/checkbox'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
 import { CredentialsPanel } from './credentials-panel'
+import { COUNTRIES, countryLabel } from '@/lib/onboarding'
 import type { NewCredentials } from '@/lib/new-credentials'
 
 interface InviteResult extends NewCredentials {
@@ -51,6 +52,7 @@ export function CreateEmployeeForm() {
   const [firstName, setFirstName] = React.useState('')
   const [lastName, setLastName] = React.useState('')
   const [email, setEmail] = React.useState('')
+  const [country, setCountry] = React.useState('US')
   const [sendEmail, setSendEmail] = React.useState(true)
 
   const [errors, setErrors] = React.useState<Record<string, string>>({})
@@ -87,9 +89,13 @@ export function CreateEmployeeForm() {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           personalEmail: email.trim().toLowerCase(),
-          // Country and employment status have sensible defaults the wizard
-          // would otherwise make somebody pick twice.
-          country: 'US',
+          // Country is asked HERE, not left to the wizard, because it decides
+          // what the rest of the form asks for — postcode versus ZIP, IFSC
+          // versus routing number. Getting it first means nobody fills in a
+          // US-shaped form and then has to redo it.
+          country,
+          // Employment status has a sensible default the wizard would otherwise
+          // make somebody pick twice.
           employmentStatus: 'Active',
         })
         draftIdRef.current = created.id
@@ -209,6 +215,22 @@ export function CreateEmployeeForm() {
                 autoComplete="off"
                 placeholder="name@example.com"
               />
+            </FormField>
+          </div>
+          <div className="sm:col-span-2">
+            <FormField
+              label="Country"
+              error={errors.country}
+              required
+              hint="Where they work. The onboarding form asks for the right details for it — a postcode rather than a ZIP code, an IFSC rather than a routing number."
+            >
+              <Select value={country} onChange={(e) => setCountry(e.target.value)}>
+                {COUNTRIES().map((code) => (
+                  <option key={code} value={code}>
+                    {countryLabel(code)}
+                  </option>
+                ))}
+              </Select>
             </FormField>
           </div>
         </div>

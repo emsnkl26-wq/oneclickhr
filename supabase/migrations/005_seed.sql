@@ -154,7 +154,7 @@ begin
   end if;
 
   -- --- Departments ---------------------------------------------------------
-  insert into public.departments (tenant_id, name) values (v_tenant_a, 'Nursing')
+  insert into public.departments (tenant_id, name) values (v_tenant_a, 'Engineering')
     on conflict do nothing;
   insert into public.departments (tenant_id, name) values (v_tenant_b, 'Care Ops')
     on conflict do nothing;

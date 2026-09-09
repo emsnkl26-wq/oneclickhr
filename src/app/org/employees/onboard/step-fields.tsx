@@ -19,6 +19,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/primitives'
 import { apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
+import { DOCUMENT_LABELS } from '@/lib/schemas'
 import { cn } from '@/lib/utils'
 import {
   countryLabel, payRateLabel,
@@ -308,7 +309,7 @@ function DepartmentField(props: FieldProps) {
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Nursing"
+                placeholder="Engineering"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && name.trim().length >= 2) create()
                 }}
@@ -627,16 +628,11 @@ function MultiFileField(props: FieldProps) {
           {draft.additionalDocs.map((doc, index) => (
             <li key={doc.key} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
               <span className="min-w-0 flex-1 truncate text-sm">{doc.fileName}</span>
-              <Input
-                value={doc.label ?? ''}
-                placeholder="Label (optional)"
-                aria-label={`Label for ${doc.fileName}`}
-                className="h-8 w-full text-[13px] sm:w-44"
-                onChange={(e) =>
+              <DocLabelPicker
+                doc={doc}
+                onLabel={(label) =>
                   setDocs(
-                    draft.additionalDocs.map((d, i) =>
-                      i === index ? { ...d, label: e.target.value || null } : d
-                    )
+                    draft.additionalDocs.map((d, i) => (i === index ? { ...d, label } : d))
                   )
                 }
               />
@@ -672,6 +668,60 @@ function MultiFileField(props: FieldProps) {
         {busy ? 'Uploading…' : 'Upload documents'}
         <input type="file" multiple className="sr-only" onChange={onChange} disabled={busy} />
       </label>
+    </div>
+  )
+}
+
+/**
+ * Naming an uploaded document. A dropdown of the labels people actually use,
+ * with a free-text box behind "Other" so the list never becomes a cage.
+ *
+ * "Other" is inferred rather than stored: any label that is not in the list is
+ * a custom one, which keeps the saved shape a plain string.
+ */
+function DocLabelPicker({
+  doc, onLabel,
+}: {
+  doc: AdditionalDoc
+  onLabel: (label: string | null) => void
+}) {
+  const known = (DOCUMENT_LABELS as readonly string[]).includes(doc.label ?? '')
+  const [custom, setCustom] = React.useState(!doc.label ? false : !known)
+
+  return (
+    <div className="flex w-full flex-col gap-1.5 sm:w-56">
+      <Select
+        value={custom ? 'Other' : doc.label ?? ''}
+        aria-label={`What is ${doc.fileName}?`}
+        className="h-8 text-[13px]"
+        onChange={(e) => {
+          const next = e.target.value
+          if (next === 'Other') {
+            setCustom(true)
+            onLabel(null)
+          } else {
+            setCustom(false)
+            onLabel(next || null)
+          }
+        }}
+      >
+        <option value="">What is this?</option>
+        {DOCUMENT_LABELS.map((label) => (
+          <option key={label} value={label}>
+            {label}
+          </option>
+        ))}
+      </Select>
+
+      {custom ? (
+        <Input
+          value={doc.label ?? ''}
+          placeholder="Describe the document"
+          aria-label={`Label for ${doc.fileName}`}
+          className="h-8 text-[13px]"
+          onChange={(e) => onLabel(e.target.value || null)}
+        />
+      ) : null}
     </div>
   )
 }

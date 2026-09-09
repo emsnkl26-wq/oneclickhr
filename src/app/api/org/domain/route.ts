@@ -4,7 +4,7 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
 import { setDomainSchema } from '@/lib/schemas'
-import { findVerifiedOwner, ownerConflictMessage } from '@/lib/domain-registry'
+import { findDomainOwner, ownerConflictMessage } from '@/lib/domain-registry'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -55,10 +55,10 @@ async function handlePATCH(request: NextRequest) {
     return jsonOk({ domain, verified: !!current.domain_verified_at, unchanged: true })
   }
 
-  // Same rule as signup: a PROVEN claim elsewhere blocks this one, an unproven
-  // one does not — and "elsewhere" includes a parent or a subdomain, because
-  // `acme.com` and `careers.acme.com` are one company.
-  const owner = await findVerifiedOwner(domain, ctx.tenantId)
+  // Same rule as signup: any live claim elsewhere blocks this one, proven or
+  // merely reserved (020) — and "elsewhere" includes a parent or a subdomain,
+  // because `acme.com` and `careers.acme.com` are one company.
+  const owner = await findDomainOwner(domain, ctx.tenantId)
   if (owner) return jsonError(ownerConflictMessage(domain, owner), 409)
 
   const { error } = await admin
@@ -67,6 +67,10 @@ async function handlePATCH(request: NextRequest) {
       domain,
       domain_verified_at: null,
       domain_verification_method: null,
+      // A new claim starts its own reservation window. Without this a workspace
+      // that switched domains late would inherit the old deadline and could be
+      // out of time before it ever saw the banner.
+      domain_verify_due_at: new Date(Date.now() + 14 * 86_400_000).toISOString(),
       // Keep the letterhead's display website in step, but only while it was
       // still whatever we seeded — never overwrite something they typed.
       ...(!current.website || current.website === current.domain ? { website: domain } : {}),
@@ -74,6 +78,15 @@ async function handlePATCH(request: NextRequest) {
     .eq('id', ctx.tenantId)
 
   if (error) {
+    // 020's unique index, reached by the race the check above cannot close:
+    // somebody claimed the same domain between the lookup and this write.
+    if (error.code === '23505') {
+      return jsonError(
+        'That website was registered by another workspace a moment ago. If that is your ' +
+          'company, ask them to invite you instead of creating a second workspace.',
+        409
+      )
+    }
     console.error('[domain] update failed', error.message)
     return jsonError('We could not save that website. Please try again.', 400)
   }

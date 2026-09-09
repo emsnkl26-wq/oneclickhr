@@ -12,6 +12,7 @@ import 'server-only'
  * nothing ever decrypts it back to a browser — the wizard is told only the last
  * four digits, so a compromised session cannot read a number out of the UI.
  */
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { encryptToken, decryptToken, isEncryptionConfigured } from '@/lib/crypto'
 import {
   DRAFT_COLUMNS, EMPLOYEE_EDITABLE_KEYS,
@@ -198,4 +199,54 @@ export function employeeToColumns(input: OnboardingDraftInput): Record<string, u
     allowed.employee_completed_steps = patch.employee_completed_steps
   }
   return allowed
+}
+
+/**
+ * Attach every file an onboarding collected to the employee it belongs to, and
+ * carry each additional document's label onto the row so the Documents card on
+ * the profile shows "Degree certificate" rather than "scan_002.pdf".
+ *
+ * Never throws. A file that fails to attach is still uploaded and still visible
+ * under Documents — merely unlabelled and unowned — and that is not worth
+ * rolling a working account back over. Callers log; they do not abort.
+ */
+export async function attachOnboardingDocuments(
+  admin: SupabaseClient,
+  { draft, employeeId, tenantId }: {
+    draft: OnboardingDraft
+    employeeId: string
+    tenantId: string
+  }
+): Promise<string[]> {
+  const problems: string[] = []
+
+  const keys = [
+    draft.authDocumentUrl,
+    draft.resumeUrl,
+    draft.offerLetterUrl,
+    draft.idProofUrl,
+    ...draft.additionalDocs.map((d) => d.key),
+  ].filter(Boolean)
+
+  if (!keys.length) return problems
+
+  const { error } = await admin
+    .from('documents')
+    .update({ employee_id: employeeId })
+    .in('file_url', keys)
+    .eq('tenant_id', tenantId)
+  if (error) problems.push(error.message)
+
+  // Labels are per-file, so they cannot ride along on the bulk update above.
+  for (const doc of draft.additionalDocs) {
+    if (!doc.label) continue
+    const { error: labelError } = await admin
+      .from('documents')
+      .update({ label: doc.label })
+      .eq('file_url', doc.key)
+      .eq('tenant_id', tenantId)
+    if (labelError) problems.push(labelError.message)
+  }
+
+  return problems
 }

@@ -241,6 +241,23 @@ export const EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Contract', 'Intern']
 export const ACCOUNT_TYPES = ['Checking', 'Savings'] as const
 export const ID_PROOF_TYPES = ['Passport', "Driver's License", 'National ID', 'Other'] as const
 
+/**
+ * What an extra onboarding document usually is. Free text stays possible via
+ * "Other" — the point of the list is that a folder of `scan_002.pdf` files is
+ * useless to whoever opens the profile later.
+ */
+export const DOCUMENT_LABELS = [
+  'Degree certificate',
+  'Experience letter',
+  'Relieving letter',
+  'Payslip',
+  'Visa copy',
+  'Work permit',
+  'Address proof',
+  'Certification',
+  'Other',
+] as const
+
 export const additionalDocSchema = z.object({
   key: z.string().trim().min(1).max(300),
   fileName: z.string().trim().min(1).max(255),
@@ -388,8 +405,18 @@ export const onboardingStep4Schema = z.object({
   emergencyPhone: requiredText('Enter a phone number', 32),
 })
 
-/** Step 5 — documents are all optional; nothing here blocks completion. */
-export const onboardingStep5Schema = z.object({})
+/**
+ * Step 5 — uploading a document is optional, but naming one you DID upload is
+ * not: an unlabelled file is unidentifiable once it is sitting on the profile.
+ */
+export const onboardingStep5Schema = z.object({
+  additionalDocs: z
+    .array(additionalDocSchema)
+    .default([])
+    .refine((docs) => docs.every((d) => d.label), {
+      message: 'Say what each uploaded document is',
+    }),
+})
 
 export const ONBOARDING_STEP_SCHEMAS = [
   onboardingStep1Schema,
@@ -937,7 +964,22 @@ export const jobSchema = z
     departmentId: uuid.nullable().optional(),
     employmentType: z.enum(JOB_TYPES).default('full_time'),
     workplace: z.enum(JOB_WORKPLACES).default('onsite'),
-    location: optionalText(160),
+    /*
+     * The structured location (021). `location` itself is NOT accepted from the
+     * client any more: it is the one-line display string, and the server derives
+     * it from these four so that two postings with the same parts can never read
+     * differently. A stale tab that still sends `location` has it ignored.
+     */
+    country: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{2}$/, 'Choose a country')
+      .nullish()
+      .transform((v) => v || null),
+    state: optionalText(100),
+    city: optionalText(100),
+    address: optionalText(200),
     experienceMin: optionalNumber(60, 'Enter years of experience between 0 and 60'),
     experienceMax: optionalNumber(60, 'Enter years of experience between 0 and 60'),
     salaryMin: optionalNumber(1_000_000_000, 'Enter a salary of 0 or more'),

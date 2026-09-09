@@ -15,6 +15,7 @@ import { JOB_TYPES, JOB_WORKPLACES, SALARY_PERIODS } from '@/lib/schemas'
 // prepare them can import `toFormValues` without it becoming a client-reference
 // proxy. See the header of src/lib/job-form.ts.
 import { EMPTY_JOB_FORM as EMPTY, type JobFormValues } from '@/lib/job-form'
+import { COUNTRY_CODES, countryName, divisionLabel, divisionsFor, formatLocation } from '@/lib/geo'
 import type { JobType, JobWorkplace, SalaryPeriod } from '@/types/db'
 
 export type { JobFormValues }
@@ -130,7 +131,10 @@ export function JobDialog({
       departmentId: values.departmentId || null,
       employmentType: values.employmentType,
       workplace: values.workplace,
-      location: values.location || undefined,
+      country: values.country || null,
+      state: values.state || undefined,
+      city: values.city || undefined,
+      address: values.address || undefined,
       experienceMin: values.experienceMin,
       experienceMax: values.experienceMax,
       salaryMin: values.salaryMin,
@@ -268,18 +272,9 @@ export function JobDialog({
               </FormField>
             </div>
 
+            <LocationFields values={values} set={set} fields={fields} />
+
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                label="Location"
-                error={fields.location}
-                hint="Shown on the posting, even for remote roles."
-              >
-                <Input
-                  value={values.location}
-                  onChange={(e) => set('location', e.target.value)}
-                  placeholder="Bengaluru, India"
-                />
-              </FormField>
               {departments.length ? (
                 <FormField label="Department" error={fields.departmentId}>
                   <Select
@@ -461,5 +456,105 @@ export function JobDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Where the job is, in parts rather than in one free-text box.
+ *
+ * The country comes first because it decides the two fields under it: what the
+ * region is CALLED there ("State" in Texas, "County" in Kent, "Emirate" in
+ * Dubai), and whether we can offer a list of them at all. Countries we have no
+ * division list for fall back to a text box — which is no worse than the single
+ * box this replaced, and lets somebody hire in Lisbon today rather than when
+ * Portugal is added to src/lib/geo.ts.
+ *
+ * Changing the country clears the region, because "Karnataka" is not an answer
+ * to "which state of the United States" and leaving it there would quietly save
+ * a location that does not exist.
+ */
+function LocationFields({
+  values, set, fields,
+}: {
+  values: JobFormValues
+  set: <K extends keyof JobFormValues>(key: K, value: JobFormValues[K]) => void
+  fields: Record<string, string>
+}) {
+  const divisions = divisionsFor(values.country)
+  const preview = formatLocation(values)
+
+  return (
+    <div className="space-y-4 rounded-lg border border-line bg-page p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[13px] font-medium text-ink">Location</p>
+        <p className="text-xs text-ink-muted">
+          {preview ? (
+            <>
+              Shown on the posting as <span className="font-medium text-ink">{preview}</span>
+            </>
+          ) : (
+            'Shown on the posting, even for remote roles.'
+          )}
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField label="Country" error={fields.country}>
+          <Select
+            value={values.country}
+            onChange={(e) => {
+              set('country', e.target.value)
+              set('state', '')
+            }}
+          >
+            <option value="">Select a country</option>
+            {COUNTRY_CODES.map((code) => (
+              <option key={code} value={code}>{countryName(code)}</option>
+            ))}
+          </Select>
+        </FormField>
+
+        <FormField label={divisionLabel(values.country)} error={fields.state}>
+          {divisions.length ? (
+            <Select
+              value={values.state}
+              onChange={(e) => set('state', e.target.value)}
+              disabled={!values.country}
+            >
+              <option value="">Select</option>
+              {divisions.map((division) => (
+                <option key={division} value={division}>{division}</option>
+              ))}
+            </Select>
+          ) : (
+            <Input
+              value={values.state}
+              onChange={(e) => set('state', e.target.value)}
+              disabled={!values.country}
+              placeholder={values.country ? '' : 'Choose a country first'}
+            />
+          )}
+        </FormField>
+
+        <FormField label="City" error={fields.city}>
+          <Input
+            value={values.city}
+            onChange={(e) => set('city', e.target.value)}
+            placeholder="Bengaluru"
+          />
+        </FormField>
+
+        <FormField
+          label="Street address"
+          error={fields.address}
+          hint="Optional, and never shown on the public posting."
+        >
+          <Input
+            value={values.address}
+            onChange={(e) => set('address', e.target.value)}
+          />
+        </FormField>
+      </div>
+    </div>
   )
 }

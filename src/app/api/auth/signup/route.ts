@@ -5,28 +5,36 @@ import { withErrorHandler, parseBody, jsonOk, jsonError } from '@/lib/api'
 import { limitAuthByIp, rateLimit, limitKey } from '@/lib/rate-limit'
 import { audit } from '@/lib/audit'
 import { appUrl } from '@/lib/env'
-import { findVerifiedOwner, ownerConflictMessage } from '@/lib/domain-registry'
+import { findDomainOwner, ownerConflictMessage } from '@/lib/domain-registry'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Has some workspace already PROVEN this website?
+ * Has some workspace already taken this website?
  *
- * This is a check-then-write and therefore a race, which is fine: it exists to
- * give a person a sentence they can act on at the moment it is useful, not to
- * enforce anything. The enforcement is `tenants_verified_domain_uq` plus the
- * re-check inside the verification handler.
+ * This is a check-then-write and therefore a race, but it is no longer only
+ * cosmetic: since 020 a domain is reserved from the moment it is claimed, so
+ * this is the message that tells the second person from a company what actually
+ * happened. The enforcement underneath is `tenants_domain_uq` plus the re-check
+ * inside the verification handler.
  *
- * Fails OPEN. If the lookup errors we let the signup through rather than turn a
- * database blip into "nobody can create an account" — the verification step
- * that actually matters fails CLOSED instead.
+ * Fails CLOSED, which is a reversal. It used to allow the signup through on a
+ * lookup error, on the grounds that a database blip must not stop everyone
+ * creating an account. That trade no longer pays: with reservations in force,
+ * `provision_tenant_for_org()` silently DROPS a contested domain rather than
+ * failing, so allowing here does not produce the workspace the person wanted —
+ * it produces one with no domain and no explanation. Better to say "try again".
+ * And a lookup that cannot reach the database is one the signup INSERT two
+ * lines later almost certainly cannot reach either.
  */
+class DomainCheckUnavailable extends Error {}
+
 async function takenBy(domain: string) {
   try {
-    return await findVerifiedOwner(domain)
+    return await findDomainOwner(domain)
   } catch (err) {
-    console.warn('[signup] domain availability check failed; allowing', err)
-    return null
+    console.error('[signup] domain availability check failed; refusing', err)
+    throw new DomainCheckUnavailable()
   }
 }
 
@@ -60,8 +68,15 @@ async function handlePOST(request: NextRequest) {
     return jsonError('Too many sign-up attempts for that address. Please try again later.', 429)
   }
 
-  const owner = await takenBy(input.domain)
-  if (owner) return jsonError(ownerConflictMessage(input.domain, owner), 409)
+  try {
+    const owner = await takenBy(input.domain)
+    if (owner) return jsonError(ownerConflictMessage(input.domain, owner), 409)
+  } catch (err) {
+    if (err instanceof DomainCheckUnavailable) {
+      return jsonError('We could not check that website just now. Please try again.', 503)
+    }
+    throw err
+  }
 
   const supabase = await createSupabaseServerClient()
 

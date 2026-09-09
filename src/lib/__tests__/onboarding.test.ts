@@ -3,7 +3,7 @@ import {
   draftFromRow, emptyDraft, errorCountsFor, needsVisaDetail, validateStep, visibleSections,
   ONBOARDING_STEPS, DRAFT_COLUMNS,
   EMPLOYEE_STEPS, EMPLOYEE_EDITABLE_KEYS, ORG_ONLY_FIELDS,
-  validateEmployeeStep, employeeStepsComplete,
+  validateEmployeeStep, employeeStepsComplete, localizeField,
 } from '@/lib/onboarding'
 import { toColumns, employeeToColumns } from '@/lib/onboarding-server'
 import { onboardingDraftSchema } from '@/lib/schemas'
@@ -64,8 +64,31 @@ describe('step validation', () => {
     expect(validateStep(1, draft)).toHaveProperty('personalEmail')
   })
 
-  it('never blocks on documents — step 5 is entirely optional', () => {
+  it('never blocks on documents — uploading nothing at step 5 is fine', () => {
     expect(validateStep(5, emptyDraft())).toEqual({})
+  })
+
+  it('demands a label for a document that WAS uploaded', () => {
+    const draft = emptyDraft()
+    draft.additionalDocs = [{ key: 'docs/a.pdf', fileName: 'scan_002.pdf', label: null }]
+    expect(validateStep(5, draft)).toHaveProperty('additionalDocs')
+  })
+
+  it('accepts a labelled document', () => {
+    const draft = emptyDraft()
+    draft.additionalDocs = [
+      { key: 'docs/a.pdf', fileName: 'scan_002.pdf', label: 'Degree certificate' },
+    ]
+    expect(validateStep(5, draft)).toEqual({})
+  })
+
+  it('flags the step when only ONE of several documents is unlabelled', () => {
+    const draft = emptyDraft()
+    draft.additionalDocs = [
+      { key: 'docs/a.pdf', fileName: 'a.pdf', label: 'Degree certificate' },
+      { key: 'docs/b.pdf', fileName: 'b.pdf', label: null },
+    ]
+    expect(validateStep(5, draft)).toHaveProperty('additionalDocs')
   })
 })
 
@@ -251,3 +274,45 @@ describe('employeeToColumns', () => {
     expect(patch).toEqual({})
   })
 })
+
+describe('country-aware wording', () => {
+  it('asks an Indian employee for a PIN code and an IFSC', () => {
+    expect(localizeField(fieldNamed('zipPostal'), 'IN').label).toBe('PIN code')
+    expect(localizeField(fieldNamed('routingCode'), 'IN').label).toBe('IFSC code')
+  })
+
+  it('asks a British employee for a postcode and a sort code', () => {
+    expect(localizeField(fieldNamed('zipPostal'), 'GB').label).toBe('Postcode')
+    expect(localizeField(fieldNamed('routingCode'), 'GB').label).toBe('Sort code')
+    expect(localizeField(fieldNamed('stateProvince'), 'GB').label).toBe('County')
+  })
+
+  it('falls back to the neutral wording for a country it has no entry for', () => {
+    const field = fieldNamed('zipPostal')
+    expect(localizeField(field, 'PT')).toBe(field)
+  })
+
+  it('changes wording only — never the key a value is stored under', () => {
+    for (const country of ['US', 'IN', 'GB', 'JP']) {
+      expect(localizeField(fieldNamed('routingCode'), country).key).toBe('routingCode')
+    }
+  })
+
+  it('reaches the rendered form, so the review screen cannot disagree with it', () => {
+    const sections = visibleSections(ONBOARDING_STEPS[0], emptyDraft({ country: 'IN' }))
+    const labels = sections.flatMap((s) => s.fields.map((f) => f.label))
+    expect(labels).toContain('PIN code')
+    expect(labels).not.toContain('ZIP / postal code')
+  })
+})
+
+/** The config entry for a field, wherever in the six steps it lives. */
+function fieldNamed(key: string) {
+  for (const step of ONBOARDING_STEPS) {
+    for (const section of step.sections) {
+      const found = section.fields.find((f) => f.key === key)
+      if (found) return found
+    }
+  }
+  throw new Error(`no such field: ${key}`)
+}

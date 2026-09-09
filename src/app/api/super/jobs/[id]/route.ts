@@ -3,6 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSc
 import { apiRequireSuperAdmin } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobSchema, jobStatusSchema } from '@/lib/schemas'
+import { formatLocation } from '@/lib/geo'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -84,7 +85,13 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       requirements: input.requirements,
       employment_type: input.employmentType,
       workplace: input.workplace,
-      location: input.location,
+      country: input.country,
+      state: input.state,
+      city: input.city,
+      address: input.address,
+      // Derived from the parts above, never taken from the client — see the
+      // note on `location` in jobSchema.
+      location: formatLocation(input) || null,
       experience_min: input.experienceMin,
       experience_max: input.experienceMax,
       salary_min: input.salaryMin,

@@ -6,7 +6,9 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { inviteOnboardingSchema, inviteReadySchema } from '@/lib/schemas'
 import { draftFromRow } from '@/lib/onboarding'
-import { suggestEmployeeCode, profilePatchFromDraft } from '@/lib/onboarding-server'
+import {
+  suggestEmployeeCode, profilePatchFromDraft, attachOnboardingDocuments,
+} from '@/lib/onboarding-server'
 import { generateTempPassword } from '@/lib/crypto'
 import { sendEmployeeCredentials, isEmailConfigured } from '@/lib/email'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
@@ -238,23 +240,12 @@ async function handlePOST(request: NextRequest, { params }: Params) {
   }
 
   // --- 6. Attach anything already uploaded ---------------------------------
-  const documentKeys = [
-    draft.authDocumentUrl,
-    draft.resumeUrl,
-    draft.offerLetterUrl,
-    draft.idProofUrl,
-    ...draft.additionalDocs.map((d) => d.key),
-  ].filter(Boolean)
-
-  if (documentKeys.length) {
-    const { error: docError } = await admin
-      .from('documents')
-      .update({ employee_id: userId })
-      .in('file_url', documentKeys)
-      .eq('tenant_id', tenantId)
-    if (docError) {
-      console.error('[onboarding/invite] failed to attach documents', docError.message)
-    }
+  for (const problem of await attachOnboardingDocuments(admin, {
+    draft,
+    employeeId: userId,
+    tenantId,
+  })) {
+    console.error('[onboarding/invite] failed to attach documents', problem)
   }
 
   // --- 7. Deliver the credentials -----------------------------------------

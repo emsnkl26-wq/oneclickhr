@@ -6,7 +6,9 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { completeOnboardingSchema } from '@/lib/schemas'
 import { draftFromRow, validateStep, needsVisaDetail, ONBOARDING_STEPS } from '@/lib/onboarding'
-import { suggestEmployeeCode, profilePatchFromDraft } from '@/lib/onboarding-server'
+import {
+  suggestEmployeeCode, profilePatchFromDraft, attachOnboardingDocuments,
+} from '@/lib/onboarding-server'
 import { generateTempPassword } from '@/lib/crypto'
 import { sendEmployeeCredentials, isEmailConfigured } from '@/lib/email'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
@@ -297,25 +299,14 @@ async function handlePOST(request: NextRequest, { params }: Params) {
   }
 
   // --- 6. Attach the uploaded files to the new employee --------------------
-  const documentKeys = [
-    draft.authDocumentUrl,
-    draft.resumeUrl,
-    draft.offerLetterUrl,
-    draft.idProofUrl,
-    ...draft.additionalDocs.map((d) => d.key),
-  ].filter(Boolean)
-
-  if (documentKeys.length) {
-    const { error: docError } = await admin
-      .from('documents')
-      .update({ employee_id: userId })
-      .in('file_url', documentKeys)
-      .eq('tenant_id', tenantId)
-    if (docError) {
-      // Not fatal: the files exist and stay visible under Documents, merely
-      // unattached. Rolling back a working account over this would be worse.
-      console.error('[onboarding] failed to attach documents', docError.message)
-    }
+  // Not fatal: the files exist and stay visible under Documents, merely
+  // unattached. Rolling back a working account over this would be worse.
+  for (const problem of await attachOnboardingDocuments(admin, {
+    draft,
+    employeeId: userId,
+    tenantId,
+  })) {
+    console.error('[onboarding] failed to attach documents', problem)
   }
 
   // --- 7. Close the draft --------------------------------------------------

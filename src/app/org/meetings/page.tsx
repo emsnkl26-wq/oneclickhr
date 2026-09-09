@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
-import { MeetingsWorkspace } from './meetings-workspace'
+import { MeetingsWorkspace, type Teammate } from './meetings-workspace'
 import type { Meeting } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Meetings' }
@@ -21,7 +21,7 @@ export default async function MeetingsPage() {
    */
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
 
-  const [{ data: meetings }, { data: connection }] = await Promise.all([
+  const [{ data: meetings }, { data: connection }, { data: teammates }] = await Promise.all([
     supabase
       .from('meetings')
       .select(
@@ -31,6 +31,14 @@ export default async function MeetingsPage() {
       .order('start_time', { ascending: true })
       .limit(300),
     supabase.from('calendar_connections').select('id, status, google_email').maybeSingle(),
+    // The attendee picker needs everyone who can actually be invited, so only
+    // active people with an address to invite.
+    supabase
+      .from('profiles')
+      .select('id, full_name, email, photo_url')
+      .eq('is_active', true)
+      .not('email', 'is', null)
+      .order('full_name'),
   ])
 
   return (
@@ -43,6 +51,7 @@ export default async function MeetingsPage() {
         meetings={(meetings ?? []) as Meeting[]}
         connected={connection?.status === 'connected'}
         timezone={ctx.tenant.timezone}
+        teammates={(teammates ?? []) as Teammate[]}
       />
     </div>
   )

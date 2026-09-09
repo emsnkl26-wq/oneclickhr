@@ -112,13 +112,13 @@ export function OnboardingFlow({
           <FormField
             label="Your first department"
             error={fields.departmentName}
-            hint="For example Nursing, Care Ops or Administration."
+            hint="For example Engineering, Operations or Administration."
             required
           >
             <Input
               value={departmentName}
               onChange={(e) => setDepartmentName(e.target.value)}
-              placeholder="Nursing"
+              placeholder="Engineering"
               required
             />
           </FormField>

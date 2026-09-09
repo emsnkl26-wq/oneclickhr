@@ -3,6 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from 
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { jobSchema } from '@/lib/schemas'
+import { formatLocation } from '@/lib/geo'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -40,7 +41,13 @@ async function handlePOST(request: NextRequest) {
       department_id: input.departmentId ?? null,
       employment_type: input.employmentType,
       workplace: input.workplace,
-      location: input.location,
+      country: input.country,
+      state: input.state,
+      city: input.city,
+      address: input.address,
+      // Derived from the parts above, never taken from the client — see the
+      // note on `location` in jobSchema.
+      location: formatLocation(input) || null,
       experience_min: input.experienceMin,
       experience_max: input.experienceMax,
       salary_min: input.salaryMin,
