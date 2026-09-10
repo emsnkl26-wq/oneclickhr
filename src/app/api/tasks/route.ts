@@ -1,15 +1,29 @@
 import { NextRequest } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from '@/lib/api'
-import { apiRequireOrg } from '@/lib/auth/guards'
+import { apiRequireTenantUser } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { taskSchema } from '@/lib/schemas'
 import { audit } from '@/lib/audit'
+import {
+  syncAssignees, syncLabels, notifyAssigned, nextPositionInColumn,
+} from '@/lib/task-writes'
 
 export const dynamic = 'force-dynamic'
 
-/** Create a task. Org only — employees move and update, they do not create. */
+/**
+ * Create a task.
+ *
+ * ANY active member, not just the org — see the header of migration 030. The
+ * rule that an employee's card is filed as themselves is the `tasks_insert`
+ * policy's, not this handler's: `created_by` is set from the session below and
+ * the policy refuses anything else, so there is one definition of it.
+ *
+ * The status is deliberately NOT defaulted here. Dropping a card into a column
+ * that declares one ("Done") should make it that status, and the insert trigger
+ * is where that happens — it also runs for every other writer.
+ */
 async function handlePOST(request: NextRequest) {
-  const gate = await apiRequireOrg()
+  const gate = await apiRequireTenantUser()
   if (!gate.ok) return gate.response
   const { ctx } = gate
 
@@ -17,7 +31,8 @@ async function handlePOST(request: NextRequest) {
   const supabase = await createSupabaseServerClient()
 
   // Board and column ids arrive from the client. RLS makes a foreign id resolve
-  // to nothing, so these lookups double as the tenant check.
+  // to nothing, so this lookup doubles as the tenant check — and pairing the
+  // two in one query is what stops a column from another board being used.
   const { data: column } = await supabase
     .from('board_columns')
     .select('id, board_id')
@@ -27,18 +42,10 @@ async function handlePOST(request: NextRequest) {
 
   if (!column) return jsonError('That column was not found.', 404)
 
-  // New tasks go to the BOTTOM of the column: read the current largest position
-  // and add a gap. Positions are fractional, so inserts and drags never need a
-  // renumbering pass over the whole column.
-  const { data: last } = await supabase
-    .from('tasks')
-    .select('position')
-    .eq('column_id', input.columnId)
-    .order('position', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  const position = (last?.position ?? 0) + 1000
+  const position = await nextPositionInColumn(supabase, 'tasks', {
+    column: 'column_id',
+    value: input.columnId,
+  })
 
   const { data: task, error } = await supabase
     .from('tasks')
@@ -50,34 +57,53 @@ async function handlePOST(request: NextRequest) {
       description: input.description,
       position,
       priority: input.priority,
+      ...(input.status ? { status: input.status } : {}),
       due_date: input.dueDate ?? null,
+      start_date: input.startDate ?? null,
+      estimate_hours: input.estimateHours ?? null,
       created_by: ctx.userId,
     })
-    .select('id')
+    .select('id, reference')
     .single()
 
   if (error) return jsonError(friendlyDbError(error), 400)
 
-  if (input.assigneeIds.length) {
-    // Only real members of THIS tenant can be assigned. RLS filters the select,
-    // so anything that survives is legitimately assignable.
-    const { data: members } = await supabase
-      .from('profiles')
-      .select('id')
-      .in('id', input.assigneeIds)
-      .eq('is_active', true)
+  const { added } = await syncAssignees(supabase, {
+    taskId: task.id,
+    tenantId: ctx.tenantId,
+    desired: input.assigneeIds,
+  })
 
-    const rows = (members ?? []).map((m) => ({
-      task_id: task.id,
-      profile_id: m.id,
-      tenant_id: ctx.tenantId,
-    }))
-
-    if (rows.length) {
-      const { error: assignError } = await supabase.from('task_assignees').insert(rows)
-      if (assignError) console.error('[tasks] assignment failed', assignError.message)
-    }
+  if (input.labelIds.length) {
+    await syncLabels(supabase, {
+      taskId: task.id,
+      tenantId: ctx.tenantId,
+      boardId: input.boardId,
+      desired: input.labelIds,
+    })
   }
+
+  if (input.checklist.length) {
+    // Spaced by 1000 so a later drag between two items has room to land
+    // without renumbering the list.
+    const { error: checklistError } = await supabase.from('task_checklist_items').insert(
+      input.checklist.map((content, index) => ({
+        tenant_id: ctx.tenantId,
+        task_id: task.id,
+        content,
+        position: (index + 1) * 1000,
+      }))
+    )
+    if (checklistError) console.error('[tasks] checklist failed', checklistError.message)
+  }
+
+  await notifyAssigned(supabase, {
+    tenantId: ctx.tenantId,
+    actorId: ctx.userId,
+    profileIds: added,
+    taskTitle: input.title,
+    reference: task.reference,
+  })
 
   await audit({
     tenantId: ctx.tenantId,
@@ -86,11 +112,11 @@ async function handlePOST(request: NextRequest) {
     action: 'task.created',
     entity: 'tasks',
     entityId: task.id,
-    meta: { assignees: input.assigneeIds.length },
+    meta: { assignees: added.length, reference: task.reference },
     request,
   })
 
-  return jsonOk({ id: task.id }, 201)
+  return jsonOk({ id: task.id, reference: task.reference }, 201)
 }
 
 export const POST = withErrorHandler(handlePOST)

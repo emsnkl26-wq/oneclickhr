@@ -15,6 +15,11 @@ export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
 export type CalendarStatus = 'connected' | 'needs_reauth' | 'revoked'
 export type MeetingSource = 'app' | 'google'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
+export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'in_review' | 'done' | 'cancelled'
+export type TaskActivityKind =
+  | 'created' | 'moved' | 'status_changed' | 'priority_changed' | 'assigned'
+  | 'unassigned' | 'due_date_changed' | 'renamed' | 'commented' | 'completed'
+  | 'reopened' | 'archived' | 'restored'
 export type DocumentKind = 'general' | 'employee_doc' | 'work_auth' | 'payslip'
 
 export interface Tenant {
@@ -339,8 +344,12 @@ export interface Board {
   id: string
   tenant_id: string
   name: string
+  description: string | null
+  /** Running counter behind `Task.reference`. Bumped by the insert trigger. */
+  task_seq: number
   created_by: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface BoardColumn {
@@ -349,6 +358,12 @@ export interface BoardColumn {
   board_id: string
   name: string
   position: number
+  color: string | null
+  /** A soft ceiling the UI warns about; deliberately not a constraint. */
+  wip_limit: number | null
+  /** The status a card takes on when dropped here. Null = no opinion. */
+  applies_status: TaskStatus | null
+  is_backlog: boolean
   created_at: string
 }
 
@@ -361,14 +376,72 @@ export interface Task {
   description: string | null
   position: number
   priority: TaskPriority
+  status: TaskStatus
+  /** Per-board running number — what people call the card out loud. */
+  reference: number | null
   due_date: string | null
+  start_date: string | null
+  estimate_hours: number | null
+  completed_at: string | null
+  archived_at: string | null
+  /** Maintained by trigger so the board's badge costs no extra query. */
+  comment_count: number
   created_by: string | null
+  updated_by: string | null
   created_at: string
   updated_at: string
 }
 
 export interface TaskWithAssignees extends Task {
   assignees: Array<Pick<Profile, 'id' | 'full_name' | 'email' | 'photo_url'>>
+}
+
+export interface TaskLabel {
+  id: string
+  tenant_id: string
+  board_id: string
+  name: string
+  color: string
+  created_at: string
+}
+
+export interface TaskComment {
+  id: string
+  tenant_id: string
+  task_id: string
+  /** One level only: a reply's parent is always a root comment. */
+  parent_id: string | null
+  author_id: string | null
+  /** Snapshot, so the thread still reads after the author's account is gone. */
+  author_name: string | null
+  author_role: UserRole
+  body: string
+  edited_at: string | null
+  deleted_at: string | null
+  created_at: string
+}
+
+export interface TaskChecklistItem {
+  id: string
+  tenant_id: string
+  task_id: string
+  content: string
+  is_done: boolean
+  position: number
+  done_at: string | null
+  done_by: string | null
+  created_at: string
+}
+
+export interface TaskActivity {
+  id: string
+  tenant_id: string
+  task_id: string
+  actor_id: string | null
+  actor_name: string | null
+  kind: TaskActivityKind
+  meta: Record<string, unknown>
+  created_at: string
 }
 
 export interface AppDocument {

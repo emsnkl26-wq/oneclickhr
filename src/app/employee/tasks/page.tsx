@@ -2,11 +2,7 @@ import type { Metadata } from 'next'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { loadBoard } from '@/lib/board-data'
-import { PageHeader } from '@/components/ui/patterns'
-import { KanbanBoard } from '@/components/board/kanban-board'
-import { EmptyState } from '@/components/ui/patterns'
-import { Card } from '@/components/ui/card'
-import { KanbanSquare } from 'lucide-react'
+import { BoardWorkspace } from '@/components/board/board-workspace'
 
 export const metadata: Metadata = { title: 'My tasks' }
 export const dynamic = 'force-dynamic'
@@ -16,44 +12,25 @@ export default async function EmployeeTasksPage() {
   const supabase = await createSupabaseServerClient()
   const board = await loadBoard(supabase)
 
-  const assignedCount = board.tasks.filter((t) =>
-    t.assignees.some((a) => a.id === ctx.userId)
-  ).length
+  const mine = board.tasks.filter((t) => t.assignees.some((a) => a.id === ctx.userId)).length
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Task board"
-        description={
-          assignedCount
-            ? `You can move the ${assignedCount} ${
-                assignedCount === 1 ? 'card' : 'cards'
-              } assigned to you. Everything else is read-only.`
-            : 'You can move cards once they are assigned to you.'
-        }
-      />
-
-      {board.boardId ? (
-        <KanbanBoard
-          boardId={board.boardId}
-          columns={board.columns}
-          initialTasks={board.tasks}
-          tenantId={ctx.tenantId}
-          // Employees never create or delete; the same rule is enforced by the
-          // `tasks_insert`/`tasks_delete` policies, which grant those to org
-          // users only. This just stops the UI offering what would be refused.
-          canManage={false}
-          currentUserId={ctx.userId}
-        />
-      ) : (
-        <Card>
-          <EmptyState
-            icon={KanbanSquare}
-            title="No board yet"
-            description="Your organization has not set up a task board."
-          />
-        </Card>
-      )}
-    </div>
+    <BoardWorkspace
+      board={board}
+      tenantId={ctx.tenantId}
+      currentUserId={ctx.userId}
+      // Columns and labels are how the workspace decides to lay work out, which
+      // is an org decision — the same rule the `board_columns_write` and
+      // `task_labels_write` policies enforce. Everything else on this screen is
+      // open to an employee: raising a task, moving the cards that are theirs,
+      // and joining the discussion on any of them.
+      canManage={false}
+      title="Task board"
+      description={
+        mine
+          ? `You can update the ${mine} ${mine === 1 ? 'card' : 'cards'} assigned to you, and comment on any of them.`
+          : 'Raise a task, or comment on anything here. Cards become yours to move once they are assigned to you.'
+      }
+    />
   )
 }

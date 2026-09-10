@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { loadBoard } from '@/lib/board-data'
-import { BoardWorkspace } from './board-workspace'
+import { BoardWorkspace } from '@/components/board/board-workspace'
 
 export const metadata: Metadata = { title: 'Task board' }
 export const dynamic = 'force-dynamic'

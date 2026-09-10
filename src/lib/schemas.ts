@@ -610,25 +610,121 @@ export const meetingSchema = z
 // Kanban
 // ---------------------------------------------------------------------------
 
+export const taskPriority = z.enum(['low', 'medium', 'high', 'urgent'])
+export const taskStatus = z.enum([
+  'todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled',
+])
+
+/**
+ * A stage on the board.
+ *
+ * `appliesStatus` is what makes a column more than a heading: dropping a card
+ * here sets that status. Nullable, because a team's "Waiting on client" column
+ * genuinely has no equivalent in the product's vocabulary and should not be
+ * forced into one.
+ */
 export const boardColumnSchema = z.object({
   name: z.string().trim().min(1, 'Name the column').max(60),
+  color: hexColor.nullable().optional(),
+  wipLimit: z
+    .number()
+    .int('Use a whole number')
+    .min(1, 'A limit of zero would refuse every card')
+    .max(999)
+    .nullable()
+    .optional(),
+  appliesStatus: taskStatus.nullable().optional(),
+  isBacklog: z.boolean().optional(),
 })
+
+/** Reordering the columns themselves. Fractional, like a card move. */
+export const moveColumnSchema = z.object({
+  position: z.number().finite(),
+})
+
+export const taskLabelSchema = z.object({
+  name: z.string().trim().min(1, 'Name the label').max(40),
+  color: hexColor.default('#64748B'),
+})
+
+/**
+ * The date order is cross-checked here as well as by a table constraint. The
+ * constraint is what BINDS; this is what produces a sentence the person can act
+ * on instead of a generic 400.
+ *
+ * ISO dates compare correctly as strings — that is the whole point of the
+ * format — so no parsing is needed to order them.
+ */
+const datesInOrder = {
+  check: (v: { startDate?: string | null; dueDate?: string | null }) =>
+    !v.startDate || !v.dueDate || v.startDate <= v.dueDate,
+  message: {
+    message: 'The start date cannot be after the due date',
+    path: ['startDate'],
+  },
+}
 
 export const taskSchema = z.object({
   boardId: uuid,
   columnId: uuid,
   title: z.string().trim().min(2, 'Give the task a title').max(200),
-  description: optionalText(4000),
-  priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+  description: optionalText(20000),
+  priority: taskPriority.default('medium'),
+  // Omitted means "whatever the column implies" — resolved by the insert
+  // trigger, not guessed here.
+  status: taskStatus.optional(),
   dueDate: isoDate.nullable().optional(),
+  startDate: isoDate.nullable().optional(),
+  estimateHours: z.number().min(0).max(10000).nullable().optional(),
   assigneeIds: z.array(uuid).max(20).default([]),
+  labelIds: z.array(uuid).max(20).default([]),
+  checklist: z.array(z.string().trim().min(1).max(300)).max(50).default([]),
+}).refine(datesInOrder.check, datesInOrder.message)
+
+/**
+ * Editing a card.
+ *
+ * Every field is optional and every one distinguishes "absent" from "null":
+ * absent leaves the column alone, null clears it. A PATCH that cannot express
+ * "remove the due date" makes the field one-way, and a PATCH that treats absent
+ * as null wipes whatever the form did not happen to render.
+ */
+export const updateTaskSchema = z.object({
+  title: z.string().trim().min(2, 'Give the task a title').max(200).optional(),
+  description: z.string().trim().max(20000).nullable().optional(),
+  priority: taskPriority.optional(),
+  status: taskStatus.optional(),
+  columnId: uuid.optional(),
+  position: z.number().finite().optional(),
+  dueDate: isoDate.nullable().optional(),
+  startDate: isoDate.nullable().optional(),
+  estimateHours: z.number().min(0).max(10000).nullable().optional(),
+  assigneeIds: z.array(uuid).max(20).optional(),
+  labelIds: z.array(uuid).max(20).optional(),
+  archived: z.boolean().optional(),
+}).refine(datesInOrder.check, datesInOrder.message)
+
+export const taskCommentSchema = z.object({
+  body: z.string().trim().min(1, 'Write something first').max(8000),
+  /** Present = a reply. The database refuses a parent that is itself a reply. */
+  parentId: uuid.nullable().optional(),
 })
 
-/** A drag-drop persist. `position` is fractional so a move writes one row. */
-export const moveTaskSchema = z.object({
-  columnId: uuid,
-  position: z.number().finite(),
+export const updateCommentSchema = z.object({
+  body: z.string().trim().min(1, 'Write something first').max(8000),
 })
+
+export const checklistItemSchema = z.object({
+  content: z.string().trim().min(1, 'Describe the step').max(300),
+})
+
+export const updateChecklistItemSchema = z
+  .object({
+    content: z.string().trim().min(1).max(300).optional(),
+    isDone: z.boolean().optional(),
+    position: z.number().finite().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to change' })
 
 // ---------------------------------------------------------------------------
 // Uploads (two-phase: presign then finalize)
