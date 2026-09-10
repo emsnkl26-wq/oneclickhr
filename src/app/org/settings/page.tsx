@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { BadgeCheck, CalendarDays, Globe } from 'lucide-react'
+import { BadgeCheck, CalendarDays, Globe, Users } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
@@ -61,6 +61,7 @@ export default async function SettingsPage() {
             primaryColor: ctx.tenant.primaryColor,
             timezone: ctx.tenant.timezone,
             workStartTime: ctx.tenant.workStartTime,
+            defaultTrackingMode: ctx.tenant.defaultTrackingMode ?? '',
             logoUrl: ctx.tenant.logoUrl,
           }}
         />
@@ -94,6 +95,25 @@ export default async function SettingsPage() {
                 <Link href="/org/settings/domain">
                   <Globe />
                   {ctx.tenant.domainVerified ? 'Manage website' : 'Verify website'}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Administrators</CardTitle>
+              <CardDescription>
+                {ctx.isOwner
+                  ? 'Invite colleagues to help run this workspace. They get the same access as you.'
+                  : 'See who else can manage this workspace.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="secondary">
+                <Link href="/org/settings/team">
+                  <Users />
+                  {ctx.isOwner ? 'Manage administrators' : 'View administrators'}
                 </Link>
               </Button>
             </CardContent>

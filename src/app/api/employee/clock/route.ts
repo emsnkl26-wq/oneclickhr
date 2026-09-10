@@ -33,6 +33,28 @@ async function handlePOST(request: NextRequest) {
   if (!gate.ok) return gate.response
   const { ctx } = gate
 
+  /*
+   * Not everybody punches a clock (025).
+   *
+   * Checked HERE, not only in the sidebar. Hiding the widget stops the button
+   * being clicked; it does not stop a stale tab, a bookmark or a script, and an
+   * attendance row for somebody on timesheets would quietly corrupt both the
+   * attendance grid and their hours.
+   *
+   * A NULL MODE IS ALLOWED THROUGH. Nobody has said this person does not clock
+   * in, and refusing on that basis is how the feature broke clocking in for
+   * every employee in the product before any org had configured a thing. Only
+   * an explicit, deliberate assignment closes this door.
+   */
+  if (ctx.trackingMode && ctx.trackingMode !== 'clock_in') {
+    return jsonError(
+      ctx.trackingMode === 'timesheet'
+        ? 'You file a weekly timesheet rather than clocking in.'
+        : 'Clocking in is not enabled for your account.',
+      403
+    )
+  }
+
   // Stops a double-tap (or a stuck button) from racing itself.
   const limited = await rateLimit(limitKey('clock', ctx.userId), 20, 60 * 1000)
   if (!limited.ok) return jsonError('That was quick — please wait a moment.', 429)

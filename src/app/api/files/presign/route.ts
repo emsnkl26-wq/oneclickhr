@@ -24,12 +24,28 @@ export const dynamic = 'force-dynamic'
  * what they may READ — `documents_insert` still pins `owner_id` to them and
  * `documents_select` still shows an employee only their own rows.
  */
-const EMPLOYEE_PURPOSES = new Set(['photo', 'general', 'employee_doc', 'work_auth'])
+/*
+ * `payment_proof` is on this list because the EMPLOYEE is the one who uploads
+ * it (026) — payroll runs in ADP and what this product collects is their
+ * confirmation that the money arrived. It is the only purpose here that an org
+ * admin has no reason to use.
+ */
+const EMPLOYEE_PURPOSES = new Set([
+  'photo',
+  'general',
+  'employee_doc',
+  'work_auth',
+  'payment_proof',
+])
 
 const FOLDERS: Record<string, string> = {
   photo: 'photos',
   logo: 'branding',
   payslip: 'payslips',
+  // Kept apart from `payslips`: those were issued BY the org, these are proof
+  // supplied by the employee, and conflating them in one prefix would make the
+  // two indistinguishable in storage.
+  payment_proof: 'payment-proofs',
   employee_doc: 'documents',
   work_auth: 'work-auth',
   general: 'files',

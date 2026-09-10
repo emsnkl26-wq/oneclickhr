@@ -21,7 +21,7 @@ import * as React from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useWheelScroll } from '@/components/ui/use-wheel-scroll'
+import { useWheelScrollRef } from '@/components/ui/use-wheel-scroll'
 
 /** Shaped like a native change event so `(e) => e.target.value` still reads. */
 export type SelectChangeEvent = { target: { value: string; name: string } }
@@ -141,9 +141,23 @@ export const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function 
   const [query, setQuery] = React.useState('')
   const [activeIndex, setActiveIndex] = React.useState(0)
   const listRef = React.useRef<HTMLDivElement>(null)
-  // Inside a dialog the page scroll lock cancels wheel events over this
-  // portalled list, so it scrolls itself.
-  useWheelScroll(listRef, open)
+  /*
+   * Inside a dialog the page scroll lock cancels wheel events over this
+   * portalled list, so it scrolls itself.
+   *
+   * Attached by CALLBACK REF rather than from an effect. The list is portalled
+   * in by Radix's Presence, and an effect keyed on `open` could run before the
+   * node existed — leaving a dropdown that shows a scrollbar and then ignores
+   * the wheel, which is exactly what the country list in the job dialog did.
+   */
+  const attachWheel = useWheelScrollRef<HTMLDivElement>()
+  const setListNode = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      listRef.current = node
+      attachWheel(node)
+    },
+    [attachWheel]
+  )
   const reactId = React.useId()
   const listboxId = `${id ?? reactId}-listbox`
 
@@ -306,7 +320,7 @@ export const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function 
           ) : null}
 
           <div
-            ref={listRef}
+            ref={setListNode}
             id={listboxId}
             role="listbox"
             className="scrollbar-thin max-h-[min(16rem,var(--radix-popover-content-available-height,16rem))] overflow-y-auto overscroll-contain"

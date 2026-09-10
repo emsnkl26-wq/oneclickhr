@@ -31,6 +31,9 @@ export const SIZE_LIMITS: Record<string, number> = {
   photo: 5 * 1024 * 1024,
   logo: 2 * 1024 * 1024,
   payslip: 15 * 1024 * 1024,
+  // A payment confirmation is whatever the bank gave them — a PDF advice note
+  // or, far more often, a screenshot of the app. Same ceiling as a payslip.
+  payment_proof: 15 * 1024 * 1024,
   employee_doc: 25 * 1024 * 1024,
   work_auth: 25 * 1024 * 1024,
   general: 50 * 1024 * 1024,
@@ -102,6 +105,20 @@ export function checkPresignClaims(
   }
   if (purpose === 'payslip' && contentType.toLowerCase() !== 'application/pdf') {
     return { ok: false, error: 'A payslip must be a PDF.' }
+  }
+  /*
+   * A payment confirmation is looser than a payslip on purpose: what an
+   * employee actually has is a screenshot of their banking app far more often
+   * than a PDF advice note, and refusing that would push the whole feature back
+   * onto email. Still narrowed to documents and images — `isDangerousMime`
+   * above has already refused executables, and `validateStoredObject` re-checks
+   * the bytes that land rather than trusting this claim.
+   */
+  if (purpose === 'payment_proof') {
+    const type = contentType.toLowerCase()
+    if (type !== 'application/pdf' && !type.startsWith('image/')) {
+      return { ok: false, error: 'Attach a PDF or an image of the payment confirmation.' }
+    }
   }
   return { ok: true }
 }

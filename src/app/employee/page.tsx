@@ -155,6 +155,16 @@ export default async function EmployeeDashboard() {
         </div>
       ) : null}
 
+      {/*
+        The clock is hidden only from somebody an org has deliberately put on
+        timesheets (025) — for them it is a control that would fail if they used
+        it, since `/api/employee/clock` refuses the wrong mode.
+
+        An UNSET mode still gets the clock. Treating "nobody has decided" as
+        "does not clock in" is what removed it from every employee's dashboard
+        in every workspace on the day this shipped.
+      */}
+      {ctx.trackingMode !== 'timesheet' && ctx.trackingMode !== 'none' ? (
       <ShiftToggle
         initialState={
           current
@@ -170,6 +180,23 @@ export default async function EmployeeDashboard() {
         timezone={tz}
         shiftStart={ctx.tenant.workStartTime}
       />
+      ) : ctx.trackingMode === 'timesheet' ? (
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-card px-5 py-4 shadow-sm">
+          <Timer className="size-5 shrink-0 text-brand-600" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">This week&rsquo;s timesheet</p>
+            <p className="text-[13px] text-ink-muted">
+              You record your hours weekly rather than clocking in and out.
+            </p>
+          </div>
+          <Button asChild>
+            <Link href="/employee/timesheets">
+              Open timesheets
+              <ArrowRight />
+            </Link>
+          </Button>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard

@@ -50,7 +50,7 @@ export default async function OrgTimesheetDetailPage({
   const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, comments, attachment_url, attachment_name, review_note, submitted_at, reviewed_at, employee:profiles!timesheets_employee_id_fkey(id, full_name, email, photo_url, designation)'
+      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, attachment_url, attachment_name, review_note, submitted_at, reviewed_at, employee:profiles!timesheets_employee_id_fkey(id, full_name, email, photo_url, designation)'
     )
     .eq('id', id)
     .maybeSingle()
@@ -170,7 +170,7 @@ export default async function OrgTimesheetDetailPage({
           code: sheet.code,
           weekStart: sheet.week_start,
           status: sheet.status as TimesheetStatus,
-          comments: sheet.comments,
+          weeklyLearnings: sheet.weekly_learnings,
           attachmentKey: sheet.attachment_url,
           attachmentName: sheet.attachment_name,
           reviewNote: sheet.review_note,

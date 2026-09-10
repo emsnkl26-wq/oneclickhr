@@ -50,7 +50,8 @@ export default async function InvoicesPage({
     if (term) query = query.or(`invoice_number.ilike.%${term}%,bill_to->>name.ilike.%${term}%`)
   }
 
-  const [{ data: invoices, count }, { data: recentNumbers }] = await Promise.all([
+  const [{ data: invoices, count }, { data: recentNumbers }, { data: company }] =
+    await Promise.all([
     query,
     // The suggestion needs the highest number in the whole series, not the
     // highest on this page. It stays advisory either way — the real guarantee
@@ -61,6 +62,15 @@ export default async function InvoicesPage({
       .select('invoice_number')
       .order('invoice_number', { ascending: false })
       .limit(20),
+    // The letterhead the preview draws, so what somebody sees while typing is
+    // the document that will actually be sent.
+    supabase
+      .from('tenants')
+      .select(
+        'address_line1, address_line2, city, state_province, postal_code, country, company_email, company_phone'
+      )
+      .eq('id', ctx.tenantId)
+      .maybeSingle(),
   ])
 
   const suggested = suggestInvoiceNumber((recentNumbers ?? []).map((row) => row.invoice_number))
@@ -78,6 +88,16 @@ export default async function InvoicesPage({
         orgName={ctx.tenant.name}
         orgLogoUrl={ctx.tenant.logoUrl}
         orgPrimaryColor={ctx.tenant.primaryColor}
+        orgAddressLines={[
+          company?.address_line1,
+          company?.address_line2,
+          [company?.city, company?.state_province, company?.postal_code]
+            .filter(Boolean)
+            .join(', '),
+          company?.country,
+        ].filter((line): line is string => !!line && line.trim().length > 0)}
+        orgEmail={company?.company_email ?? null}
+        orgPhone={company?.company_phone ?? null}
         timezone={ctx.tenant.timezone}
       />
     </div>

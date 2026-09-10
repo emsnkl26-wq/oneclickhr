@@ -99,16 +99,16 @@ async function employeeMayRead(key: string, userId: string): Promise<boolean> {
   const supabase = await createSupabaseServerClient()
 
   /*
-   * All five questions at once.
+   * All six questions at once.
    *
    * They used to run in series with an early return, so the common case — an
-   * employee loading a colleague's avatar, which is none of these — paid five
-   * sequential round trips before answering "no". They are independent
-   * single-row index lookups (009_performance.sql adds the indexes for the four
-   * key columns), so asking them together costs one round trip instead of five
-   * and the answer is identical: true if ANY row is visible.
+   * employee loading a colleague's avatar, which is none of these — paid a
+   * sequential round trip per question before answering "no". They are
+   * independent single-row index lookups (009_performance.sql adds the indexes
+   * for the key columns), so asking them together costs one round trip instead
+   * of six and the answer is identical: true if ANY row is visible.
    */
-  const [profile, payslip, document, workAuth, tenant] = await Promise.all([
+  const [profile, payslip, document, workAuth, tenant, payment] = await Promise.all([
     supabase.from('profiles').select('photo_url').eq('id', userId).maybeSingle(),
     supabase.from('payslips').select('id').eq('file_url', key).limit(1).maybeSingle(),
     supabase.from('documents').select('id').eq('file_url', key).limit(1).maybeSingle(),
@@ -120,6 +120,21 @@ async function employeeMayRead(key: string, userId: string): Promise<boolean> {
       .maybeSingle(),
     // Branding is visible to everyone inside the workspace.
     supabase.from('tenants').select('id').eq('logo_url', key).limit(1).maybeSingle(),
+    /*
+     * The employee's own payment confirmation (026).
+     *
+     * Needed as its own question because a payment proof deliberately gets NO
+     * `documents` row — it is bank evidence, not a workspace document — so the
+     * `documents` lookup above can never find it. Without this an employee
+     * could upload their confirmation and then be refused when they clicked
+     * View on the file they had just supplied.
+     */
+    supabase
+      .from('payment_confirmations')
+      .select('id')
+      .eq('file_url', key)
+      .limit(1)
+      .maybeSingle(),
   ])
 
   return (
@@ -127,7 +142,8 @@ async function employeeMayRead(key: string, userId: string): Promise<boolean> {
     !!payslip.data ||
     !!document.data ||
     !!workAuth.data ||
-    !!tenant.data
+    !!tenant.data ||
+    !!payment.data
   )
 }
 

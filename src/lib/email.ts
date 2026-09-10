@@ -148,6 +148,18 @@ export interface CredentialEmailArgs {
    * that gets filed and forgotten.
    */
   completeOnboarding?: boolean
+  /**
+   * These credentials are for an ADMINISTRATOR (027), so the link has to point
+   * at the admin door.
+   *
+   * The two portals refuse each other's accounts, and they refuse them with the
+   * same message a wrong password gets — so sending a new admin to the employee
+   * sign-in produces "incorrect password" on a password we just issued. There
+   * is no way for the recipient to diagnose that, which makes picking the right
+   * URL here the whole difference between a working invitation and a support
+   * ticket.
+   */
+  adminPortal?: boolean
 }
 
 /**
@@ -156,10 +168,11 @@ export interface CredentialEmailArgs {
  * first login), and the copy says so plainly.
  */
 export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promise<SendResult> {
-  // The EMPLOYEE door. /login is the admin one and would refuse these
-  // credentials outright — with the same message a wrong password gets, which
-  // for a new starter reads as "they sent me a broken password".
-  const loginUrl = `${appUrl()}${EMPLOYEE_LOGIN_PATH}`
+  // The EMPLOYEE door by default. /login is the admin one and would refuse
+  // these credentials outright — with the same message a wrong password gets,
+  // which for a new starter reads as "they sent me a broken password". An
+  // administrator invite (027) needs the other door, for exactly that reason.
+  const loginUrl = args.adminPortal ? `${appUrl()}/login` : `${appUrl()}${EMPLOYEE_LOGIN_PATH}`
   const brand = args.brandColor || '#C41E33'
 
   const ask = args.completeOnboarding
@@ -178,7 +191,7 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
     )} account is ready</h1>
     <p style="margin:0 0 18px;">Hi ${esc(args.fullName || 'there')}, an account has been created for you on ${esc(
       args.orgName
-    )}'s employee portal. Sign in at <a href="${loginUrl}" style="color:${brand};font-weight:600;">${esc(
+    )}${args.adminPortal ? "'s workspace as an administrator" : "'s employee portal"}. Sign in at <a href="${loginUrl}" style="color:${brand};font-weight:600;">${esc(
       loginUrl
     )}</a> with the details below.</p>
 

@@ -22,7 +22,7 @@ export interface ReviewTimesheet {
   code: string
   weekStart: string
   status: TimesheetStatus
-  comments: string | null
+  weeklyLearnings: string | null
   attachmentKey: string | null
   attachmentName: string | null
   reviewNote: string | null
@@ -87,15 +87,15 @@ export function TimesheetReview({
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Employee comments</CardTitle>
+            <CardTitle>Weekly learnings</CardTitle>
           </CardHeader>
           <CardContent>
-            {timesheet.comments ? (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{timesheet.comments}</p>
+            {timesheet.weeklyLearnings ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed">{timesheet.weeklyLearnings}</p>
             ) : (
               <p className="flex items-center gap-2 text-sm text-ink-muted">
                 <MessageSquare className="size-4" aria-hidden />
-                No comments were added for this week.
+                Nothing was written for this week.
               </p>
             )}
           </CardContent>

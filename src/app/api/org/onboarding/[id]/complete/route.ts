@@ -87,9 +87,20 @@ async function handlePOST(request: NextRequest, { params }: Params) {
 
   if (loadError) return jsonError(friendlyDbError(loadError), 400)
   if (!row) return jsonError('That draft was not found.', 404)
-  if (row.status === 'completed') {
-    return jsonError('This onboarding has already been completed.', 409)
-  }
+  /*
+   * A COMPLETED onboarding may be completed again (M2 #1).
+   *
+   * That reads oddly until you see what this handler does on that path: the
+   * account already exists, so it re-validates every step and re-writes the
+   * profile from the draft. Which is precisely "save the corrections an admin
+   * just made", and precisely "approve the corrections the employee submitted".
+   * Both are the same operation, so both go through the same code rather than a
+   * second, subtly different copy of it.
+   *
+   * Nothing here creates a duplicate: `existingProfileId` is what the create
+   * path is skipped on, and no credentials are issued for an account that
+   * already exists.
+   */
   if (row.status === 'cancelled') {
     return jsonError('This onboarding was cancelled.', 409)
   }

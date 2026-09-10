@@ -31,6 +31,7 @@ const BRANDING_COLUMNS = {
   primaryColor: 'primary_color',
   timezone: 'timezone',
   workStartTime: 'work_start_time',
+  defaultTrackingMode: 'default_tracking_mode',
 } as const
 
 const COMPANY_COLUMNS = {

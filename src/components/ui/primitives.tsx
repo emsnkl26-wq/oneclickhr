@@ -19,7 +19,7 @@ const DialogClose = DialogPrimitive.Close
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { size?: 'sm' | 'md' | 'lg' }
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { size?: 'sm' | 'md' | 'lg' | 'xl' }
 >(({ className, children, size = 'md', ...props }, ref) => (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-[2px] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
@@ -36,6 +36,8 @@ const DialogContent = React.forwardRef<
         size === 'sm' && 'max-w-md',
         size === 'md' && 'max-w-lg',
         size === 'lg' && 'max-w-3xl',
+        // For a form shown beside a live preview of what it produces.
+        size === 'xl' && 'max-w-6xl',
         className
       )}
       {...props}

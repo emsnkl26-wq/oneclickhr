@@ -203,6 +203,11 @@ async function handlePOST(request: NextRequest, { params }: Params) {
         email,
         employeeCode,
         timezone: ctx.tenant.timezone,
+        // (025) New employees inherit the workspace default. Their own column
+        // from here on — changing the workspace default never moves them.
+        // Null when the org has not chosen one — the employee is then
+        // unrestricted, which is the pre-025 behaviour.
+        trackingMode: ctx.tenant.defaultTrackingMode ?? undefined,
       })
     )
     .eq('id', userId)

@@ -8,6 +8,16 @@ import type { TimesheetStatus } from '@/types/db'
 export const metadata: Metadata = { title: 'Timesheet' }
 export const dynamic = 'force-dynamic'
 
+/** A row of `my_assignments` — the employee's own, bill-rate-free, placement. */
+interface PlacementRow {
+  id: string
+  vendor_name: string | null
+  client_name: string | null
+  pay_rate: number | string | null
+  pay_currency: string
+  rate_unit: string
+}
+
 interface EntryRow {
   id: string
   project_id: string | null
@@ -35,7 +45,7 @@ export default async function EmployeeTimesheetPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requireEmployee()
+  const ctx = await requireEmployee()
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
@@ -43,7 +53,7 @@ export default async function EmployeeTimesheetPage({
   const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, comments, attachment_url, attachment_name, review_note, reviewed_at, submitted_at'
+      'id, code, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, vendor_id, client_id, assignment_id, pay_amount, pay_currency, attachment_url, attachment_name, review_note, reviewed_at, submitted_at'
     )
     .eq('id', id)
     .maybeSingle()
@@ -62,7 +72,11 @@ export default async function EmployeeTimesheetPage({
 
   if (!sheet) notFound()
 
-  const [{ data: entries, error: entriesError }, { data: assignments }] = await Promise.all([
+  const [
+    { data: entries, error: entriesError },
+    { data: assignments },
+    { data: placements },
+  ] = await Promise.all([
     supabase
       .from('timesheet_entries')
       .select(
@@ -74,6 +88,19 @@ export default async function EmployeeTimesheetPage({
       .from('project_assignments')
       .select('project:projects(id, code, name, client_name, status)')
       .order('created_at', { ascending: false }),
+    /*
+     * The employee's own placements, for the vendor / end-client selector.
+     *
+     * `my_assignments` rather than `employee_assignments`: the view is scoped to
+     * the caller and carries no `bill_rate` column at all. Reading the base
+     * table here would return nothing anyway (it is org-only), which is the
+     * design working — see the header of 022.
+     */
+    supabase
+      .from('my_assignments')
+      .select('id, vendor_name, client_name, pay_rate, pay_currency, rate_unit, is_primary')
+      .eq('status', 'active')
+      .order('is_primary', { ascending: false }),
   ])
 
   /*
@@ -114,7 +141,10 @@ export default async function EmployeeTimesheetPage({
         weekStart: sheet.week_start,
         weekEnd: sheet.week_end,
         status: sheet.status as TimesheetStatus,
-        comments: sheet.comments ?? '',
+        weeklyLearnings: sheet.weekly_learnings ?? '',
+        assignmentId: sheet.assignment_id ?? '',
+        payAmount: sheet.pay_amount == null ? null : Number(sheet.pay_amount),
+        payCurrency: sheet.pay_currency ?? null,
         attachmentKey: sheet.attachment_url,
         attachmentName: sheet.attachment_name,
         reviewNote: sheet.review_note,
@@ -135,6 +165,19 @@ export default async function EmployeeTimesheetPage({
         code: project.code,
         name: project.name,
         clientName: project.client_name,
+      }))}
+      org={{
+        name: ctx.tenant?.name ?? 'Workspace',
+        logoKey: ctx.tenant?.logoUrl ?? null,
+        primaryColor: ctx.tenant?.primaryColor ?? '#C41E33',
+      }}
+      placements={((placements ?? []) as unknown as PlacementRow[]).map((row) => ({
+        id: row.id,
+        vendorName: row.vendor_name,
+        clientName: row.client_name,
+        payRate: row.pay_rate == null ? null : Number(row.pay_rate),
+        payCurrency: row.pay_currency,
+        rateUnit: row.rate_unit,
       }))}
     />
   )

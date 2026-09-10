@@ -15,13 +15,16 @@ import {
 } from '@/components/ui/primitives'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { cn, initials } from '@/lib/utils'
-import type { UserRole } from '@/types/db'
+import type { UserRole, TrackingMode } from '@/types/db'
 
 export interface ShellUser {
   name: string
   email: string
   role: UserRole
   photoUrl: string | null
+  /** Decides which time-tracking entries the sidebar offers (025). */
+  /** Null when nobody has chosen — the full sidebar, unchanged. See navFor. */
+  trackingMode: TrackingMode | null
 }
 
 export interface ShellBrand {

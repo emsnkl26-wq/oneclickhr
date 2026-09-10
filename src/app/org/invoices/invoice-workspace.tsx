@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/primitives'
 import { apiPost, apiPatch, apiDelete, ApiClientError } from '@/lib/fetcher'
 import { computeTotals, lineAmount } from '@/lib/invoice'
+import { InvoicePreview, type PreviewOrg } from '@/components/invoice/invoice-preview'
 import { formatMoney } from '@/lib/utils'
 import { downloadInvoicePdf } from '@/lib/invoice-pdf'
 import type { Invoice, InvoiceStatus } from '@/types/db'
@@ -31,6 +32,7 @@ const EMPTY_ITEM: DraftItem = { description: '', quantity: '1', rate: '0' }
 /** `invoices` is one page; the search and status filter live in the URL. */
 export function InvoiceWorkspace({
   invoices, total, page, perPage, filtered, suggestedNumber, orgName, orgLogoUrl, orgPrimaryColor,
+  orgAddressLines, orgEmail, orgPhone,
   timezone,
 }: {
   invoices: Invoice[]
@@ -42,6 +44,9 @@ export function InvoiceWorkspace({
   orgName: string
   orgLogoUrl: string | null
   orgPrimaryColor: string | null
+  orgAddressLines: string[]
+  orgEmail: string | null
+  orgPhone: string | null
   timezone: string
 }) {
   const router = useRouter()
@@ -211,6 +216,14 @@ export function InvoiceWorkspace({
         open={creating || !!editing}
         invoice={editing}
         suggestedNumber={suggestedNumber}
+        org={{
+          name: orgName,
+          logoKey: orgLogoUrl,
+          primaryColor: orgPrimaryColor ?? '#C41E33',
+          addressLines: orgAddressLines,
+          email: orgEmail,
+          phone: orgPhone,
+        }}
         onClose={() => {
           setCreating(false)
           setEditing(null)
@@ -247,10 +260,11 @@ export function InvoiceWorkspace({
 }
 
 function InvoiceDialog({
-  open, invoice, suggestedNumber, onClose, onSaved,
+  open, invoice, suggestedNumber, org, onClose, onSaved,
 }: {
   open: boolean
   invoice: Invoice | null
+  org: PreviewOrg
   suggestedNumber: string
   onClose: () => void
   onSaved: () => void
@@ -372,13 +386,23 @@ function InvoiceDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent size="lg">
+      <DialogContent size="xl">
         <form onSubmit={onSubmit}>
           <DialogHeader>
             <DialogTitle>{invoice ? `Edit ${invoice.invoice_number}` : 'New invoice'}</DialogTitle>
           </DialogHeader>
 
-          <DialogBody className="space-y-5">
+          {/*
+            Form on the left, the actual invoice on the right.
+
+            The preview is not decoration: an invoice is a document somebody
+            sends to another company, and the question people ask while filling
+            this in is "what will they see?" — which a stack of form fields
+            cannot answer. It stacks underneath on narrow screens rather than
+            being hidden, because that question does not go away on a laptop.
+          */}
+          <DialogBody className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+          <div className="space-y-5">
             <FormError message={error} />
 
             <div className="grid gap-4 sm:grid-cols-3">
@@ -538,29 +562,39 @@ function InvoiceDialog({
               </FormField>
             </div>
 
-            <div className="space-y-1.5 rounded-xl bg-page p-4 text-sm">
-              {[
-                ['Subtotal', totals.subtotal],
-                ['Tax', totals.tax],
-              ].map(([label, value]) => (
-                <div key={label as string} className="flex justify-between text-ink-muted">
-                  <span>{label}</span>
-                  <span className="tabular">{formatMoney(value as number, currency)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between border-t border-line pt-1.5 font-semibold">
-                <span>Total</span>
-                <span className="tabular">{formatMoney(totals.total, currency)}</span>
-              </div>
-              <div className="flex justify-between font-medium text-brand-600">
-                <span>Balance due</span>
-                <span className="tabular">{formatMoney(totals.balanceDue, currency)}</span>
-              </div>
-            </div>
-
             <FormField label="Notes">
               <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </FormField>
+          </div>
+
+          {/*
+            Sticky so the document stays in view while the line items grow past
+            a screenful — the moment the preview is most useful is exactly when
+            the form is longest.
+          */}
+          <div className="lg:sticky lg:top-0 lg:self-start">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-ink-muted">
+              Preview
+            </p>
+            <InvoicePreview
+              org={org}
+              invoice={{
+                invoiceNumber,
+                issueDate,
+                dueDate,
+                currency,
+                taxPercent: Number(taxPercent) || 0,
+                amountPaid: Number(amountPaid) || 0,
+                notes,
+                billTo: { name: billToName, email: billToEmail, address: billToAddress },
+                items: items.map((item) => ({
+                  description: item.description,
+                  quantity: Number(item.quantity) || 0,
+                  rate: Number(item.rate) || 0,
+                })),
+              }}
+            />
+          </div>
           </DialogBody>
 
           <DialogFooter>

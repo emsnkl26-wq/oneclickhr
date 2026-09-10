@@ -20,7 +20,7 @@ import 'server-only'
  */
 import { cache } from 'react'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import type { UserRole, TenantStatus } from '@/types/db'
+import type { UserRole, TenantStatus, TrackingMode } from '@/types/db'
 
 export interface AppContext {
   userId: string
@@ -30,6 +30,23 @@ export interface AppContext {
   fullName: string | null
   photoUrl: string | null
   departmentId: string | null
+  /**
+   * Clock, timesheet, or neither (025) — or NULL, meaning nobody has decided.
+   *
+   * NULL IS NOT A SYNONYM FOR 'clock_in', and conflating the two is a mistake
+   * worth calling out because it was made once already. Defaulting an unset
+   * mode to `clock_in` silently applied the restriction to every employee in
+   * every workspace the moment the code shipped: Timesheets vanished from their
+   * sidebar and `POST /api/timesheets` started refusing them, without a single
+   * organization having chosen anything.
+   *
+   * So null means UNRESTRICTED — the behaviour everyone had before this feature
+   * existed. The narrowing only applies to an employee an org has deliberately
+   * put into one mode or the other.
+   */
+  trackingMode: TrackingMode | null
+  /** True for the person who created the workspace (027). */
+  isOwner: boolean
   isActive: boolean
   mustChangePassword: boolean
   tenant: {
@@ -51,6 +68,8 @@ export interface AppContext {
      * BANNER'S TONE — nothing is cut off when it passes.
      */
     domainVerifyDueAt: string | null
+    /** What a NEW employee inherits. Never a runtime fallback (025). */
+    defaultTrackingMode: TrackingMode | null
   } | null
 }
 
@@ -128,6 +147,12 @@ async function loadContextUncached(): Promise<ContextResult> {
     fullName: row.full_name,
     photoUrl: row.photo_url,
     departmentId: row.department_id,
+    // Defaults are what a database without 025/027 applied yet reports: the
+    // behaviour everyone had before those migrations, rather than a crash.
+    // No fallback, deliberately. An absent column (025 not applied yet) and an
+    // employee nobody has assigned a mode to are the same thing: unrestricted.
+    trackingMode: (row.tracking_mode ?? null) as TrackingMode | null,
+    isOwner: !!row.is_owner,
     isActive: !!row.is_active,
     mustChangePassword: !!row.must_change_password,
     tenant: row.tenant_id
@@ -147,6 +172,9 @@ async function loadContextUncached(): Promise<ContextResult> {
           // every workspace as verified.
           domainVerified: !!row.tenant_domain_verified,
           domainVerifyDueAt: row.tenant_domain_due_at ?? null,
+          // Null when the org has not chosen. New employees then inherit nothing,
+          // which means no restriction — see the header of 025.
+          defaultTrackingMode: (row.tenant_default_tracking_mode ?? null) as TrackingMode | null,
         }
       : null,
   }

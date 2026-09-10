@@ -51,6 +51,9 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   }
   if (input.photoKey !== undefined) patch.photo_url = input.photoKey
   if (typeof input.isActive === 'boolean') patch.is_active = input.isActive
+  // (025) Set by the org, never by the employee — `tg_profiles_guard` refuses
+  // a self-service change to this column.
+  if (input.trackingMode !== undefined) patch.tracking_mode = input.trackingMode
 
   const { error } = await supabase.from('profiles').update(patch).eq('id', employeeId)
   if (error) return jsonError(friendlyDbError(error), 400)

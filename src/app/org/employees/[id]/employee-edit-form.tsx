@@ -20,6 +20,7 @@ interface EmployeeFormState {
   dateOfJoining: string
   timezone: string
   isActive: boolean
+  trackingMode: string
 }
 
 export function EmployeeEditForm({
@@ -53,6 +54,7 @@ export function EmployeeEditForm({
         dateOfJoining: form.dateOfJoining || null,
         timezone: form.timezone,
         isActive: form.isActive,
+        trackingMode: form.trackingMode,
       })
       toast.success('Employee updated')
       router.refresh()
@@ -130,6 +132,22 @@ export function EmployeeEditForm({
               <Input value={form.timezone} onChange={(e) => set('timezone', e.target.value)} />
             </FormField>
           </div>
+
+          <FormField
+            label="How they track time"
+            error={fields.trackingMode}
+            hint="Leave this unset and they see everything, as before. Choosing one hides the other from their sidebar and blocks it on the server — clock-in and timesheets are alternatives, never both."
+          >
+            <Select
+              value={form.trackingMode}
+              onChange={(e) => set('trackingMode', e.target.value)}
+            >
+              <option value="">Not set — show everything</option>
+              <option value="clock_in">Clock in and out</option>
+              <option value="timesheet">Weekly timesheet</option>
+              <option value="none">Neither</option>
+            </Select>
+          </FormField>
 
           <div className="flex items-start gap-3 rounded-lg bg-page p-3.5">
             <Switch

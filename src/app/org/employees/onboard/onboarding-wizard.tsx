@@ -370,8 +370,17 @@ export function OnboardingWizard({
        * flashing it here: this route redirects once the draft is completed, so
        * anything rendered in the wizard is gone within a tick. sessionStorage
        * keeps it out of the URL and out of history.
+       *
+       * ONLY when there IS one. Re-saving an already-completed record (M2 #1)
+       * issues no credentials — the account has existed for months — and
+       * stashing an empty result would greet the admin with a blank password
+       * panel on somebody's profile.
        */
-      stashCredentials(completion.id, completion)
+      if (completion.tempPassword) {
+        stashCredentials(completion.id, completion)
+      } else {
+        toast.success('Details saved')
+      }
       router.push(`/org/employees/${completion.id}`)
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -587,7 +596,11 @@ export function OnboardingWizard({
               disabled={uploads.length > 0 || inviting}
             >
               <Check />
-              {status === 'submitted' ? 'Approve & finish' : 'Complete onboarding'}
+              {status === 'submitted'
+                ? 'Approve & finish'
+                : status === 'completed'
+                  ? 'Save changes'
+                  : 'Complete onboarding'}
             </Button>
           ) : (
             <Button onClick={onNext} disabled={submitting || inviting}>

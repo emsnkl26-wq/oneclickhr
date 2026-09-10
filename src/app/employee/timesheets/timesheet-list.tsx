@@ -27,7 +27,7 @@ export interface TimesheetRow {
   status: TimesheetStatus
   total_hours: number
   billable_hours: number
-  comments: string | null
+  weeklyLearnings: string | null
   attachment_name: string | null
   review_note: string | null
   submitted_at: string | null
@@ -82,12 +82,12 @@ export function TimesheetList({
       cell: (row) => <StatusChip status={row.status} />,
     },
     {
-      key: 'comments',
-      header: 'Comments',
+      key: 'weeklyLearnings',
+      header: 'Weekly learnings',
       cell: (row) => {
         // A rejection note is the thing the person came here to read, so it wins
         // over their own comment when both exist.
-        const text = row.status === 'rejected' && row.review_note ? row.review_note : row.comments
+        const text = row.status === 'rejected' && row.review_note ? row.review_note : row.weeklyLearnings
         if (!text) return <span className="text-ink-muted">—</span>
         return (
           <span

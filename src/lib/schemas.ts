@@ -133,6 +133,18 @@ export const tenantSettingsSchema = z.object({
   primaryColor: hexColor,
   timezone: z.string().trim().min(3).max(64),
   workStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM, e.g. 09:30'),
+  /**
+   * What a NEW employee inherits (025). Changing it never moves anybody who
+   * already exists — their mode is their own column, set when they were added.
+   *
+   * `''` is "not set", and it is the DEFAULT. An org that has never opened this
+   * screen has expressed no preference, and inventing one for them would hand
+   * every new employee a restriction nobody asked for — see the header of 025.
+   */
+  defaultTrackingMode: z
+    .enum(['clock_in', 'timesheet', 'none', ''])
+    .optional()
+    .transform((v) => (v ? v : null)),
 })
 
 export const onboardingSchema = z.object({
@@ -171,7 +183,20 @@ export const employeeStep2Schema = z.object({
 export const updateEmployeeSchema = employeeStep1Schema
   .omit({ email: true })
   .merge(employeeStep2Schema)
-  .extend({ isActive: z.boolean().optional() })
+  .extend({
+    isActive: z.boolean().optional(),
+    /**
+     * How this person tracks time (025). Org-set; see `tg_profiles_guard`.
+     *
+     * `''` clears it back to "not set", which is what restores their full
+     * sidebar. Without a way back, assigning a mode by accident would be a
+     * one-way door.
+     */
+    trackingMode: z
+      .enum(['clock_in', 'timesheet', 'none', ''])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v || null)),
+  })
 
 // ---------------------------------------------------------------------------
 // Employee onboarding — the six-step wizard
@@ -613,14 +638,14 @@ export const presignSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   contentType: z.string().trim().min(1).max(160),
   sizeBytes: z.number().int().positive().max(50 * 1024 * 1024),
-  purpose: z.enum(['photo', 'payslip', 'employee_doc', 'work_auth', 'logo', 'general']),
+  purpose: z.enum(['photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo', 'general']),
 })
 
 export const finalizeUploadSchema = z.object({
   key: z.string().trim().min(1).max(300),
   fileName: z.string().trim().min(1).max(255),
   contentType: z.string().trim().min(1).max(160),
-  purpose: z.enum(['photo', 'payslip', 'employee_doc', 'work_auth', 'logo', 'general']),
+  purpose: z.enum(['photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo', 'general']),
   employeeId: uuid.nullable().optional(),
 })
 
@@ -746,16 +771,45 @@ export function isBlankEntry(entry: {
 export const createTimesheetSchema = z.object({
   /** Any date inside the week; the server normalises it to that week's Sunday. */
   weekStart: isoDate,
+  /**
+   * Who the week was worked for. Omitted means "use my primary assignment",
+   * which is what someone on a single placement always wants.
+   */
+  assignmentId: uuid.nullable().optional(),
 })
 
 export const saveTimesheetSchema = z
   .object({
     entries: z.array(timesheetEntrySchema).max(60, 'That is too many lines for one week'),
-    comments: optionalText(4000),
+    /**
+     * Renamed from `comments` in 023, and required at submit — see the refine
+     * below. The column, the API and the label all had to move together, so
+     * this is a rename rather than a second field.
+     */
+    weeklyLearnings: optionalText(4000),
+    /** Who the week was worked for. Changeable while the sheet is still open. */
+    vendorId: uuid.nullable().optional(),
+    clientId: uuid.nullable().optional(),
+    assignmentId: uuid.nullable().optional(),
     attachmentKey: optionalText(300),
     attachmentName: optionalText(255),
     /** True turns the draft in. The status change is re-checked server-side. */
     submit: z.boolean().default(false),
+  })
+  /*
+   * Weekly learnings are mandatory to SUBMIT, and irrelevant until then.
+   *
+   * Tying it to `submit` rather than making the field required outright is what
+   * keeps an ordinary mid-week save working: nobody has anything to write on
+   * Monday morning, and a form that refuses to save until they invent something
+   * teaches people to type "n/a".
+   *
+   * The database says the same thing in the 023 guard trigger. This copy exists
+   * to put the message under the box instead of returning a constraint error.
+   */
+  .refine((v) => !v.submit || !!v.weeklyLearnings?.trim(), {
+    message: 'Add your learnings for the week before submitting',
+    path: ['weeklyLearnings'],
   })
   /*
    * A DAY cannot exceed 24 hours across the whole grid.
@@ -943,10 +997,18 @@ export const APPLICATION_STATUSES = [
   'new', 'reviewing', 'shortlisted', 'interviewing', 'offered', 'hired', 'rejected',
 ] as const
 
-/** A number field that arrives from a form as '' when the user left it blank. */
+/**
+ * A number field that arrives from a form as '' when the user left it blank.
+ *
+ * `z.literal('')` comes FIRST for the reason spelled out on `optionalMoney`
+ * below: `z.coerce.number()` turns `''` into `0`, so with the branches the
+ * other way round a blank salary box was stored as a salary of zero — and
+ * `salaryDisclosed`'s "you may not advertise a band you have not entered" check
+ * then passed on a posting with no band in it.
+ */
 const optionalNumber = (max: number, message: string) =>
   z
-    .union([z.coerce.number(), z.literal('')])
+    .union([z.literal(''), z.coerce.number()])
     .optional()
     .transform((v) => (v === '' || v === undefined || Number.isNaN(v) ? null : Number(v)))
     .refine((v) => v === null || (v >= 0 && v <= max), message)
@@ -1080,4 +1142,212 @@ export const resumePresignSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   contentType: z.string().trim().min(1).max(160),
   sizeBytes: z.number().int().positive().max(10 * 1024 * 1024, 'Keep your CV under 10MB'),
+})
+
+// ---------------------------------------------------------------------------
+// Vendors, clients and placements (022)
+//
+// `billRate` appears in the ASSIGNMENT schema and nowhere else an employee can
+// reach. Every endpoint accepting this shape is org-guarded; see the header of
+// 022 for why that matters more here than elsewhere.
+// ---------------------------------------------------------------------------
+
+export const PARTY_STATUSES = ['active', 'inactive'] as const
+export const RATE_UNITS = ['hour', 'day', 'month', 'year'] as const
+export const ASSIGNMENT_STATUSES = ['active', 'ended'] as const
+
+const currencyCode = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}$/, 'Use a 3-letter currency code, e.g. USD')
+
+/**
+ * A money figure typed into a form, where an empty box means "not set".
+ *
+ * `z.literal('')` COMES FIRST, and the order is the whole correctness of this.
+ * A union returns its first successful branch, and `z.coerce.number()` happily
+ * coerces `''` to `0` — so with the branches the other way round an empty bill
+ * rate becomes a rate of zero, and the next invoice is raised for nothing at
+ * all. Putting the literal first means "" stays "" and reaches the transform,
+ * which is the only place that decides what empty means.
+ */
+const optionalMoney = (message: string) =>
+  z
+    .union([z.literal(''), z.coerce.number()])
+    .optional()
+    .transform((v) => (v === '' || v === undefined || Number.isNaN(v) ? null : Number(v)))
+    .refine((v) => v === null || (v >= 0 && v <= 100_000_000), message)
+
+const partyAddressSchema = z
+  .object({
+    line1: optionalText(160),
+    line2: optionalText(160),
+    city: optionalText(80),
+    state: optionalText(80),
+    postalCode: optionalText(20),
+    country: optionalText(80),
+  })
+  .partial()
+  .default({})
+
+const optionalEmail = z
+  .union([emailSchema, z.literal('')])
+  .optional()
+  .transform((v) => v || null)
+
+export const vendorSchema = z.object({
+  name: z.string().trim().min(1, 'Enter the vendor name').max(160),
+  contactName: optionalText(120),
+  email: optionalEmail,
+  phone: optionalText(40),
+  address: partyAddressSchema,
+  paymentTermsDays: z.coerce
+    .number()
+    .int()
+    .min(0, 'Payment terms cannot be negative')
+    .max(365, 'That is more than a year')
+    .default(30),
+  notes: optionalText(4000),
+  status: z.enum(PARTY_STATUSES).default('active'),
+})
+export type VendorInput = z.infer<typeof vendorSchema>
+
+export const clientSchema = z.object({
+  name: z.string().trim().min(1, 'Enter the client name').max(160),
+  contactName: optionalText(120),
+  email: optionalEmail,
+  address: partyAddressSchema,
+  notes: optionalText(4000),
+  status: z.enum(PARTY_STATUSES).default('active'),
+})
+export type ClientInput = z.infer<typeof clientSchema>
+
+export const assignmentSchema = z
+  .object({
+    employeeId: uuid,
+    vendorId: uuid,
+    clientId: uuid.nullable().optional(),
+    projectId: uuid.nullable().optional(),
+    /** What the VENDOR is invoiced. Never leaves an org-guarded route. */
+    billRate: optionalMoney('Enter a bill rate of 0 or more'),
+    billCurrency: currencyCode.default('USD'),
+    /** What the EMPLOYEE is paid. */
+    payRate: optionalMoney('Enter a pay rate of 0 or more'),
+    payCurrency: currencyCode.default('USD'),
+    rateUnit: z.enum(RATE_UNITS).default('hour'),
+    startDate: isoDate.nullable().optional(),
+    endDate: isoDate.nullable().optional(),
+    isPrimary: z.boolean().default(false),
+    status: z.enum(ASSIGNMENT_STATUSES).default('active'),
+    notes: optionalText(4000),
+  })
+  .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
+    message: 'The end date cannot be before the start date',
+    path: ['endDate'],
+  })
+  /*
+   * Paying someone more than we bill for them is not forbidden — a trainee
+   * placement can genuinely run at a loss — but it is almost always a typo, and
+   * finding out at invoice time is expensive. Only checked when the two rates
+   * share a currency, because comparing 40 USD to 3000 INR means nothing.
+   */
+  .refine(
+    (v) =>
+      v.billRate === null ||
+      v.payRate === null ||
+      v.billCurrency !== v.payCurrency ||
+      v.payRate <= v.billRate,
+    {
+      message: 'The pay rate is above the bill rate. Check both figures.',
+      path: ['payRate'],
+    }
+  )
+export type AssignmentInput = z.infer<typeof assignmentSchema>
+
+// ---------------------------------------------------------------------------
+// Invoicing from approved timesheets (024)
+// ---------------------------------------------------------------------------
+
+export const invoiceFromTimesheetsSchema = z.object({
+  timesheetIds: z
+    .array(uuid)
+    .min(1, 'Choose at least one timesheet')
+    .max(100, 'That is too many weeks for one invoice'),
+  invoiceNumber: optionalText(40),
+  issueDate: isoDate.optional(),
+  dueDate: isoDate.nullable().optional(),
+  taxPercent: z.coerce.number().min(0).max(100).default(0),
+  notes: optionalText(4000),
+})
+export type InvoiceFromTimesheetsInput = z.infer<typeof invoiceFromTimesheetsSchema>
+
+// ---------------------------------------------------------------------------
+// Payroll — the employee confirms they were paid (026)
+// ---------------------------------------------------------------------------
+
+export const paymentConfirmationSchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+  amount: optionalMoney('Enter an amount of 0 or more'),
+  currency: z.union([currencyCode, z.literal('')]).optional().transform((v) => v || null),
+  paidOn: isoDate.nullable().optional(),
+  fileKey: z.string().trim().min(1, 'Attach the payment confirmation').max(300),
+  fileName: optionalText(255),
+  note: optionalText(2000),
+})
+export type PaymentConfirmationInput = z.infer<typeof paymentConfirmationSchema>
+
+export const reviewPaymentSchema = z
+  .object({
+    status: z.enum(['verified', 'rejected']),
+    note: optionalText(2000),
+  })
+  .refine((v) => v.status !== 'rejected' || !!v.note, {
+    message: 'Tell them what is wrong with it',
+    path: ['note'],
+  })
+
+// ---------------------------------------------------------------------------
+// How an employee's time is tracked (025)
+// ---------------------------------------------------------------------------
+
+export const TRACKING_MODES = ['clock_in', 'timesheet', 'none'] as const
+export const trackingModeSchema = z.enum(TRACKING_MODES)
+
+// ---------------------------------------------------------------------------
+// Organization admins (027)
+// ---------------------------------------------------------------------------
+
+export const inviteAdminSchema = z.object({
+  fullName: z.string().trim().min(2, 'Enter their name').max(120),
+  email: emailSchema,
+  sendCredentialsEmail: z.boolean().default(true),
+})
+export type InviteAdminInput = z.infer<typeof inviteAdminSchema>
+
+// ---------------------------------------------------------------------------
+// Platform support (028)
+// ---------------------------------------------------------------------------
+
+export const SUPPORT_CATEGORIES = ['bug', 'feature', 'billing', 'account', 'other'] as const
+export const SUPPORT_STATUSES = ['new', 'in_progress', 'resolved'] as const
+
+export const supportRequestSchema = z.object({
+  category: z.enum(SUPPORT_CATEGORIES).default('other'),
+  subject: z.string().trim().min(1, 'Give it a subject').max(200),
+  message: z.string().trim().min(5, 'Tell us a little more').max(5000),
+  /**
+   * Where they were when they hit it. Client-supplied and therefore untrusted:
+   * bounded here, and only ever RENDERED AS TEXT in the super-admin console —
+   * never turned into a link, because a support form that can plant a clickable
+   * URL in an admin's browser is a phishing vector aimed at us.
+   */
+  pageUrl: optionalText(500),
+})
+export type SupportRequestInput = z.infer<typeof supportRequestSchema>
+
+export const supportStatusSchema = z.object({
+  status: z.enum(SUPPORT_STATUSES),
+  resolutionNote: optionalText(5000),
 })

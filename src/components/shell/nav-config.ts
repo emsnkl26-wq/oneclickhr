@@ -2,10 +2,11 @@ import {
   LayoutDashboard, Users, CalendarCheck, CalendarOff, Wallet, FileText, Bell,
   Building2, ShieldCheck, Activity, Settings, KanbanSquare, CalendarDays,
   BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
-  LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send,
+  LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send, Network,
+  CalendarRange, MessageSquare,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { UserRole } from '@/types/db'
+import type { UserRole, TrackingMode } from '@/types/db'
 
 export interface NavItem {
   href: string
@@ -39,6 +40,7 @@ const SUPER_NAV: NavSection[] = [
   {
     label: 'Operations',
     items: [
+      { href: '/super/support', label: 'Support requests', icon: MessageSquare, prefix: true },
       { href: '/super/audit', label: 'Audit log', icon: ShieldCheck },
       { href: '/super/system', label: 'System health', icon: Server },
     ],
@@ -68,6 +70,7 @@ const ORG_NAV: NavSection[] = [
     items: [
       { href: '/org/projects', label: 'Projects', icon: Briefcase, prefix: true },
       { href: '/org/timesheets', label: 'Timesheets', icon: Timer, prefix: true },
+      { href: '/org/placements', label: 'Placements', icon: Network, prefix: true },
     ],
   },
   {
@@ -81,6 +84,7 @@ const ORG_NAV: NavSection[] = [
     label: 'Workspace',
     items: [
       { href: '/org/board', label: 'Task board', icon: KanbanSquare },
+      { href: '/org/calendar', label: 'Calendar', icon: CalendarRange },
       { href: '/org/meetings', label: 'Meetings', icon: CalendarDays },
       { href: '/org/helpdesk', label: 'Help desk', icon: LifeBuoy, prefix: true },
       { href: '/org/notifications', label: 'Notifications', icon: Bell },
@@ -117,13 +121,14 @@ const EMPLOYEE_NAV: NavSection[] = [
       { href: '/employee/attendance', label: 'My attendance', icon: CalendarCheck },
       { href: '/employee/leaves', label: 'Leaves', icon: CalendarOff },
       { href: '/employee/tasks', label: 'My tasks', icon: ClipboardList },
+      { href: '/employee/calendar', label: 'Calendar', icon: CalendarRange },
       { href: '/employee/meetings', label: 'Meetings', icon: CalendarDays },
     ],
   },
   {
     label: 'Personal',
     items: [
-      { href: '/employee/payslips', label: 'My payslips', icon: Wallet },
+      { href: '/employee/payroll', label: 'My pay', icon: Wallet, prefix: true },
       { href: '/employee/notifications', label: 'Notifications', icon: Bell },
     ],
   },
@@ -145,15 +150,61 @@ const EMPLOYEE_NAV: NavSection[] = [
   },
 ]
 
-export function navFor(role: UserRole): NavSection[] {
+export interface NavOptions {
+  /**
+   * How this employee's time is tracked (025), or null when nobody has chosen.
+   *
+   * NULL MEANS SHOW EVERYTHING. Not "clock in" — everything. Treating unset as
+   * a mode is how this feature, on the day it shipped, removed Timesheets from
+   * the sidebar of every employee in every workspace before a single
+   * organization had configured anything.
+   */
+  trackingMode?: TrackingMode | null
+}
+
+/**
+ * The sidebar for a role.
+ *
+ * The employee nav is narrowed ONLY for somebody an org has deliberately put
+ * into one mode: an employee on timesheets is not shown Attendance, and one who
+ * clocks in is not shown Timesheets, because they only ever do one. Everyone
+ * else — which is everyone, until an org starts assigning modes — gets the full
+ * sidebar exactly as it has always been.
+ *
+ * FILTERING HERE IS PRESENTATION ONLY. `/api/employee/clock` and
+ * `POST /api/timesheets` each refuse the wrong mode themselves — hiding a link
+ * is a courtesy to the person, not a control, and a nav that pretended
+ * otherwise would be one stale bookmark away from being wrong.
+ */
+export function navFor(role: UserRole, options: NavOptions = {}): NavSection[] {
   switch (role) {
     case 'super_admin':
       return SUPER_NAV
     case 'org':
       return ORG_NAV
     default:
-      return EMPLOYEE_NAV
+      return employeeNav(options.trackingMode ?? null)
   }
+}
+
+/** Drop the entries for whichever way of tracking time this person does NOT use. */
+function employeeNav(mode: TrackingMode | null): NavSection[] {
+  // Nobody has decided how this person tracks time, so nothing is taken away.
+  if (!mode) return EMPLOYEE_NAV
+
+  const hidden = new Set<string>()
+  if (mode !== 'clock_in') hidden.add('/employee/attendance')
+  if (mode !== 'timesheet') {
+    hidden.add('/employee/timesheets')
+    // The freeform sheet is the timesheet's companion; on a clock-in account it
+    // is a page with nothing to fill in.
+    hidden.add('/employee/sheet')
+  }
+
+  return EMPLOYEE_NAV.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !hidden.has(item.href)),
+  })).filter((section) => section.items.length > 0)
 }
 
 /** Is `href` the active route for `pathname`? */

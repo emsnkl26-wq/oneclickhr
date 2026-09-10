@@ -51,13 +51,20 @@ export default async function ResumeOnboardingPage({
 
   if (!row) notFound()
   /*
-   * A finished onboarding is an employee now — send the org to the person, not
-   * to a form that can no longer be saved. `invited` and `submitted` also have
-   * an account by then and deliberately do NOT redirect: the paperwork is still
-   * open, and this page is where it gets finished and reviewed.
+   * A COMPLETED onboarding is no longer a dead end (M2 #1).
+   *
+   * It used to redirect to the employee's page, on the reasoning that a
+   * finished form can no longer be saved. That is no longer true: this form is
+   * the ONLY place most of an employee's record exists — address, work
+   * authorization, compensation, bank details — and closing it after approval
+   * meant the record was correct exactly once. Saving now re-runs `/complete`,
+   * which re-writes the profile from the draft.
+   *
+   * A CANCELLED one still has nowhere useful to go: it describes somebody who
+   * never joined.
    */
-  if (row.status === 'completed' && row.employee_profile_id) {
-    redirect(`/org/employees/${row.employee_profile_id}`)
+  if (row.status === 'cancelled') {
+    redirect('/org/employees?tab=drafts')
   }
 
   const { departments, managers, currencySymbol } = await loadWizardData(ctx)
@@ -78,7 +85,9 @@ export default async function ResumeOnboardingPage({
             ? 'They have completed their details. Review everything, then approve it onto their profile.'
             : status === 'invited'
               ? 'Their account is live. Fill the rest in here, or leave it to them — either way you approve it at the end.'
-              : 'Picking up where you left off. Nothing is created until you complete the last step.'
+              : status === 'completed'
+                ? 'Their full record. Saving at the last step writes any changes onto their profile.'
+                : 'Picking up where you left off. Nothing is created until you complete the last step.'
         }
       />
       <OnboardingWizard

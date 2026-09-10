@@ -216,6 +216,28 @@ export async function validateStoredObject(opts: FinalizeOptions): Promise<Valid
     return { ok: false, error: 'A payslip must be a PDF.', status: 400 }
   }
 
+  /*
+   * A payment confirmation (026) is a PDF or an image — looser than a payslip
+   * because what an employee actually has is far more often a screenshot of
+   * their banking app than an advice note, and refusing that would push the
+   * whole feature back onto email.
+   *
+   * This mirrors `checkPresignClaims`, and has to: that one reads the CLAIMED
+   * content type and this one reads the BYTES. A rule enforced in only one of
+   * them is a rule anybody can defeat by mislabelling the upload.
+   */
+  if (purpose === 'payment_proof') {
+    const ok = sniffed === 'application/pdf' || (sniffed ?? '').startsWith('image/')
+    if (!ok) {
+      await deleteObject(key)
+      return {
+        ok: false,
+        error: 'Attach a PDF or an image of the payment confirmation.',
+        status: 400,
+      }
+    }
+  }
+
   // The SNIFFED type wins over the claimed one. Browsers report Content-Type
   // from the OS registry and it is routinely non-canonical (Windows sends PNG as
   // `image/x-png`). Magic bytes are the truth.

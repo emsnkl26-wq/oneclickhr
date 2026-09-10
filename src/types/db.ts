@@ -26,6 +26,9 @@ export interface Tenant {
   status: TenantStatus
   timezone: string
   work_start_time: string
+
+  /** Null until an org chooses. Null means no restriction — see 025. */
+  default_tracking_mode: TrackingMode | null
   onboarded_at: string | null
   /**
    * The company website this workspace claims — bare host, already normalized
@@ -58,6 +61,11 @@ export interface Profile extends Partial<ProfileOnboardingFields> {
   must_change_password: boolean
   timezone: string
   date_of_joining: string | null
+
+  /** Null until an org assigns one. Null means no restriction — see 025. */
+  tracking_mode: TrackingMode | null
+  /** True for the one profile per tenant that created the workspace (027). */
+  is_owner: boolean
   /** Free-text skill tags, editable by the employee (012_profiles_and_letters). */
   skills: string[]
   created_at: string
@@ -227,6 +235,11 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string
   tenant_id: string
+  /** The vendor being billed, once an invoice comes from timesheets (024). */
+  vendor_id: string | null
+  client_id: string | null
+  period_start: string | null
+  period_end: string | null
   invoice_number: string
   bill_to: { name?: string; email?: string; address?: string }
   items: InvoiceItem[]
@@ -468,7 +481,24 @@ export interface Timesheet {
   total_hours: number
   billable_hours: number
   non_billable_hours: number
-  comments: string | null
+  /** Renamed from `comments` in 023. Mandatory before a week may be submitted. */
+  weekly_learnings: string | null
+  /** Who the week was worked for (023). */
+  vendor_id: string | null
+  client_id: string | null
+  assignment_id: string | null
+  /**
+   * What the EMPLOYEE earns from this week, snapshotted at approval.
+   *
+   * There is deliberately no bill amount here — this row is readable by the
+   * employee it belongs to. See the header of 023.
+   */
+  pay_rate_snapshot: number | null
+  pay_amount: number | null
+  pay_currency: string | null
+  /** Set once the week has been billed (024). Bills exactly once. */
+  invoice_id: string | null
+  invoiced_at: string | null
   /** R2 object key of the client's own timesheet export, when one is required. */
   attachment_url: string | null
   attachment_name: string | null
@@ -751,4 +781,175 @@ export interface PublicCompany {
   logoUrl: string | null
   website: string | null
   location: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Vendors, clients and placements (022)
+//
+// The two rates are the thing to be careful about. `bill_rate` lives on
+// `EmployeeAssignment`, which only the org can read; `MyAssignment` is what an
+// employee's own session gets back, and it HAS NO bill_rate FIELD. That absence
+// mirrors a view definition in the database and is a security control — see the
+// header of 022 before adding anything to it.
+// ---------------------------------------------------------------------------
+
+export type PartyStatus = 'active' | 'inactive'
+export type RateUnit = 'hour' | 'day' | 'month' | 'year'
+export type AssignmentStatus = 'active' | 'ended'
+
+export interface PartyAddress {
+  line1?: string
+  line2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
+}
+
+/** The company we invoice. */
+export interface Vendor {
+  id: string
+  tenant_id: string
+  name: string
+  contact_name: string | null
+  email: string | null
+  phone: string | null
+  address: PartyAddress
+  payment_terms_days: number
+  notes: string | null
+  status: PartyStatus
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** The END client — where the employee actually sits. Never invoiced by us. */
+export interface Client {
+  id: string
+  tenant_id: string
+  name: string
+  contact_name: string | null
+  email: string | null
+  address: PartyAddress
+  notes: string | null
+  status: PartyStatus
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** ORG-ONLY. Carries `bill_rate`, which an employee must never read. */
+export interface EmployeeAssignment {
+  id: string
+  tenant_id: string
+  employee_id: string
+  vendor_id: string
+  client_id: string | null
+  project_id: string | null
+  bill_rate: number | null
+  bill_currency: string
+  pay_rate: number | null
+  pay_currency: string
+  rate_unit: RateUnit
+  start_date: string | null
+  end_date: string | null
+  is_primary: boolean
+  status: AssignmentStatus
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * The employee's own view of their placement, from `public.my_assignments`.
+ *
+ * NO `bill_rate`. Not omitted here for tidiness — the view does not select it,
+ * so there is no value to type. Adding the field would be a lie the compiler
+ * would then help spread.
+ */
+export interface MyAssignment {
+  id: string
+  tenant_id: string
+  employee_id: string
+  vendor_id: string
+  vendor_name: string | null
+  client_id: string | null
+  client_name: string | null
+  project_id: string | null
+  pay_rate: number | null
+  pay_currency: string
+  rate_unit: RateUnit
+  start_date: string | null
+  end_date: string | null
+  is_primary: boolean
+  status: AssignmentStatus
+}
+
+/** An assignment with its parties' names resolved, for org-side lists. */
+export interface AssignmentWithParties extends EmployeeAssignment {
+  vendor_name: string | null
+  client_name: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Payroll (026) — the employee confirms they were paid.
+// ---------------------------------------------------------------------------
+
+export type PaymentConfirmationStatus = 'pending' | 'submitted' | 'verified' | 'rejected'
+
+export interface PaymentConfirmation {
+  id: string
+  tenant_id: string
+  employee_id: string
+  month: number
+  year: number
+  amount: number | null
+  currency: string | null
+  paid_on: string | null
+  /** An R2 object key, never a public URL. */
+  file_url: string | null
+  file_name: string | null
+  note: string | null
+  status: PaymentConfirmationStatus
+  review_note: string | null
+  uploaded_by: string | null
+  verified_by: string | null
+  verified_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// How an employee's time is tracked (025)
+// ---------------------------------------------------------------------------
+
+export type TrackingMode = 'clock_in' | 'timesheet' | 'none'
+
+// ---------------------------------------------------------------------------
+// Platform support (028) — a user telling US something. Not the help desk,
+// which is a workspace's own internal queue.
+// ---------------------------------------------------------------------------
+
+export type SupportCategory = 'bug' | 'feature' | 'billing' | 'account' | 'other'
+export type SupportStatus = 'new' | 'in_progress' | 'resolved'
+
+export interface SupportRequest {
+  id: string
+  tenant_id: string | null
+  profile_id: string | null
+  reporter_name: string | null
+  reporter_email: string | null
+  tenant_name: string | null
+  category: SupportCategory
+  subject: string
+  message: string
+  page_url: string | null
+  user_agent: string | null
+  status: SupportStatus
+  assigned_to: string | null
+  resolution_note: string | null
+  resolved_at: string | null
+  created_at: string
+  updated_at: string
 }

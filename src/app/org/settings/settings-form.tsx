@@ -21,6 +21,7 @@ export function SettingsForm({
     primaryColor: string
     timezone: string
     workStartTime: string
+    defaultTrackingMode: string
     logoUrl: string | null
   }
 }) {
@@ -29,6 +30,7 @@ export function SettingsForm({
   const [primaryColor, setPrimaryColor] = React.useState(tenant.primaryColor)
   const [timezone, setTimezone] = React.useState(tenant.timezone)
   const [workStartTime, setWorkStartTime] = React.useState(tenant.workStartTime)
+  const [defaultTrackingMode, setDefaultTrackingMode] = React.useState(tenant.defaultTrackingMode)
   const [logoKey, setLogoKey] = React.useState<string | null>(tenant.logoUrl)
   const [uploading, setUploading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -65,6 +67,7 @@ export function SettingsForm({
         primaryColor,
         timezone,
         workStartTime,
+        defaultTrackingMode,
         logoKey,
       })
       toast.success('Settings saved')
@@ -183,6 +186,22 @@ export function SettingsForm({
                 className="tabular"
                 required
               />
+            </FormField>
+
+            <FormField
+              label="How new employees track time"
+              error={fields.defaultTrackingMode}
+              hint="Only the starting point for someone you add from now on, and only if you set it. Changing it never moves anybody who already has an account."
+            >
+              <Select
+                value={defaultTrackingMode}
+                onChange={(e) => setDefaultTrackingMode(e.target.value)}
+              >
+                <option value="">Not set — show everything</option>
+                <option value="clock_in">Clock in and out</option>
+                <option value="timesheet">Weekly timesheet</option>
+                <option value="none">Neither</option>
+              </Select>
             </FormField>
           </div>
 

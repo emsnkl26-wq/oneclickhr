@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError } from '@/lib/api'
-import { apiRequireOrg } from '@/lib/auth/guards'
+import { apiRequireOwner } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
 import { setDomainSchema } from '@/lib/schemas'
@@ -26,7 +26,9 @@ export const dynamic = 'force-dynamic'
  * because they can prove the new one in a minute.
  */
 async function handlePATCH(request: NextRequest) {
-  const gate = await apiRequireOrg()
+  // OWNER ONLY (027): the domain is the workspace's identity, and an invited
+  // admin who could change it could rename the company out from under it.
+  const gate = await apiRequireOwner()
   if (!gate.ok) return gate.response
   const { ctx } = gate
 

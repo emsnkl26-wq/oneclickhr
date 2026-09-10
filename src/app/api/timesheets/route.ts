@@ -27,6 +27,24 @@ async function handlePOST(request: NextRequest) {
   if (!gate.ok) return gate.response
   const { ctx } = gate
 
+  /*
+   * Not everybody files a timesheet (025). The mirror of the check in
+   * `/api/employee/clock`, and here for the same reason: a hidden nav entry is
+   * a courtesy, not a control.
+   *
+   * A null mode is allowed through — see the note on the clock route. This
+   * check refused EVERY employee in the product for as long as the fallback
+   * treated "unset" as "clocks in".
+   */
+  if (ctx.trackingMode && ctx.trackingMode !== 'timesheet') {
+    return jsonError(
+      ctx.trackingMode === 'clock_in'
+        ? 'You clock in and out rather than filing a weekly timesheet.'
+        : 'Timesheets are not enabled for your account.',
+      403
+    )
+  }
+
   const input = await parseBody(request, createTimesheetSchema)
   const weekStart = weekStartSunday(input.weekStart)
   const weekEnd = addDays(weekStart, 6)
@@ -64,6 +82,29 @@ async function handlePOST(request: NextRequest) {
     )
   }
 
+  /*
+   * Who this week is worked for, defaulted from the placement.
+   *
+   * Read through `my_assignments`, which is the employee's own view and has no
+   * `bill_rate` column at all (022). Somebody on one placement never has to
+   * think about this; somebody on two picks in the editor and the save route
+   * re-checks the choice.
+   */
+  let assignmentQuery = supabase
+    .from('my_assignments')
+    .select('id, vendor_id, client_id')
+    .eq('status', 'active')
+
+  assignmentQuery = input.assignmentId
+    ? assignmentQuery.eq('id', input.assignmentId)
+    : assignmentQuery.eq('is_primary', true)
+
+  const { data: assignment } = await assignmentQuery.maybeSingle()
+
+  if (input.assignmentId && !assignment) {
+    return jsonError('That placement is not one of yours.', 403)
+  }
+
   const { data, error } = await supabase
     .from('timesheets')
     .insert({
@@ -72,6 +113,9 @@ async function handlePOST(request: NextRequest) {
       week_start: weekStart,
       week_end: weekEnd,
       status: 'open',
+      assignment_id: assignment?.id ?? null,
+      vendor_id: assignment?.vendor_id ?? null,
+      client_id: assignment?.client_id ?? null,
     })
     .select('id, code')
     .single()

@@ -6,10 +6,12 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Save, Send, Trash2, AlertCircle, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader, StatusChip } from '@/components/ui/patterns'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import {
+  Card, CardHeader, CardTitle, CardDescription, CardContent,
+} from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/input'
-import { FormError } from '@/components/ui/form-field'
+import { Textarea, Select } from '@/components/ui/input'
+import { FormError, FormField } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter,
@@ -19,6 +21,7 @@ import {
   type GridRow, type GridProject,
 } from '@/components/timesheet/week-grid'
 import { AttachmentDrop, type Attachment } from '@/components/timesheet/attachment-drop'
+import { TimesheetLetterhead, type LetterheadOrg } from '@/components/timesheet/letterhead'
 import { apiPatch, apiDelete, ApiClientError } from '@/lib/fetcher'
 import { useProgressRouter } from '@/lib/use-progress-router'
 import { addDays, formatPeriod } from '@/lib/time'
@@ -30,17 +33,38 @@ export interface EditorTimesheet {
   weekStart: string
   weekEnd: string
   status: TimesheetStatus
-  comments: string
+  weeklyLearnings: string
+  /** Which placement this week is worked under. '' when none is set. */
+  assignmentId: string
+  /**
+   * What the EMPLOYEE earns from this week, once it has been approved.
+   *
+   * Not the invoice total, and deliberately nowhere near it. The organization
+   * bills the vendor at a different (higher) rate; this is the employee's share
+   * and the only money figure their session can see. See 022.
+   */
+  payAmount: number | null
+  payCurrency: string | null
   attachmentKey: string | null
   attachmentName: string | null
   reviewNote: string | null
+}
+
+/** One of the employee's own placements. Carries pay, never bill. */
+export interface EditorPlacement {
+  id: string
+  vendorName: string | null
+  clientName: string | null
+  payRate: number | null
+  payCurrency: string
+  rateUnit: string
 }
 
 /** What a local draft holds. Versioned so a shape change cannot be misread. */
 interface StoredDraft {
   v: 1
   rows: GridRow[]
-  comments: string
+  weeklyLearnings: string
   attachment: Attachment | null
   savedAt: number
 }
@@ -49,12 +73,12 @@ const DRAFT_VERSION = 1
 const draftKey = (id: string) => `oneclickhr:timesheet-draft:${id}`
 
 /** The comparable shape of the form — what "unsaved" is measured against. */
-function fingerprint(rows: GridRow[], comments: string, attachment: Attachment | null) {
+function fingerprint(rows: GridRow[], weeklyLearnings: string, attachment: Attachment | null) {
   return JSON.stringify({
     rows: rows
       .filter((row) => rowTotal(row) > 0 || row.projectId || row.taskName.trim())
       .map((row) => [row.projectId, row.taskName.trim(), row.billable, row.hours]),
-    comments: comments.trim(),
+    weeklyLearnings: weeklyLearnings.trim(),
     attachment: attachment?.key ?? null,
   })
 }
@@ -80,11 +104,13 @@ function fingerprint(rows: GridRow[], comments: string, attachment: Attachment |
  * shadow data the server already holds.
  */
 export function TimesheetEditor({
-  timesheet, entries, projects,
+  timesheet, entries, projects, placements, org,
 }: {
   timesheet: EditorTimesheet
   entries: GridRow[]
   projects: GridProject[]
+  placements: EditorPlacement[]
+  org: LetterheadOrg
 }) {
   const router = useRouter()
   const progressRouter = useProgressRouter()
@@ -94,16 +120,25 @@ export function TimesheetEditor({
   const initial = React.useMemo(
     () => ({
       rows: entries.length ? entries : editable ? [emptyRow('row-initial')] : [],
-      comments: timesheet.comments,
+      weeklyLearnings: timesheet.weeklyLearnings,
       attachment: timesheet.attachmentKey
         ? { key: timesheet.attachmentKey, name: timesheet.attachmentName || 'Attachment' }
         : null,
     }),
-    [entries, editable, timesheet.comments, timesheet.attachmentKey, timesheet.attachmentName]
+    [entries, editable, timesheet.weeklyLearnings, timesheet.attachmentKey, timesheet.attachmentName]
   )
 
   const [rows, setRows] = React.useState<GridRow[]>(initial.rows)
-  const [comments, setComments] = React.useState(initial.comments)
+  const [weeklyLearnings, setWeeklyLearnings] = React.useState(initial.weeklyLearnings)
+  /**
+   * Whether submitting has been ATTEMPTED. The weekly-learnings box only turns
+   * red once somebody has actually tried to submit — marking a field invalid
+   * before they have reached the end of the form is nagging, not helping.
+   */
+  const [triedSubmit, setTriedSubmit] = React.useState(false)
+  const learningsMissing = triedSubmit && !weeklyLearnings.trim()
+  const [assignmentId, setAssignmentId] = React.useState(timesheet.assignmentId)
+  const placement = placements.find((p) => p.id === assignmentId) ?? null
   const [attachment, setAttachment] = React.useState<Attachment | null>(initial.attachment)
   const [error, setError] = React.useState<string | null>(null)
   const [rowErrors, setRowErrors] = React.useState<Record<string, string>>({})
@@ -115,10 +150,10 @@ export function TimesheetEditor({
   // The server's version of this week, as a string. Anything else on screen is
   // unsaved work.
   const savedPrint = React.useMemo(
-    () => fingerprint(initial.rows, initial.comments, initial.attachment),
+    () => fingerprint(initial.rows, initial.weeklyLearnings, initial.attachment),
     [initial]
   )
-  const currentPrint = fingerprint(rows, comments, attachment)
+  const currentPrint = fingerprint(rows, weeklyLearnings, attachment)
   const dirty = editable && currentPrint !== savedPrint
 
   const rowKey = React.useRef(0)
@@ -152,7 +187,7 @@ export function TimesheetEditor({
         window.localStorage.removeItem(draftKey(timesheet.id))
         return
       }
-      if (fingerprint(draft.rows, draft.comments, draft.attachment) === savedPrint) {
+      if (fingerprint(draft.rows, draft.weeklyLearnings, draft.attachment) === savedPrint) {
         window.localStorage.removeItem(draftKey(timesheet.id))
         return
       }
@@ -179,12 +214,12 @@ export function TimesheetEditor({
         window.localStorage.removeItem(key)
         return
       }
-      const draft: StoredDraft = { v: DRAFT_VERSION, rows, comments, attachment, savedAt: Date.now() }
+      const draft: StoredDraft = { v: DRAFT_VERSION, rows, weeklyLearnings, attachment, savedAt: Date.now() }
       window.localStorage.setItem(key, JSON.stringify(draft))
     } catch {
       // Out of quota or storage denied — the in-memory form still works.
     }
-  }, [editable, recoverable, dirty, rows, comments, attachment, timesheet.id])
+  }, [editable, recoverable, dirty, rows, weeklyLearnings, attachment, timesheet.id])
 
   // The browser's own guard, for the tab close and the reload that no in-app
   // handler ever sees.
@@ -201,7 +236,7 @@ export function TimesheetEditor({
   function restoreDraft() {
     if (!recoverable) return
     setRows(recoverable.rows.length ? recoverable.rows : [newRow()])
-    setComments(recoverable.comments ?? '')
+    setWeeklyLearnings(recoverable.weeklyLearnings ?? '')
     setAttachment(recoverable.attachment ?? null)
     setRecoverable(null)
     toast.success('Unsaved hours restored — save them when you are ready')
@@ -267,6 +302,12 @@ export function TimesheetEditor({
       message = 'Add at least one line before submitting.'
     }
 
+    // Only at submit: the field is legitimately empty all week, and a form that
+    // refuses to save on Monday teaches people to type "n/a" on Monday.
+    if (!message && submitting && !weeklyLearnings.trim()) {
+      message = 'Add your learnings for the week before submitting.'
+    }
+
     setRowErrors(next)
     return { ok: !message, message }
   }
@@ -286,7 +327,8 @@ export function TimesheetEditor({
   function body(submit: boolean) {
     return {
       submit,
-      comments: comments.trim() || undefined,
+      weeklyLearnings: weeklyLearnings.trim() || undefined,
+      assignmentId: assignmentId || null,
       attachmentKey: attachment?.key,
       attachmentName: attachment?.name,
       entries: filled.map((row) => ({
@@ -305,6 +347,7 @@ export function TimesheetEditor({
    * ------------------------------------------------------------------ */
 
   async function save(submit: boolean) {
+    if (submit) setTriedSubmit(true)
     const check = validate(submit)
     if (!check.ok) {
       setError(check.message)
@@ -382,6 +425,12 @@ export function TimesheetEditor({
         }
       />
 
+      <TimesheetLetterhead
+        org={org}
+        code={timesheet.code}
+        period={formatPeriod(timesheet.weekStart, timesheet.weekEnd)}
+      />
+
       {recoverable ? (
         <div
           role="status"
@@ -440,22 +489,49 @@ export function TimesheetEditor({
         </p>
       ) : null}
 
+      <PlacementCard
+        placements={placements}
+        assignmentId={assignmentId}
+        onChange={setAssignmentId}
+        editable={editable}
+        placement={placement}
+        payAmount={timesheet.payAmount}
+        payCurrency={timesheet.payCurrency}
+      />
+
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Comments</CardTitle>
+            <CardTitle>
+              Weekly learnings
+              {editable ? <span className="ml-1 text-danger">*</span> : null}
+            </CardTitle>
+            {editable ? (
+              <CardDescription>
+                Required before you can submit. What you learned, what changed, anything your
+                approver should know about the week.
+              </CardDescription>
+            ) : null}
           </CardHeader>
           <CardContent>
             {editable ? (
-              <Textarea
-                rows={5}
-                value={comments}
-                onChange={(event) => setComments(event.target.value)}
-                placeholder="Anything your approver should know about this week — overtime, a client holiday, a day worked off-site."
-              />
+              <>
+                <Textarea
+                  rows={5}
+                  value={weeklyLearnings}
+                  onChange={(event) => setWeeklyLearnings(event.target.value)}
+                  aria-invalid={learningsMissing || undefined}
+                  placeholder="What you picked up this week — a new tool, a process you improved, something the client asked for. Plus anything your approver should know: overtime, a client holiday, a day worked off-site."
+                />
+                {learningsMissing ? (
+                  <p className="mt-1.5 text-[13px] text-danger">
+                    Add your learnings for the week before submitting.
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-muted">
-                {comments || 'No comments were added.'}
+                {weeklyLearnings || 'Nothing was written for this week.'}
               </p>
             )}
           </CardContent>
@@ -580,5 +656,97 @@ export function TimesheetEditor({
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+/**
+ * Who this week was worked for, and what the employee earns from it.
+ *
+ * TWO DELIBERATE ABSENCES. There is no bill rate here and no invoice total,
+ * because this component renders in an EMPLOYEE session and neither number is
+ * theirs to see. `placements` comes from `my_assignments`, which has no
+ * `bill_rate` column, and `payAmount` is the employee's own share written onto
+ * the timesheet at approval. See the header of migration 022.
+ *
+ * The selector only appears when there is a genuine choice to make. Someone on
+ * a single placement gets a read-only line, because a dropdown with one option
+ * is a question with one answer.
+ */
+function PlacementCard({
+  placements, assignmentId, onChange, editable, placement, payAmount, payCurrency,
+}: {
+  placements: EditorPlacement[]
+  assignmentId: string
+  onChange: (id: string) => void
+  editable: boolean
+  placement: EditorPlacement | null
+  payAmount: number | null
+  payCurrency: string | null
+}) {
+  if (!placements.length && !placement) return null
+
+  const money = (value: number, currency: string) =>
+    new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Where you worked</CardTitle>
+        <CardDescription>
+          The vendor is invoiced for this week; the end client is where you sit.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {editable && placements.length > 1 ? (
+          <FormField label="Placement" required>
+            <Select value={assignmentId} onChange={(event) => onChange(event.target.value)}>
+              <option value="">Select a placement</option>
+              {placements.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {[option.vendorName ?? 'Vendor', option.clientName]
+                    .filter(Boolean)
+                    .join(' → ')}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        ) : null}
+
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">Vendor</dt>
+            <dd className="mt-0.5 text-sm">{placement?.vendorName ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+              End client
+            </dt>
+            <dd className="mt-0.5 text-sm">{placement?.clientName ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+              {payAmount != null ? 'Your earnings' : 'Your rate'}
+            </dt>
+            <dd className="tabular mt-0.5 text-sm font-medium">
+              {payAmount != null && payCurrency
+                ? money(payAmount, payCurrency)
+                : placement?.payRate != null
+                  ? `${money(placement.payRate, placement.payCurrency)} / ${placement.rateUnit}`
+                  : '—'}
+            </dd>
+          </div>
+        </dl>
+
+        {payAmount == null && placement?.payRate != null ? (
+          <p className="text-xs text-ink-muted">
+            Your earnings for the week are worked out when this timesheet is approved.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
   )
 }

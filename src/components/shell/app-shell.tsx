@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Sidebar, type ShellBrand, type ShellUser } from '@/components/shell/sidebar'
 import { DomainBanner } from '@/components/shell/domain-banner'
+import { SupportButton } from '@/components/support/support-button'
 import { hexToHslTriple, shiftLightness } from '@/lib/utils'
 import { daysUntilDeadline } from '@/lib/domain'
 import type { AppContext } from '@/lib/auth/context'
@@ -38,7 +39,19 @@ function brandCss(hex: string | null | undefined): string | null {
     '--brand-200': shiftLightness(triple, +40),
     '--brand-100': shiftLightness(triple, +47),
     '--brand-50': shiftLightness(triple, +51),
-    '--danger': triple,
+    /*
+     * `--danger` IS DELIBERATELY NOT OVERRIDDEN.
+     *
+     * It used to be set to the brand hue, which repainted every error message,
+     * every invalid-field outline and every destructive button in the org's own
+     * colour. In a workspace branded teal that made a failure look like a
+     * confirmation — a permission error rendered as a calm green box — and put
+     * "Delete" in the same colour as "Save".
+     *
+     * Danger is a MEANING, not a decoration. It stays red however the workspace
+     * is branded, because the one thing a colour has to survive is being wrong
+     * about what it is telling somebody.
+     */
   }
 
   const body = Object.entries(declarations)
@@ -60,6 +73,7 @@ export function AppShell({
     email: ctx.email,
     role: ctx.role,
     photoUrl: ctx.photoUrl ? `/api/files/view?key=${encodeURIComponent(ctx.photoUrl)}` : null,
+    trackingMode: ctx.trackingMode,
   }
 
   const brand: ShellBrand = {
@@ -99,6 +113,16 @@ export function AppShell({
           {children}
         </main>
       </div>
+
+      {/*
+        The way out of the product, for when the product is the problem.
+
+        Not shown to a super admin: this queue is theirs to read, and a button
+        that files a ticket to yourself is noise. Everyone inside a workspace —
+        org and employee alike — gets it, because "something is broken" is not a
+        thought only administrators have.
+      */}
+      {ctx.role !== 'super_admin' ? <SupportButton /> : null}
     </div>
   )
 }

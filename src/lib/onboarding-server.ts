@@ -119,7 +119,14 @@ export function suggestEmployeeCode(existingCount: number): string {
 export function profilePatchFromDraft(
   draft: OnboardingDraft,
   row: { account_number_enc?: string | null },
-  opts: { fullName: string; email: string; employeeCode: string; timezone: string }
+  opts: {
+    fullName: string
+    email: string
+    employeeCode: string
+    timezone: string
+    /** (025) Only set when creating; an edit must not reset a chosen mode. */
+    trackingMode?: string
+  }
 ): Record<string, unknown> {
   return {
     full_name: opts.fullName,
@@ -131,6 +138,7 @@ export function profilePatchFromDraft(
     date_of_joining: draft.hireDate || null,
     photo_url: draft.photoUrl || null,
     timezone: opts.timezone,
+    ...(opts.trackingMode ? { tracking_mode: opts.trackingMode } : {}),
     is_active: true,
 
     preferred_first_name: draft.preferredFirstName || null,

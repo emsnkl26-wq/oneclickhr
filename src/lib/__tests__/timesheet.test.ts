@@ -215,6 +215,7 @@ describe('saveTimesheetSchema', () => {
     const parsed = saveTimesheetSchema.parse({
       entries: [line({ taskName: 'Client onboarding calls', hoursSun: 2 })],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
     })
     expect(parsed.entries).toHaveLength(1)
     expect(parsed.entries[0].hoursSun).toBe(2)
@@ -224,6 +225,7 @@ describe('saveTimesheetSchema', () => {
     const parsed = saveTimesheetSchema.parse({
       entries: [line({ projectId: '11111111-1111-4111-8111-111111111111', hoursMon: 8 })],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
     })
     expect(parsed.entries[0].projectId).toBe('11111111-1111-4111-8111-111111111111')
   })
@@ -232,6 +234,7 @@ describe('saveTimesheetSchema', () => {
     const result = saveTimesheetSchema.safeParse({
       entries: [line({ hoursSun: 2 })],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
     })
     expect(result.success).toBe(false)
     if (!result.success) {
@@ -255,6 +258,7 @@ describe('saveTimesheetSchema', () => {
         line({ taskName: 'B', hoursTue: 8 }),
       ],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
     })
     expect(result.success).toBe(false)
     if (!result.success) {
@@ -267,6 +271,7 @@ describe('saveTimesheetSchema', () => {
     const parsed = saveTimesheetSchema.parse({
       entries: [line({ taskName: 'A', hoursTue: 16 }), line({ taskName: 'B', hoursTue: 8 })],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
     })
     expect(parsed.entries).toHaveLength(2)
   })
@@ -301,6 +306,7 @@ describe('saveTimesheetSchema', () => {
     const parsed = saveTimesheetSchema.parse({
       entries: [line({ taskName: 'A', hoursWed: 1 })],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
       status: 'approved',
     })
     expect(parsed).not.toHaveProperty('status')
@@ -322,6 +328,7 @@ describe('summarizeZodError', () => {
         },
       ],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
     })
     expect(result.success).toBe(false)
     if (!result.success) {
@@ -346,11 +353,60 @@ describe('summarizeZodError', () => {
         },
       ],
       submit: true,
+      weeklyLearnings: 'Picked up the new client onboarding flow.',
     })
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(new Set(result.error.issues.map((i) => i.message)).size).toBeGreaterThan(1)
       expect(summarizeZodError(result.error)).toBe('Please check the highlighted fields')
     }
+  })
+})
+
+/**
+ * Weekly learnings (M1 #1).
+ *
+ * The rule is about a TRANSITION, not a field: empty is fine all week and only
+ * becomes a problem at submit. The database says the same thing in 023's guard
+ * trigger; this schema is the copy that puts the message under the box.
+ */
+describe('weekly learnings', () => {
+  const line = () => ({
+    projectId: null,
+    taskName: 'Client onboarding calls',
+    billable: true,
+    hoursSun: 2, hoursMon: 0, hoursTue: 0, hoursWed: 0,
+    hoursThu: 0, hoursFri: 0, hoursSat: 0,
+  })
+
+  it('lets a mid-week save through with nothing written', () => {
+    const result = saveTimesheetSchema.safeParse({ entries: [line()], submit: false })
+    expect(result.success).toBe(true)
+  })
+
+  it('refuses a SUBMIT with nothing written', () => {
+    const result = saveTimesheetSchema.safeParse({ entries: [line()], submit: true })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(['weeklyLearnings'])
+    }
+  })
+
+  it('refuses whitespace, which is how a required field gets defeated', () => {
+    const result = saveTimesheetSchema.safeParse({
+      entries: [line()],
+      weeklyLearnings: '   ',
+      submit: true,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a submit once something is written', () => {
+    const result = saveTimesheetSchema.safeParse({
+      entries: [line()],
+      weeklyLearnings: 'Shadowed the vendor call and wrote up the handover notes.',
+      submit: true,
+    })
+    expect(result.success).toBe(true)
   })
 })

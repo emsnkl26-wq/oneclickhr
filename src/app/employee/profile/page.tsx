@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { KeyRound } from 'lucide-react'
+import { ClipboardList, KeyRound } from 'lucide-react'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
@@ -12,6 +12,7 @@ import {
 } from '@/components/profile/profile-sections'
 import { ProfileForm } from './profile-form'
 import { ProfileHero } from './profile-hero'
+import { loadEmployeeOnboarding } from '@/lib/employee-onboarding'
 
 export const metadata: Metadata = { title: 'My profile' }
 export const dynamic = 'force-dynamic'
@@ -63,11 +64,66 @@ export default async function EmployeeProfilePage() {
       .order('completion_year', { ascending: false, nullsFirst: false }),
   ])
 
+  /*
+   * Their onboarding record, if they have one. This is the doorway to every
+   * detail that is NOT on this page — address, visa, bank, next of kin — and
+   * the only route an employee previously had to correcting any of it was to
+   * email an administrator.
+   */
+  const onboarding = await loadEmployeeOnboarding(ctx)
+
   const skills = Array.isArray(profile?.skills) ? (profile.skills as string[]) : []
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My profile" description="Your details, your history and how to reach you." />
+      <PageHeader
+        title="My profile"
+        description="Your details, your history and how to reach you."
+        actions={
+          onboarding ? (
+            <Button asChild variant="secondary">
+              <Link href="/employee/onboarding">
+                <ClipboardList />
+                {onboarding.status === 'submitted'
+                  ? 'View submitted details'
+                  : 'Update my full details'}
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {/*
+        The full onboarding form is where the REST of somebody's details live —
+        address, work authorization, bank account, emergency contact. This card
+        exists because none of that is on this page, and until now an employee
+        who moved house had no way to say so except emailing an administrator.
+
+        Changes go back through the same review their original answers did, so
+        the card says so rather than implying an instant edit.
+      */}
+      {onboarding ? (
+        <div className="flex flex-col gap-4 rounded-xl border border-line bg-card p-5 shadow-sm sm:flex-row sm:items-center">
+          <ClipboardList className="size-5 shrink-0 text-brand-600" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              {onboarding.status === 'submitted'
+                ? 'Your updated details are with your organization'
+                : 'Your full details'}
+            </p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-ink-muted">
+              {onboarding.status === 'submitted'
+                ? 'They are being reviewed. You will be notified once they have been approved.'
+                : 'Address, work authorization, bank details and emergency contact. Changes are reviewed by your organization before they take effect.'}
+            </p>
+          </div>
+          <Button asChild variant={onboarding.status === 'submitted' ? 'ghost' : 'secondary'}>
+            <Link href="/employee/onboarding">
+              {onboarding.status === 'submitted' ? 'View' : 'Update details'}
+            </Link>
+          </Button>
+        </div>
+      ) : null}
 
       <ProfileHero
         fullName={profile?.full_name ?? ''}

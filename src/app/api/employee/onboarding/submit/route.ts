@@ -3,6 +3,8 @@ import { withErrorHandler, jsonOk, jsonError, friendlyDbError } from '@/lib/api'
 import { apiRequireEmployee } from '@/lib/auth/guards'
 import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { draftFromRow, EMPLOYEE_STEPS, validateEmployeeStep } from '@/lib/onboarding'
+import { EMPLOYEE_EDITABLE_STATUSES, EMPLOYEE_VISIBLE_STATUSES } from '@/lib/employee-onboarding'
+import type { OnboardingStatus } from '@/types/db'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
 import { audit } from '@/lib/audit'
 
@@ -44,16 +46,28 @@ async function handlePOST(request: NextRequest) {
     .select('*')
     .eq('employee_profile_id', ctx.userId)
     .eq('tenant_id', tenantId)
-    .in('status', ['invited', 'submitted'])
+    .in('status', EMPLOYEE_VISIBLE_STATUSES as string[])
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   if (loadError) return jsonError(friendlyDbError(loadError), 400)
   if (!row) return jsonError('You have no onboarding to submit.', 404)
-  if (row.status !== 'invited') {
+  if (!EMPLOYEE_EDITABLE_STATUSES.includes(row.status as OnboardingStatus)) {
     return jsonError('You have already submitted these details.', 409)
   }
+
+  /*
+   * Re-submitting an ALREADY COMPLETED onboarding is a change request, not a
+   * first submission (M2 #1).
+   *
+   * The distinction matters in exactly one place — the employee portal gate in
+   * src/app/employee/layout.tsx confines somebody whose onboarding has NEVER
+   * been completed, and reads `completed_at` rather than the status to decide.
+   * So `completed_at` is left alone here: a person correcting their address
+   * keeps working while an admin looks at it, which a new starter does not.
+   */
+  const isCorrection = row.status === 'completed'
 
   const draft = draftFromRow(row)
   const stepErrors: Record<number, Record<string, string>> = {}
@@ -89,7 +103,7 @@ async function handlePOST(request: NextRequest) {
     tenantId,
     actorId: ctx.userId,
     actorEmail: ctx.email,
-    action: 'onboarding.submitted',
+    action: isCorrection ? 'onboarding.correction_submitted' : 'onboarding.submitted',
     entity: 'employee_onboarding',
     entityId: row.id,
     request,

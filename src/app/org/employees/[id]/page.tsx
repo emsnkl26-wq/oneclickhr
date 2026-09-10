@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
   ArrowLeft, ArrowRight, ClipboardList, Download, FileText, FileSignature, FilePlus2,
-  Eye, Briefcase, Timer,
+  Eye, Briefcase, Timer, Building2,
 } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -22,6 +22,7 @@ import { EMPLOYEE_LOGIN_PATH } from '@/lib/routes'
 import { appUrl } from '@/lib/env'
 import { EmployeeEditForm } from './employee-edit-form'
 import { SignInDetails } from './sign-in-details'
+import { GenerateInvoiceButton } from '@/components/invoice/generate-invoice-button'
 import type { GeneratedDocumentType, TimesheetStatus } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Employee' }
@@ -42,7 +43,7 @@ export default async function EmployeeDetailPage({
   const { data: employee, error: employeeError } = await supabase
     .from('profiles')
     .select(
-      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, must_change_password, created_at, skills'
+      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, must_change_password, created_at, skills, tracking_mode'
     )
     .eq('id', id)
     .eq('role', 'employee')
@@ -71,6 +72,8 @@ export default async function EmployeeDetailPage({
     { data: assignments },
     { data: timesheets },
     { data: onboarding },
+    { data: billable },
+    { data: placements },
   ] = await Promise.all([
       supabase.from('departments').select('id, name').order('name'),
       supabase
@@ -125,10 +128,36 @@ export default async function EmployeeDetailPage({
         .from('employee_onboarding')
         .select('id, status, submitted_at')
         .eq('employee_profile_id', id)
-        .in('status', ['invited', 'submitted'])
+        // 'completed' is included so an admin can reopen the full form and
+        // correct somebody's details later (M2 #1) — the banner below switches
+        // to a quiet 'edit' affordance in that case rather than an alert.
+        .in('status', ['invited', 'submitted', 'completed'])
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      /*
+       * Weeks this person has worked that are approved and NOT yet billed —
+       * exactly what the "Generate invoice" button offers. Filtering here rather
+       * than in the browser means the dialog cannot show a week that was
+       * invoiced a minute ago in another tab.
+       */
+      supabase
+        .from('timesheets')
+        .select('id, code, week_start, week_end, billable_hours, vendor_id, vendor:vendors(name)')
+        .eq('employee_id', id)
+        .eq('status', 'approved')
+        .is('invoice_id', null)
+        .order('week_start', { ascending: false })
+        .limit(60),
+      // Placements, so the page can say who this person works for and through.
+      supabase
+        .from('employee_assignments')
+        .select(
+          'id, bill_rate, bill_currency, pay_rate, pay_currency, rate_unit, start_date, end_date, is_primary, status, vendor:vendors(id, name), client:clients(id, name)'
+        )
+        .eq('employee_id', id)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: false }),
     ])
 
   const records = attendance ?? []
@@ -169,6 +198,55 @@ export default async function EmployeeDetailPage({
     total_hours: number
   }>
 
+  const employeeName = employee.full_name || employee.email || 'Employee'
+
+  const billableWeeks = ((billable ?? []) as unknown as Array<{
+    id: string
+    code: string
+    week_start: string
+    week_end: string
+    billable_hours: number | string
+    vendor_id: string | null
+    vendor: { name: string } | null
+  }>).map((row) => ({
+    id: row.id,
+    code: row.code,
+    weekStart: row.week_start,
+    weekEnd: row.week_end,
+    billableHours: Number(row.billable_hours),
+    vendorId: row.vendor_id,
+    vendorName: row.vendor?.name ?? null,
+    employeeName,
+  }))
+
+  const placementRows = ((placements ?? []) as unknown as Array<{
+    id: string
+    bill_rate: number | string | null
+    bill_currency: string
+    pay_rate: number | string | null
+    pay_currency: string
+    rate_unit: string
+    start_date: string | null
+    end_date: string | null
+    is_primary: boolean
+    status: string
+    vendor: { id: string; name: string } | null
+    client: { id: string; name: string } | null
+  }>).map((row) => ({
+    id: row.id,
+    vendorName: row.vendor?.name ?? null,
+    clientName: row.client?.name ?? null,
+    billRate: row.bill_rate == null ? null : Number(row.bill_rate),
+    billCurrency: row.bill_currency,
+    payRate: row.pay_rate == null ? null : Number(row.pay_rate),
+    payCurrency: row.pay_currency,
+    rateUnit: row.rate_unit,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    isPrimary: row.is_primary,
+    status: row.status,
+  }))
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -176,6 +254,10 @@ export default async function EmployeeDetailPage({
         description={employee.designation || 'No designation set'}
         actions={
           <>
+            <GenerateInvoiceButton
+              timesheets={billableWeeks}
+              employeeName={employee.full_name || employee.email || 'this employee'}
+            />
             <Button asChild>
               <Link href={`/org/letters/new?employee=${employee.id}`}>
                 <FilePlus2 />
@@ -193,18 +275,30 @@ export default async function EmployeeDetailPage({
       />
 
       {onboarding ? (
+        /*
+          Three states, three tones. A submitted form is an ACTION waiting on
+          somebody (green, prominent); an unfinished one is a gap (amber); a
+          completed one is neither — just the way back into the full record, so
+          it gets the same neutral treatment as any other card on the page.
+        */
         <div
           className={cn(
             'flex flex-col gap-4 rounded-xl border p-5 sm:flex-row sm:items-center',
             onboarding.status === 'submitted'
               ? 'border-emerald-200 bg-emerald-50/60'
-              : 'border-amber-200 bg-amber-50/60'
+              : onboarding.status === 'completed'
+                ? 'border-line bg-card shadow-sm'
+                : 'border-amber-200 bg-amber-50/60'
           )}
         >
           <ClipboardList
             className={cn(
               'size-5 shrink-0',
-              onboarding.status === 'submitted' ? 'text-emerald-600' : 'text-amber-600'
+              onboarding.status === 'submitted'
+                ? 'text-emerald-600'
+                : onboarding.status === 'completed'
+                  ? 'text-brand-600'
+                  : 'text-amber-600'
             )}
             aria-hidden
           />
@@ -212,17 +306,25 @@ export default async function EmployeeDetailPage({
             <p className="font-semibold">
               {onboarding.status === 'submitted'
                 ? 'Their onboarding details are ready for review'
-                : 'Onboarding is not finished'}
+                : onboarding.status === 'completed'
+                  ? 'Full employee details'
+                  : 'Onboarding is not finished'}
             </p>
             <p className="mt-0.5 text-sm leading-relaxed text-ink-muted">
               {onboarding.status === 'submitted'
                 ? 'They have filled in their own details. Approving is what writes them onto this profile.'
-                : 'They can sign in and complete their own details, or you can fill them in here. Until it is approved they are not counted as an active member of the team.'}
+                : onboarding.status === 'completed'
+                  ? 'Address, work authorization, compensation, bank details and documents. Editing here updates their profile directly.'
+                  : 'They can sign in and complete their own details, or you can fill them in here. Until it is approved they are not counted as an active member of the team.'}
             </p>
           </div>
           <Button asChild variant={onboarding.status === 'submitted' ? 'default' : 'secondary'}>
             <Link href={`/org/employees/onboard/${onboarding.id}`}>
-              {onboarding.status === 'submitted' ? 'Review and approve' : 'Open onboarding form'}
+              {onboarding.status === 'submitted'
+                ? 'Review and approve'
+                : onboarding.status === 'completed'
+                  ? 'Edit full details'
+                  : 'Open onboarding form'}
               <ArrowRight />
             </Link>
           </Button>
@@ -293,6 +395,7 @@ export default async function EmployeeDetailPage({
             dateOfJoining: employee.date_of_joining ?? '',
             timezone: employee.timezone,
             isActive: employee.is_active,
+            trackingMode: employee.tracking_mode ?? '',
           }}
           departments={departments ?? []}
         />
@@ -461,6 +564,56 @@ export default async function EmployeeDetailPage({
                         <Download />
                       </a>
                     </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Placements</CardTitle>
+            </CardHeader>
+            {placementRows.length === 0 ? (
+              <EmptyState
+                icon={Building2}
+                title="No placement yet"
+                description="Set who this person works through and for, so their timesheets can be billed."
+                action={
+                  <Button asChild size="sm" variant="secondary">
+                    <Link href={`/org/placements?employee=${employee.id}`}>Add a placement</Link>
+                  </Button>
+                }
+              />
+            ) : (
+              <ul className="divide-y divide-line">
+                {placementRows.map((row) => (
+                  <li key={row.id} className="px-5 py-3.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{row.vendorName ?? 'Vendor'}</p>
+                      {row.clientName ? (
+                        <>
+                          <ArrowRight className="size-3.5 text-ink-muted" aria-hidden />
+                          <p className="text-sm">{row.clientName}</p>
+                        </>
+                      ) : null}
+                      {row.isPrimary ? <StatusChip status="info" tone="info" label="Primary" /> : null}
+                      {row.status === 'ended' ? <StatusChip status="ended" label="Ended" /> : null}
+                    </div>
+                    {/*
+                      Both rates, side by side, and ONLY on this org-side page.
+                      The employee's own screens never receive the bill figure —
+                      it does not exist in the view they read. See 022.
+                    */}
+                    <p className="tabular mt-1 text-[13px] text-ink-muted">
+                      {row.billRate != null
+                        ? `Billed ${row.billCurrency} ${row.billRate} / ${row.rateUnit}`
+                        : 'No bill rate set'}
+                      {' · '}
+                      {row.payRate != null
+                        ? `pays ${row.payCurrency} ${row.payRate} / ${row.rateUnit}`
+                        : 'no pay rate set'}
+                    </p>
                   </li>
                 ))}
               </ul>

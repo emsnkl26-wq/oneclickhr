@@ -107,9 +107,35 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
    * org a "rejected" stamp on something waiting for them.
    */
   const patch: Record<string, unknown> = {
-    comments: input.comments,
+    weekly_learnings: input.weeklyLearnings,
     attachment_url: input.attachmentKey,
     attachment_name: input.attachmentName,
+  }
+
+  /*
+   * Who the week was worked for. Only accepted from an assignment that is
+   * genuinely this employee's — the ids arrive from a form and a form is not
+   * evidence. Sending an assignment id belonging to a colleague would otherwise
+   * attach their vendor (and, at invoice time, their bill rate) to this week.
+   */
+  if (input.assignmentId !== undefined) {
+    if (input.assignmentId === null) {
+      patch.assignment_id = null
+      patch.vendor_id = null
+      patch.client_id = null
+    } else {
+      const { data: assignment } = await supabase
+        .from('my_assignments')
+        .select('id, vendor_id, client_id')
+        .eq('id', input.assignmentId)
+        .maybeSingle()
+
+      if (!assignment) return jsonError('That placement is not one of yours.', 403)
+
+      patch.assignment_id = assignment.id
+      patch.vendor_id = assignment.vendor_id
+      patch.client_id = assignment.client_id
+    }
   }
   if (input.submit) {
     patch.status = 'submitted'

@@ -125,7 +125,27 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 308)
   }
 
-  let response = NextResponse.next({ request })
+  /*
+   * Pass the pathname through to Server Components.
+   *
+   * A layout cannot ask Next which route is rendering inside it, and one place
+   * genuinely needs to: the employee layout confines somebody with an unfinished
+   * onboarding to that form, which means knowing whether the current request IS
+   * that form. Everything else it could do instead is worse — repeating the
+   * check in every page, or putting a database read in this function, which is
+   * deliberately not the authorization boundary.
+   *
+   * Built FRESH on each call rather than cloned once, because `setAll` below
+   * mutates `request.cookies` (and therefore the cookie header) as Supabase
+   * rotates the session, and a snapshot taken beforehand would carry the old one.
+   */
+  const nextWithPath = () => {
+    const headers = new Headers(request.headers)
+    headers.set('x-pathname', request.nextUrl.pathname)
+    return NextResponse.next({ request: { headers } })
+  }
+
+  let response = nextWithPath()
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,7 +157,7 @@ export async function middleware(request: NextRequest) {
         },
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          response = NextResponse.next({ request })
+          response = nextWithPath()
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
           )

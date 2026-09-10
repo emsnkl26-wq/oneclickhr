@@ -5,6 +5,8 @@ import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { onboardingDraftSchema } from '@/lib/schemas'
 import { employeeToColumns, OnboardingPatchError } from '@/lib/onboarding-server'
 import { keyBelongsToTenant } from '@/lib/r2'
+import { EMPLOYEE_EDITABLE_STATUSES, EMPLOYEE_VISIBLE_STATUSES } from '@/lib/employee-onboarding'
+import type { OnboardingStatus } from '@/types/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,14 +70,20 @@ async function handlePATCH(request: NextRequest) {
     .select('id, status')
     .eq('employee_profile_id', ctx.userId)
     .eq('tenant_id', tenantId)
-    .in('status', ['invited', 'submitted'])
+    .in('status', EMPLOYEE_VISIBLE_STATUSES as string[])
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   if (loadError) return jsonError(friendlyDbError(loadError), 400)
   if (!row) return jsonError('You have no onboarding to fill in.', 404)
-  if (row.status !== 'invited') {
+  /*
+   * `invited` (filling it in for the first time) and `completed` (correcting
+   * details later — M2 #1) are both editable. `submitted` is not: a reviewer is
+   * looking at it, and editing underneath them is how the two end up
+   * disagreeing about what was approved.
+   */
+  if (!EMPLOYEE_EDITABLE_STATUSES.includes(row.status as OnboardingStatus)) {
     return jsonError('Your details have been submitted and are being reviewed.', 409)
   }
 

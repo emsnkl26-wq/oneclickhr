@@ -35,7 +35,7 @@ export default async function EmployeeTimesheetsPage({
     supabase
       .from('timesheets')
       .select(
-        'id, code, week_start, week_end, status, total_hours, billable_hours, comments, attachment_name, review_note, submitted_at, created_at',
+        'id, code, week_start, week_end, status, total_hours, billable_hours, weekly_learnings, attachment_name, review_note, submitted_at, created_at',
         { count: 'exact' }
       )
       .order('week_start', { ascending: false })

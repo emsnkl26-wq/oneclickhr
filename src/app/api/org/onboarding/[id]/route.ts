@@ -71,11 +71,20 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
    * `invited` and `submitted` stay editable by the ORG (014). The account
    * exists by then, but the paperwork is still open — an admin correcting a
    * department or a pay rate while the employee fills in their address is the
-   * normal case, not a conflict. Only a finished or cancelled onboarding is
-   * closed to writes.
+   * normal case, not a conflict.
+   *
+   * `completed` is editable too (M2 #1). An employee's address, visa expiry and
+   * bank account all change over time, and this form is the only place most of
+   * those fields exist at all — closing it after approval meant the record was
+   * correct exactly once, on the day it was approved.
+   *
+   * Editing the draft does NOT move the profile on its own: `/complete` is what
+   * writes these columns across, and the wizard calls it when the admin saves.
+   * Only a CANCELLED onboarding is closed to writes, because it describes
+   * somebody who never joined.
    */
-  if (existing.status === 'completed' || existing.status === 'cancelled') {
-    return jsonError('This onboarding is closed and can no longer be edited.', 409)
+  if (existing.status === 'cancelled') {
+    return jsonError('This onboarding was cancelled and can no longer be edited.', 409)
   }
 
   if (Object.keys(patch).length) {

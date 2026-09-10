@@ -26,7 +26,7 @@ export interface QueueRow {
   status: TimesheetStatus
   totalHours: number
   billableHours: number
-  comments: string | null
+  weeklyLearnings: string | null
   reviewNote: string | null
   hasAttachment: boolean
 }
@@ -55,7 +55,7 @@ export function TimesheetQueue({
    */
   function exportCsv() {
     const csv = toCsv(
-      ['Timesheet ID', 'Employee', 'Period start', 'Period end', 'Total hours', 'Billable hours', 'Status', 'Comments'],
+      ['Timesheet ID', 'Employee', 'Period start', 'Period end', 'Total hours', 'Billable hours', 'Status', 'Weekly learnings'],
       timesheets.map((row) => [
         row.code,
         row.employeeName,
@@ -64,7 +64,7 @@ export function TimesheetQueue({
         row.totalHours,
         row.billableHours,
         row.status,
-        row.comments ?? '',
+        row.weeklyLearnings ?? '',
       ])
     )
     const suffix = from || to ? `-${from || 'start'}_${to || 'today'}` : ''
@@ -132,10 +132,10 @@ export function TimesheetQueue({
       ),
     },
     {
-      key: 'comments',
-      header: 'Comments',
+      key: 'weeklyLearnings',
+      header: 'Weekly learnings',
       cell: (row) => {
-        const text = row.status === 'rejected' && row.reviewNote ? row.reviewNote : row.comments
+        const text = row.status === 'rejected' && row.reviewNote ? row.reviewNote : row.weeklyLearnings
         if (!text) return <span className="text-ink-muted">—</span>
         return (
           <span className="text-ink-muted" title={text}>

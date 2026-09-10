@@ -129,6 +129,30 @@ export async function apiRequireOrg(): Promise<Gate<OrgContext>> {
   return { ok: true, ctx: gate.ctx as OrgContext }
 }
 
+/**
+ * The workspace's OWNER, not merely an administrator (027).
+ *
+ * Invited admins have the same access to /org as the owner — every screen,
+ * every action. Three things are deliberately not among them, and they are all
+ * the same thing: the ability to take the workspace away from the person who
+ * created it.
+ *
+ *   • inviting another admin
+ *   • revoking an admin
+ *   • changing the company domain (the workspace's identity)
+ *
+ * Without this an invited admin could revoke the founder and rename the
+ * company, which is not a permission system anybody asked for.
+ */
+export async function apiRequireOwner(): Promise<Gate<OrgContext>> {
+  const gate = await apiRequireOrg()
+  if (!gate.ok) return gate
+  if (!gate.ctx.isOwner) {
+    return deny('Only the workspace owner can do that.', 403)
+  }
+  return gate
+}
+
 export async function apiRequireEmployee(): Promise<Gate<OrgContext>> {
   const gate = await apiRequireUser()
   if (!gate.ok) return gate

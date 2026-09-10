@@ -94,7 +94,7 @@ export function apiDelete<T>(url: string): Promise<T> {
  */
 export async function uploadFile(
   file: File,
-  purpose: 'photo' | 'payslip' | 'employee_doc' | 'work_auth' | 'logo' | 'general',
+  purpose: 'photo' | 'payslip' | 'payment_proof' | 'employee_doc' | 'work_auth' | 'logo' | 'general',
   extra: Record<string, unknown> = {}
 ): Promise<{ key: string; fileName: string; contentType: string; documentId?: string }> {
   const presigned = await apiPost<{ url: string; key: string }>('/api/files/presign', {

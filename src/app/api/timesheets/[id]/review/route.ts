@@ -3,9 +3,11 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSc
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { reviewTimesheetSchema } from '@/lib/schemas'
+import { payForWeek } from '@/lib/billing'
 import { notifyEmployee } from '@/lib/notify'
 import { formatPeriod } from '@/lib/time'
 import { audit } from '@/lib/audit'
+import type { RateUnit } from '@/types/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +36,9 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
 
   const { data: sheet } = await supabase
     .from('timesheets')
-    .select('id, code, employee_id, week_start, week_end, status, total_hours')
+    .select(
+      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, assignment_id'
+    )
     .eq('id', id)
     .maybeSingle()
 
@@ -43,14 +47,50 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     return jsonError('That timesheet has already been decided.', 409)
   }
 
+  const decision: Record<string, unknown> = {
+    status: input.status,
+    review_note: input.note,
+    reviewed_by: ctx.userId,
+    reviewed_at: new Date().toISOString(),
+  }
+
+  /*
+   * Approval is when the employee's share is fixed.
+   *
+   * SNAPSHOTTED, not derived on read: a pay rate renegotiated in March must not
+   * quietly rewrite what January's approved week said the person would earn.
+   * The rate is read here — on an org-guarded route — and only the resulting
+   * PAY figure is written to the timesheet, which the employee can read. The
+   * bill rate is not touched and never lands on this row; see 023.
+   *
+   * A placement with no pay rate leaves the figure null rather than zero. "We
+   * have not set your rate yet" and "you earned nothing" are different
+   * statements and only one of them is true.
+   */
+  if (input.status === 'approved' && sheet.assignment_id) {
+    const { data: assignment } = await supabase
+      .from('employee_assignments')
+      .select('pay_rate, pay_currency, rate_unit')
+      .eq('id', sheet.assignment_id)
+      .eq('tenant_id', ctx.tenantId)
+      .maybeSingle()
+
+    if (assignment) {
+      const payRate = assignment.pay_rate == null ? null : Number(assignment.pay_rate)
+      const amount = payForWeek(
+        Number(sheet.billable_hours),
+        payRate,
+        assignment.rate_unit as RateUnit
+      )
+      decision.pay_rate_snapshot = payRate
+      decision.pay_amount = amount
+      decision.pay_currency = amount === null ? null : assignment.pay_currency
+    }
+  }
+
   const { data: updated, error } = await supabase
     .from('timesheets')
-    .update({
-      status: input.status,
-      review_note: input.note,
-      reviewed_by: ctx.userId,
-      reviewed_at: new Date().toISOString(),
-    })
+    .update(decision)
     .eq('id', id)
     .eq('status', 'submitted')
     .select('id')

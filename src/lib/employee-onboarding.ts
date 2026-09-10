@@ -33,8 +33,29 @@ import {
 import { accountLast4 } from '@/lib/onboarding-server'
 import type { OnboardingStatus } from '@/types/db'
 
-/** The statuses in which an employee is allowed to EDIT their own draft. */
-export const EMPLOYEE_EDITABLE_STATUSES: readonly OnboardingStatus[] = ['invited']
+/**
+ * The statuses in which an employee is allowed to EDIT their own draft.
+ *
+ * `completed` is on this list (M2 #1). People move house, change their phone
+ * number and get married, and until now the only route to correcting any of
+ * that was to email an administrator and hope. An employee editing their own
+ * details after onboarding puts the record back in front of the org for
+ * approval — the same review their original answers went through — which is why
+ * this is safe to open up: an edit is a REQUEST, never a write to their profile.
+ *
+ * `submitted` is deliberately absent from both this list and the load below is
+ * not: the form is still shown, read-only, so somebody can see what they sent.
+ * Editing underneath a reviewer is how the two end up disagreeing about what
+ * was approved.
+ */
+export const EMPLOYEE_EDITABLE_STATUSES: readonly OnboardingStatus[] = ['invited', 'completed']
+
+/** The statuses whose draft an employee may LOAD at all. */
+export const EMPLOYEE_VISIBLE_STATUSES: readonly OnboardingStatus[] = [
+  'invited',
+  'submitted',
+  'completed',
+]
 
 export interface EmployeeOnboardingState {
   id: string
@@ -78,10 +99,10 @@ export function employeeVisibleDraft(full: OnboardingDraft): OnboardingDraft {
 /**
  * The onboarding this employee is being asked to fill in, or null.
  *
- * Null is the ordinary answer for most of the workforce: anyone onboarded the
- * old way, or whose onboarding has been approved, has nothing outstanding.
- * Completed and cancelled rows return null for the same reason — there is
- * nothing left to ask of them.
+ * Null is the ordinary answer for anyone onboarded the old way, before there
+ * were employee-side drafts at all — they have no row to load. A COMPLETED
+ * onboarding now loads (M2 #1) so its owner can correct their own details;
+ * cancelled rows still return null, because there is nothing to ask of them.
  */
 export async function loadEmployeeOnboarding(ctx: {
   userId: string
@@ -96,7 +117,7 @@ export async function loadEmployeeOnboarding(ctx: {
     .select('*')
     .eq('employee_profile_id', ctx.userId)
     .eq('tenant_id', tenantId)
-    .in('status', ['invited', 'submitted'])
+    .in('status', EMPLOYEE_VISIBLE_STATUSES as string[])
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()

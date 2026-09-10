@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic'
  * courtesy), so a purpose allowed there and refused here would let an employee
  * upload bytes that are then deleted out from under them.
  */
-const EMPLOYEE_PURPOSES = ['photo', 'general', 'employee_doc', 'work_auth']
+const EMPLOYEE_PURPOSES = ['photo', 'general', 'employee_doc', 'work_auth', 'payment_proof']
 
 const DOC_KINDS: Record<string, DocumentKind> = {
   employee_doc: 'employee_doc',
@@ -69,9 +69,17 @@ async function handlePOST(request: NextRequest) {
     return jsonError(result.error, result.status)
   }
 
-  // Photos, logos and payslips are referenced by the row they belong to
-  // (profiles.photo_url, tenants.logo_url, payslips.file_url), so there is no
-  // separate document record for them.
+  /*
+   * Photos, logos, payslips and payment proofs are referenced by the row they
+   * belong to (profiles.photo_url, tenants.logo_url, payslips.file_url,
+   * payment_confirmations.file_url), so there is no separate document record
+   * for them — which is why `payment_proof` is absent from DOC_KINDS.
+   *
+   * That absence is deliberate for a second reason: a payment confirmation is
+   * a bank document. Filing it into `documents` would put every employee's
+   * salary evidence into the org's general Documents screen, which is not
+   * where anybody expects to find it or wants it browsed.
+   */
   const kind = DOC_KINDS[input.purpose]
   let documentId: string | undefined
 
