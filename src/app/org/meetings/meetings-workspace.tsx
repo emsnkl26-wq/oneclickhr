@@ -15,18 +15,11 @@ import { Input, Textarea, DateTimeField } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter,
-  Tabs, TabsList, TabsTrigger,
+  Switch, Tabs, TabsList, TabsTrigger,
 } from '@/components/ui/primitives'
 import { apiPost, apiPatch, apiDelete, ApiClientError } from '@/lib/fetcher'
-import { formatLocal } from '@/lib/time'
+import { formatLocal, fromZonedInput, timezoneLabel, toZonedInput } from '@/lib/time'
 import type { Meeting, MeetingAttendee } from '@/types/db'
-
-/** `datetime-local` needs `YYYY-MM-DDTHH:mm` in LOCAL time, not an ISO instant. */
-function toLocalInput(iso: string): string {
-  const date = new Date(iso)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
-}
 
 export interface Teammate {
   id: string
@@ -222,6 +215,7 @@ export function MeetingsWorkspace({
       <MeetingDialog
         open={creating || !!editing}
         meeting={editing}
+        timezone={timezone}
         teammates={teammates}
         onClose={() => {
           setCreating(false)
@@ -394,19 +388,20 @@ function DetailRow({
 }
 
 function MeetingDialog({
-  open, meeting, teammates, onClose, onSaved,
+  open, meeting, timezone, teammates, onClose, onSaved,
 }: {
   open: boolean
   meeting: Meeting | null
+  timezone: string
   teammates: Teammate[]
   onClose: () => void
   onSaved: () => void
 }) {
   const [title, setTitle] = React.useState('')
   const [description, setDescription] = React.useState('')
-  const [location, setLocation] = React.useState('')
   const [startTime, setStartTime] = React.useState('')
   const [endTime, setEndTime] = React.useState('')
+  const [addMeetLink, setAddMeetLink] = React.useState(true)
   const [attendees, setAttendees] = React.useState<MeetingAttendee[]>([])
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
@@ -419,36 +414,61 @@ function MeetingDialog({
     if (meeting) {
       setTitle(meeting.title)
       setDescription(meeting.description ?? '')
-      setLocation(meeting.location ?? '')
-      setStartTime(toLocalInput(meeting.start_time))
-      setEndTime(toLocalInput(meeting.end_time))
+      setStartTime(toZonedInput(meeting.start_time, timezone))
+      setEndTime(toZonedInput(meeting.end_time, timezone))
+      setAddMeetLink(!!meeting.meet_link)
       setAttendees(meeting.attendees ?? [])
     } else {
-      const start = new Date()
-      start.setHours(start.getHours() + 1, 0, 0, 0)
-      const end = new Date(start.getTime() + 60 * 60_000)
+      /*
+       * Default to the next whole hour IN THE ORG'S ZONE.
+       *
+       * Built by rounding the zoned wall clock rather than the browser's, so an
+       * admin travelling (or on a laptop still set to another country) opens the
+       * form on the workspace's next hour, which is the one everyone else sees.
+       */
+      const nextHour = new Date(Date.now() + 60 * 60_000)
+      const start = `${toZonedInput(nextHour, timezone).slice(0, 13)}:00`
+      const startInstant = fromZonedInput(start, timezone)
       setTitle('')
       setDescription('')
-      setLocation('')
-      setStartTime(toLocalInput(start.toISOString()))
-      setEndTime(toLocalInput(end.toISOString()))
+      setStartTime(start)
+      setEndTime(
+        startInstant
+          ? toZonedInput(new Date(new Date(startInstant).getTime() + 60 * 60_000), timezone)
+          : ''
+      )
+      setAddMeetLink(true)
       setAttendees([])
     }
-  }, [open, meeting])
+  }, [open, meeting, timezone])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
     setSubmitting(true)
 
+    /*
+     * The fields hold wall-clock time in the WORKSPACE'S zone, so that is the
+     * zone they must be read back in before being stored as a UTC instant.
+     * Reading them in the browser's zone is what used to shift every meeting for
+     * anyone whose machine did not match the workspace.
+     */
+    const startInstant = fromZonedInput(startTime, timezone)
+    const endInstant = fromZonedInput(endTime, timezone)
+
+    if (!startInstant || !endInstant) {
+      setError('Please give the meeting a start and an end time.')
+      setSubmitting(false)
+      return
+    }
+
     const payload = {
       title,
       description: description || undefined,
-      location: location || undefined,
-      // The input is local wall-clock; `new Date()` interprets it in the
-      // browser's zone and toISOString normalises it to the UTC instant we store.
-      startTime: new Date(startTime).toISOString(),
-      endTime: new Date(endTime).toISOString(),
+      startTime: startInstant,
+      endTime: endInstant,
+      timezone,
+      addMeetLink,
       attendees: attendees.map((a) => ({ email: a.email, name: a.name || undefined })),
     }
 
@@ -493,7 +513,22 @@ function MeetingDialog({
               <FormField label="Starts" error={fields.startTime} required>
                 <DateTimeField
                   value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    setStartTime(next)
+                    // Keep the gap the user already chose rather than snapping to
+                    // an hour, and never leave an end time before its start.
+                    const from = fromZonedInput(next, timezone)
+                    const previousFrom = fromZonedInput(startTime, timezone)
+                    const to = fromZonedInput(endTime, timezone)
+                    if (!from) return
+                    const span =
+                      previousFrom && to
+                        ? new Date(to).getTime() - new Date(previousFrom).getTime()
+                        : 0
+                    const gap = span > 0 ? span : 60 * 60_000
+                    setEndTime(toZonedInput(new Date(new Date(from).getTime() + gap), timezone))
+                  }}
                   required
                 />
               </FormField>
@@ -506,9 +541,39 @@ function MeetingDialog({
               </FormField>
             </div>
 
-            <FormField label="Location" hint="A room, an address, or a video link.">
-              <Input value={location} onChange={(e) => setLocation(e.target.value)} />
-            </FormField>
+            {/*
+              Which clock these times are on. Without it the form is ambiguous
+              for anyone whose own timezone differs from the workspace's — and
+              they are the people most likely to get it wrong.
+            */}
+            <p className="-mt-1 text-xs text-ink-muted">
+              Times are in the workspace timezone, {timezoneLabel(timezone)}.
+            </p>
+
+            {/*
+              CREATE ONLY. The Meet room is minted by Google during the create
+              call, so on an edit there is no decision left to offer — the link
+              either exists already or the event was made without one.
+            */}
+            {meeting ? null : (
+              <label className="flex items-start justify-between gap-4 rounded-lg border border-line p-3">
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Video className="size-4 text-ink-muted" aria-hidden />
+                    Add a Google Meet link
+                  </span>
+                  <span className="mt-0.5 block text-xs text-ink-muted">
+                    Google creates the room and puts it in every invite. Turn it off
+                    for an in-person meeting.
+                  </span>
+                </span>
+                <Switch
+                  checked={addMeetLink}
+                  onCheckedChange={setAddMeetLink}
+                  aria-label="Add a Google Meet link"
+                />
+              </label>
+            )}
 
             <FormField
               label="Attendees"

@@ -32,7 +32,6 @@ async function handlePOST(request: NextRequest) {
       tenant_id: ctx.tenantId,
       title: input.title,
       description: input.description,
-      location: input.location,
       start_time: input.startTime,
       end_time: input.endTime,
       attendees: input.attendees,
@@ -45,10 +44,11 @@ async function handlePOST(request: NextRequest) {
 
   if (error) return jsonError(friendlyDbError(error), 400)
 
-  const pushed = await pushToGoogle(ctx.tenantId, {
-    ...meeting,
-    attendees: input.attendees,
-  })
+  const pushed = await pushToGoogle(
+    ctx.tenantId,
+    { ...meeting, attendees: input.attendees, timezone: input.timezone },
+    input.addMeetLink
+  )
 
   if (pushed) {
     // The Meet link is minted by Google during create, so it only exists now —
@@ -87,8 +87,10 @@ async function pushToGoogle(
     location: string | null
     start_time: string
     end_time: string
+    timezone?: string
     attendees: Array<{ email: string; name?: string }>
-  }
+  },
+  addMeetLink: boolean
 ): Promise<{ eventId: string; meetLink: string | null } | null> {
   try {
     const admin = createAdminClient()
@@ -106,7 +108,7 @@ async function pushToGoogle(
     const accessToken = await getAccessToken(admin, data as Connection)
     if (!accessToken) return null
 
-    const result = await createEvent(accessToken, meetingToEvent(meeting))
+    const result = await createEvent(accessToken, meetingToEvent(meeting), addMeetLink)
     if (!result.ok) {
       console.warn('[meetings] Google create failed', result.status, result.detail)
       return null

@@ -693,9 +693,23 @@ export const meetingSchema = z
   .object({
     title: z.string().trim().min(2, 'Give the meeting a title').max(200),
     description: optionalText(4000),
-    location: optionalText(300),
     startTime: z.string().datetime({ offset: true }),
     endTime: z.string().datetime({ offset: true }),
+    /*
+     * The zone the form's wall clock was on — the workspace's, not the
+     * browser's. The instants above are already absolute, so this is carried
+     * purely so Google renders the event on the same clock the organiser used;
+     * an invitee in another country then sees it converted, rather than seeing
+     * our server's idea of the time.
+     */
+    timezone: z.string().trim().max(64).optional(),
+    /*
+     * Whether to ask Google to mint a Meet room. Defaults ON because that is
+     * what nearly every meeting wants and what the product did before the
+     * toggle existed — an older client that does not send the field keeps
+     * behaving exactly as it did.
+     */
+    addMeetLink: z.boolean().default(true),
     attendees: z
       .array(z.object({ email: emailSchema, name: z.string().trim().max(120).optional() }))
       .max(50)

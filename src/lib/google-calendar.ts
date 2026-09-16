@@ -283,16 +283,30 @@ export interface MeetingForEvent {
   location?: string | null
   start_time: string
   end_time: string
+  /** The workspace's IANA zone, so Google anchors the event to the org's clock. */
+  timezone?: string | null
   attendees?: Array<{ email: string; name?: string }>
 }
 
 export function meetingToEvent(meeting: MeetingForEvent): GoogleEvent {
+  /*
+   * `timeZone` alongside a UTC `dateTime` is not redundant.
+   *
+   * The instant is already absolute, so the event lands at the right moment
+   * either way — but without a zone Google files it against the CALENDAR'S
+   * default, which is the connected Google account's, not the workspace's. A
+   * recurring series then expands on the wrong clock, and a DST change moves
+   * every later occurrence relative to what the organiser set. Naming the
+   * workspace zone keeps the two sides on the same calendar.
+   */
+  const timeZone = meeting.timezone || undefined
+
   return {
     summary: meeting.title,
     description: meeting.description ?? undefined,
     location: meeting.location ?? undefined,
-    start: { dateTime: new Date(meeting.start_time).toISOString() },
-    end: { dateTime: new Date(meeting.end_time).toISOString() },
+    start: { dateTime: new Date(meeting.start_time).toISOString(), timeZone },
+    end: { dateTime: new Date(meeting.end_time).toISOString(), timeZone },
     attendees: (meeting.attendees ?? []).map((a) => ({ email: a.email, displayName: a.name })),
   }
 }
@@ -305,17 +319,26 @@ export function meetingToEvent(meeting: MeetingForEvent): GoogleEvent {
  * which is exactly why meetings made in this app used to show no Join button
  * while Google-owned ones did. The `requestId` is the idempotency key: a retry
  * carrying the same one attaches the same room rather than minting a second.
+ *
+ * `withMeetLink` is the organiser's choice from the create form. When false we
+ * send no `conferenceData` at all — an in-person meeting should not arrive in
+ * everyone's invite with a video room attached to it.
  */
-export async function createEvent(accessToken: string, event: GoogleEvent) {
-  const body: GoogleEvent = {
-    ...event,
-    conferenceData: event.conferenceData ?? {
-      createRequest: {
-        requestId: crypto.randomUUID(),
-        conferenceSolutionKey: { type: 'hangoutsMeet' },
-      },
-    },
-  }
+export async function createEvent(
+  accessToken: string,
+  event: GoogleEvent,
+  withMeetLink = true
+) {
+  const conferenceData = withMeetLink
+    ? event.conferenceData ?? {
+        createRequest: {
+          requestId: crypto.randomUUID(),
+          conferenceSolutionKey: { type: 'hangoutsMeet' as const },
+        },
+      }
+    : undefined
+
+  const body: GoogleEvent = { ...event, conferenceData }
   return callCalendar<GoogleEvent>(
     accessToken,
     `/calendars/${CALENDAR_ID}/events?conferenceDataVersion=1`,

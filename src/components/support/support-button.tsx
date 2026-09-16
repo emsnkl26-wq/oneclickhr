@@ -16,6 +16,12 @@
  *
  * Fixed rather than sticky, and above the content: it has to be reachable from
  * the bottom of a long page, which is exactly where people give up.
+ *
+ * DRAGGABLE, because a fixed button in one corner inevitably covers something —
+ * the last row of a table, a sticky save bar, a chart legend. The position is
+ * remembered in localStorage and NOT in the database: it is a property of this
+ * screen, not of the person. The same account on a laptop and on a phone wants
+ * it in different places, and a server round trip for it would be absurd.
  */
 
 import * as React from 'react'
@@ -30,6 +36,7 @@ import {
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
+import { useDraggablePosition } from './use-draggable-position'
 
 const CATEGORIES = [
   { value: 'bug', label: 'Something is broken' },
@@ -41,6 +48,9 @@ const CATEGORIES = [
 
 export function SupportButton() {
   const pathname = usePathname()
+  const { ref, style, dragging, onPointerDown, wasDragged } = useDraggablePosition(
+    'oneclickhr.support-button.position'
+  )
   const [open, setOpen] = React.useState(false)
   const [category, setCategory] = React.useState<string>('bug')
   const [subject, setSubject] = React.useState('')
@@ -90,9 +100,21 @@ export function SupportButton() {
   return (
     <>
       <button
+        ref={ref}
         type="button"
-        onClick={() => setOpen(true)}
-        className="focus-ring fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-brand-600 px-4 py-3 text-sm font-medium text-white shadow-pop transition hover:bg-brand-700"
+        onPointerDown={onPointerDown}
+        onClick={() => {
+          // A drag ends with a click event on the same element. Opening the
+          // dialog every time someone repositions the button would make it
+          // nearly impossible to move.
+          if (wasDragged()) return
+          setOpen(true)
+        }}
+        style={style}
+        title="Drag to move"
+        className={`focus-ring fixed z-40 inline-flex touch-none select-none items-center gap-2 rounded-full bg-brand-600 px-4 py-3 text-sm font-medium text-white shadow-pop hover:bg-brand-700 ${
+          dragging ? 'cursor-grabbing' : 'transition-[background-color,transform] cursor-pointer'
+        }`}
       >
         <LifeBuoy className="size-4" aria-hidden />
         <span className="hidden sm:inline">Support</span>

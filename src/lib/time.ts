@@ -250,3 +250,41 @@ export function formatDayHeader(date: string): string {
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
   return `${WEEK_DAY_LABELS[dow]}, ${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}`
 }
+
+/**
+ * `timestamptz` -> the `YYYY-MM-DDTHH:mm` a `datetime-local` input wants,
+ * expressed in the ORG'S timezone.
+ *
+ * NOT the browser's. Every meeting on this screen is rendered with
+ * `formatLocal(..., tenant.timezone)`, so the form has to read and write the
+ * same wall clock. Using the browser zone (what `getTimezoneOffset()` gives)
+ * meant someone in London editing a Kolkata workspace's 14:00 meeting saw 09:30
+ * in the form, and saving it unchanged moved the meeting — the timezone bug the
+ * workspace reported.
+ */
+export function toZonedInput(instant: Date | string, tz: string): string {
+  const d = typeof instant === 'string' ? new Date(instant) : instant
+  if (Number.isNaN(d.getTime())) return ''
+  return formatInTimeZone(d, safeTimezone(tz), "yyyy-MM-dd'T'HH:mm")
+}
+
+/**
+ * The inverse: a `datetime-local` value read as wall-clock IN `tz`, returned as
+ * the UTC instant we store. `fromZonedTime` resolves the offset for that actual
+ * date, so it stays correct either side of a DST change.
+ */
+export function fromZonedInput(value: string, tz: string): string | null {
+  if (!value) return null
+  const instant = fromZonedTime(value, safeTimezone(tz))
+  return Number.isNaN(instant.getTime()) ? null : instant.toISOString()
+}
+
+/** "Asia/Kolkata (GMT+5:30)" — the zone label shown beside a time field. */
+export function timezoneLabel(tz: string): string {
+  const zone = safeTimezone(tz)
+  try {
+    return `${zone} (${formatInTimeZone(new Date(), zone, 'OOOO')})`
+  } catch {
+    return zone
+  }
+}

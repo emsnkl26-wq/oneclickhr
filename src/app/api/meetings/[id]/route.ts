@@ -68,7 +68,6 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     .update({
       title: input.title,
       description: input.description,
-      location: input.location,
       start_time: input.startTime,
       end_time: input.endTime,
       attendees: input.attendees,
@@ -88,9 +87,9 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
         meetingToEvent({
           title: input.title,
           description: input.description,
-          location: input.location,
           start_time: input.startTime,
           end_time: input.endTime,
+          timezone: input.timezone,
           attendees: input.attendees,
         })
       )

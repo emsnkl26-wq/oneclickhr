@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   localDate, isLateLogin, hoursBetween, daysUntil, inclusiveDays, weekDates,
   isValidTimezone, safeTimezone, formatDateLabel, formatInstantLabel,
+  toZonedInput, fromZonedInput,
 } from '@/lib/time'
 
 /**
@@ -188,5 +189,50 @@ describe('instant labels', () => {
     expect(formatInstantLabel(null)).toBe('—')
     expect(formatInstantLabel(undefined)).toBe('—')
     expect(formatInstantLabel('nonsense')).toBe('—')
+  })
+})
+
+/**
+ * The meeting form's clock.
+ *
+ * These two are inverses, and they must both be anchored to the WORKSPACE'S
+ * zone. The bug they fix: the form read and wrote wall-clock time in the
+ * browser's zone while every meeting on the page was rendered in the org's, so
+ * anyone whose machine did not match the workspace saw one time, saved another,
+ * and moved the meeting just by opening and saving it unchanged.
+ */
+describe('toZonedInput / fromZonedInput', () => {
+  it('shows an instant on the ORG clock, not UTC', () => {
+    // 08:30 UTC is 14:00 in Kolkata (+5:30) on the same day.
+    expect(toZonedInput('2026-09-16T08:30:00Z', 'Asia/Kolkata')).toBe('2026-09-16T14:00')
+    expect(toZonedInput('2026-09-16T08:30:00Z', 'UTC')).toBe('2026-09-16T08:30')
+  })
+
+  it('reads a form value back as the instant that wall clock means in the zone', () => {
+    expect(fromZonedInput('2026-09-16T14:00', 'Asia/Kolkata')).toBe('2026-09-16T08:30:00.000Z')
+    expect(fromZonedInput('2026-09-16T14:00', 'America/New_York')).toBe('2026-09-16T18:00:00.000Z')
+  })
+
+  it('round-trips without moving the meeting — the reported bug', () => {
+    const stored = '2026-09-16T08:30:00.000Z'
+    for (const tz of ['Asia/Kolkata', 'America/New_York', 'Europe/London', 'UTC']) {
+      expect(fromZonedInput(toZonedInput(stored, tz), tz)).toBe(stored)
+    }
+  })
+
+  it('uses the offset in force ON THAT DATE, either side of a DST change', () => {
+    // New York is UTC-4 in July and UTC-5 in January. A fixed offset would put
+    // one of these an hour out.
+    expect(fromZonedInput('2026-07-15T09:00', 'America/New_York')).toBe('2026-07-15T13:00:00.000Z')
+    expect(fromZonedInput('2026-01-15T09:00', 'America/New_York')).toBe('2026-01-15T14:00:00.000Z')
+  })
+
+  it('falls back to the default zone rather than throwing on a bad one', () => {
+    expect(toZonedInput('2026-09-16T08:30:00Z', 'Not/AZone')).toBe('2026-09-16T14:00')
+  })
+
+  it('returns empty / null for missing or unparseable values', () => {
+    expect(toZonedInput('nonsense', 'UTC')).toBe('')
+    expect(fromZonedInput('', 'UTC')).toBeNull()
   })
 })
