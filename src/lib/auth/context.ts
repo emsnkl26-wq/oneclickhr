@@ -70,6 +70,13 @@ export interface AppContext {
     domainVerifyDueAt: string | null
     /** What a NEW employee inherits. Never a runtime fallback (025). */
     defaultTrackingMode: TrackingMode | null
+    /**
+     * The currency every money figure in this workspace is reported in (033).
+     * Totals are never converted into it — rows in another currency are counted
+     * and reported as excluded, because a wrong rate is worse than an honest
+     * omission.
+     */
+    defaultCurrency: string
   } | null
 }
 
@@ -175,6 +182,9 @@ async function loadContextUncached(): Promise<ContextResult> {
           // Null when the org has not chosen. New employees then inherit nothing,
           // which means no restriction — see the header of 025.
           defaultTrackingMode: (row.tenant_default_tracking_mode ?? null) as TrackingMode | null,
+          // USD when the column is absent (034 not applied yet), matching the
+          // column default and the default `invoices.currency` has had since 001.
+          defaultCurrency: row.tenant_default_currency ?? 'USD',
         }
       : null,
   }

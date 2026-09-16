@@ -26,6 +26,13 @@ export interface Tenant {
   id: string
   name: string
   slug: string
+  /**
+   * The org's own short prefix, e.g. `NKL` — what generated employee and
+   * invoice codes are built from (031_org_code.sql). Null for a workspace whose
+   * name no code could be derived from, and for those the old `EMP-`/`INV-`
+   * series stays in use.
+   */
+  org_code: string | null
   logo_url: string | null
   primary_color: string
   status: TenantStatus
@@ -270,8 +277,65 @@ export interface AppNotification {
   description: string | null
   send_to_type: NotificationTarget
   target_id: string | null
+  /**
+   * Optional picture (032): an R2 object key, or an external https:// URL.
+   * Resolve it with `notificationImageSrc` rather than reading it directly —
+   * the two shapes load by different routes.
+   */
+  image_url: string | null
   created_by: string | null
   created_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Expenses (033_expenses.sql)
+// ---------------------------------------------------------------------------
+
+export type ExpenseCategory =
+  | 'payroll' | 'software' | 'rent' | 'utilities' | 'travel' | 'marketing'
+  | 'equipment' | 'professional_services' | 'taxes' | 'insurance' | 'other'
+
+/** `manual` was typed by a person; `recurring` was minted by a rule. */
+export type ExpenseSource = 'manual' | 'recurring'
+
+export interface Expense {
+  id: string
+  tenant_id: string
+  title: string
+  description: string | null
+  category: ExpenseCategory
+  vendor: string | null
+  amount: number
+  currency: string
+  spent_on: string
+  /** An R2 object key, never a URL — read it through /api/files/view. */
+  receipt_url: string | null
+  source: ExpenseSource
+  recurring_id: string | null
+  /** First of the month this line belongs to. Null unless `source` is recurring. */
+  recurring_period: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RecurringExpense {
+  id: string
+  tenant_id: string
+  title: string
+  description: string | null
+  category: ExpenseCategory
+  vendor: string | null
+  amount: number
+  currency: string
+  /** 1–28, so the rule fires in every month of every year. */
+  day_of_month: number
+  start_date: string
+  end_date: string | null
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface WorkAuthorization {
@@ -498,6 +562,8 @@ export interface CurrentProfile {
   tenant_domain: string | null
   tenant_domain_verified: boolean | null
   tenant_domain_due_at: string | null
+  /** Added by 034. Optional so a database without it applied still type-checks. */
+  tenant_default_currency?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -704,6 +770,14 @@ export interface GeneratedDocument {
 export interface CompanyDetails {
   name: string
   logoUrl: string | null
+  /**
+   * The short prefix generated employee and invoice codes are built from.
+   * Optional because the letterhead does not print it — only the settings form
+   * reads and writes it, and the document builders have no reason to select it.
+   */
+  orgCode?: string | null
+  /** The currency expenses, invoices and the profit figure are reported in. */
+  defaultCurrency?: string
   addressLine1: string | null
   addressLine2: string | null
   city: string | null

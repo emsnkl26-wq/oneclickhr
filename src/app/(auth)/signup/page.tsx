@@ -7,9 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
+import { deriveOrgCode } from '@/lib/org-code'
 
 export default function SignupPage() {
   const [orgName, setOrgName] = React.useState('')
+  const [orgCode, setOrgCode] = React.useState('')
   const [domain, setDomain] = React.useState('')
   const [fullName, setFullName] = React.useState('')
   const [email, setEmail] = React.useState('')
@@ -27,7 +29,17 @@ export default function SignupPage() {
     setSubmitting(true)
 
     try {
-      await apiPost('/api/auth/signup', { orgName, domain, fullName, email, password })
+      await apiPost('/api/auth/signup', {
+        orgName,
+        // Blank is allowed: the server derives one from the name. Sending the
+        // suggestion instead would make an untouched placeholder look like a
+        // deliberate choice.
+        orgCode: orgCode.trim() || undefined,
+        domain,
+        fullName,
+        email,
+        password,
+      })
       setSent(true)
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -63,6 +75,8 @@ export default function SignupPage() {
     )
   }
 
+  const suggestion = deriveOrgCode(orgName)
+
   const passwordRules = [
     { label: 'At least 10 characters', met: password.length >= 10 },
     { label: 'Contains a letter', met: /[a-zA-Z]/.test(password) },
@@ -87,6 +101,34 @@ export default function SignupPage() {
             value={orgName}
             onChange={(e) => setOrgName(e.target.value)}
             required
+          />
+        </FormField>
+
+        {/*
+          Asked at signup because it prefixes every ID this workspace ever
+          generates — employee codes, invoice numbers — and changing it later
+          cannot renumber what has already been issued. Optional, and shown with
+          the derived suggestion as its placeholder, so anyone who has no strong
+          feeling can leave it alone and still get NKL-0001 rather than EMP-0001.
+        */}
+        <FormField
+          label="Organization code"
+          error={fields.orgCode}
+          hint={
+            suggestion
+              ? `Used for employee and invoice IDs, e.g. ${suggestion}-0001. Leave blank to use ${suggestion}.`
+              : 'Used for employee and invoice IDs, e.g. NKL-0001. Optional.'
+          }
+        >
+          <Input
+            name="orgCode"
+            placeholder={suggestion ?? 'NKL'}
+            value={orgCode}
+            maxLength={6}
+            // Uppercased as they type so the field always shows what will be
+            // stored — the column only accepts upper case.
+            onChange={(e) => setOrgCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            className="uppercase"
           />
         </FormField>
 

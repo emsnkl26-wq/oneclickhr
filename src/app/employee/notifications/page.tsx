@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader, EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Card } from '@/components/ui/card'
 import { formatLocal } from '@/lib/time'
+import { notificationImageSrc } from '@/lib/notification-image'
 import { NotificationReader } from './notification-reader'
 
 export const metadata: Metadata = { title: 'Notifications' }
@@ -23,7 +24,7 @@ export default async function EmployeeNotificationsPage() {
   const [{ data: notifications }, { data: reads }] = await Promise.all([
     supabase
       .from('notifications')
-      .select('id, title, description, send_to_type, created_at')
+      .select('id, title, description, send_to_type, image_url, created_at')
       .order('created_at', { ascending: false })
       .limit(200),
     supabase.from('notification_reads').select('notification_id'),
@@ -73,6 +74,14 @@ export default async function EmployeeNotificationsPage() {
                       <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-ink-muted">
                         {item.description}
                       </p>
+                    ) : null}
+                    {item.image_url ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={notificationImageSrc(item.image_url) as string}
+                        alt=""
+                        className="mt-3 max-h-80 w-full rounded-lg border border-line object-cover"
+                      />
                     ) : null}
                   </div>
                   <span className="shrink-0 whitespace-nowrap text-xs text-ink-muted">

@@ -592,16 +592,22 @@ Hobby plan only allows one run per day (too infrequent for the calendar
 fallback), and pg_net is fire-and-forget, so a 500 from the app would show up as
 a green run.
 
-Sign up at [cron-job.org](https://cron-job.org), then create **three** jobs. All
+Sign up at [cron-job.org](https://cron-job.org), then create **four** jobs. All
 use the same settings apart from the URL and the schedule:
 
-| Setting | Visa reminders | Calendar sync fallback | Résumé sweep |
-| --- | --- | --- | --- |
-| URL | `https://your-domain.com/api/cron/visa-reminders` | `https://your-domain.com/api/cron/calendar-sync` | `https://your-domain.com/api/cron/jobs-gc` |
-| Schedule | Daily at **03:30 UTC** | Every **15 minutes** | Daily at **04:00 UTC** |
-| Request method | `POST` | `POST` | `POST` |
-| Header | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` |
-| Save responses | on | on | on |
+| Setting | Visa reminders | Calendar sync fallback | Résumé sweep | Auto expenses |
+| --- | --- | --- | --- | --- |
+| URL | `https://your-domain.com/api/cron/visa-reminders` | `https://your-domain.com/api/cron/calendar-sync` | `https://your-domain.com/api/cron/jobs-gc` | `https://your-domain.com/api/cron/auto-expenses` |
+| Schedule | Daily at **03:30 UTC** | Every **15 minutes** | Daily at **04:00 UTC** | Daily at **04:30 UTC** |
+| Request method | `POST` | `POST` | `POST` | `POST` |
+| Header | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` |
+| Save responses | on | on | on | on |
+
+> **Auto expenses is safe to run as often as you like.** It books this month's
+> line for every active recurring expense, and the guarantee that it does so
+> exactly once is a unique index — `(recurring_id, recurring_period)` — not a
+> check the job performs. A second run in the same month inserts nothing and
+> reports `created: 0`, so a retry after a failure is always the right move.
 
 > **The résumé sweep is not optional if you run the job portal.**
 > `/api/jobs/resume-presign` is the one write an unauthenticated visitor can

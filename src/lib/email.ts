@@ -331,6 +331,16 @@ export interface AnnouncementArgs {
   description?: string | null
   orgName: string
   brandColor?: string
+  /**
+   * An absolute https:// image URL, or omitted.
+   *
+   * ONLY THE EXTERNAL KIND REACHES EMAIL. An uploaded image lives in a private
+   * bucket behind /api/files/view, which authorizes by session cookie — and a
+   * mail client fetching an `<img>` sends no cookies, so it would render as a
+   * broken image in every inbox. The caller filters; the in-app notification
+   * shows the uploaded one either way.
+   */
+  imageUrl?: string | null
 }
 
 export async function sendAnnouncement(args: AnnouncementArgs): Promise<SendResult> {
@@ -338,6 +348,11 @@ export async function sendAnnouncement(args: AnnouncementArgs): Promise<SendResu
     `
     <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">${esc(args.title)}</h1>
     ${args.description ? `<p style="margin:0 0 18px;white-space:pre-line;">${esc(args.description)}</p>` : ''}
+    ${
+      args.imageUrl
+        ? `<img src="${esc(args.imageUrl)}" alt="" style="display:block;width:100%;max-width:520px;height:auto;border:0;border-radius:10px;margin:0 0 18px;" />`
+        : ''
+    }
     ${button(`${appUrl()}/employee/notifications`, 'Open the portal', args.brandColor || '#C41E33')}
   `,
     { brandName: args.orgName, brandColor: args.brandColor, preheader: args.title }

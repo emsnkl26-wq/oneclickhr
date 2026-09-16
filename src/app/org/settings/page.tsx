@@ -24,7 +24,7 @@ export default async function SettingsPage() {
     // only what every page needs, and these are read on this one screen.
     supabase
       .from('tenants')
-      .select('address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone')
+      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone')
       .eq('id', ctx.tenantId)
       .single(),
   ])
@@ -32,6 +32,8 @@ export default async function SettingsPage() {
   const company: CompanyDetails = {
     name: ctx.tenant.name,
     logoUrl: ctx.tenant.logoUrl,
+    orgCode: tenant?.org_code ?? null,
+    defaultCurrency: tenant?.default_currency ?? 'USD',
     addressLine1: tenant?.address_line1 ?? null,
     addressLine2: tenant?.address_line2 ?? null,
     city: tenant?.city ?? null,

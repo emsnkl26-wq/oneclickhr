@@ -31,6 +31,24 @@ export function countryName(code: string): string {
 }
 
 /**
+ * The ISO-2 code for whatever is stored, given that not every column stores a
+ * code. Job postings store `US`; company details have always stored the printed
+ * name `United States`, because that string goes straight onto a letterhead.
+ * Rather than migrate the column and risk a letterhead that reads "US", the
+ * picker resolves either spelling on the way in and writes the name on the way
+ * out. Returns '' for anything not on the list, which the form treats as "no
+ * country chosen" and falls back to a text box.
+ */
+export function countryCodeOf(stored: string | null | undefined): string {
+  const value = (stored ?? '').trim()
+  if (!value) return ''
+  const upper = value.toUpperCase()
+  if (COUNTRY_CODES.includes(upper as (typeof COUNTRY_CODES)[number])) return upper
+  const match = COUNTRY_CODES.find((code) => COUNTRY_NAMES[code].toLowerCase() === value.toLowerCase())
+  return match ?? ''
+}
+
+/**
  * What the first level of a country's address is CALLED there. Drives the field
  * label, so nobody in London is asked for their "state".
  */

@@ -87,6 +87,10 @@ async function handlePOST(request: NextRequest) {
       // Untrusted display data only. The role is forced to 'org' in the trigger.
       data: {
         org_name: input.orgName,
+        // Read back by `provision_tenant_for_org()`, which re-validates the
+        // shape before it lands: this is user metadata and therefore untrusted,
+        // and an unusable value falls back to one derived from the name.
+        org_code: input.orgCode,
         full_name: input.fullName,
         // A CLAIM, not a credential. `provision_tenant_for_org()` copies it onto
         // the new tenant as unverified, re-checking its shape on the way in

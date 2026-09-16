@@ -8,10 +8,13 @@ import {
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { EmptyState, StatusChip } from '@/components/ui/patterns'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { todayIn, formatLocal, daysUntil, addDays } from '@/lib/time'
+import {
+  formatMoney, monthRange, totalExpenses, totalPayroll, totalRevenue,
+} from '@/lib/expenses'
 import { cn, initials } from '@/lib/utils'
 // The two plots come from the loader, not from `dashboard-charts` directly:
 // importing them statically would pull ~105kB of recharts into this route's
@@ -68,6 +71,8 @@ export default async function OrgDashboard() {
    */
   const visaHorizon = addDays(today, 120)
   const trendStart = addDays(today, -(TREND_DAYS - 1))
+  const thisMonth = today.slice(0, 7)
+  const { from: monthFrom, to: monthTo } = monthRange(thisMonth)
 
   const [
     employees,
@@ -79,6 +84,9 @@ export default async function OrgDashboard() {
     pendingTimesheets,
     openTickets,
     attendanceWindow,
+    monthExpenses,
+    monthPayroll,
+    monthInvoices,
   ] = await Promise.all([
     supabase
       .from('profiles')
@@ -133,6 +141,33 @@ export default async function OrgDashboard() {
       .gte('date', trendStart)
       .lte('date', today)
       .limit(20000),
+
+    /*
+     * This month's money. Three narrow reads, deliberately scoped to the
+     * CURRENT MONTH rather than all time: "are we up or down" is a question
+     * about the period you are in, and an all-time figure on a dashboard is one
+     * nobody can act on.
+     *
+     * Payroll is derived from verified payment confirmations rather than copied
+     * into `expenses` — see 033's header for why there is no second copy.
+     */
+    supabase
+      .from('expenses')
+      .select('amount, currency, category')
+      .gte('spent_on', monthFrom)
+      .lte('spent_on', monthTo)
+      .limit(2000),
+    supabase
+      .from('payment_confirmations')
+      .select('amount, currency, status')
+      .eq('month', Number(thisMonth.slice(5, 7)))
+      .eq('year', Number(thisMonth.slice(0, 4))),
+    supabase
+      .from('invoices')
+      .select('amount_paid, currency, status')
+      .gte('issue_date', monthFrom)
+      .lte('issue_date', monthTo)
+      .limit(2000),
   ])
 
   /** PostgREST returns a one-to-one embed as an object, or null when unmatched. */
@@ -162,6 +197,19 @@ export default async function OrgDashboard() {
 
   const totalEmployees = employees.count ?? 0
   const presentToday = todayAttendance.count ?? 0
+
+  /*
+   * This month's money, all in the workspace's own currency. Rows in another
+   * one are COUNTED and reported, never converted — a wrong rate is worse than
+   * an honest omission. See the header of src/lib/expenses.ts.
+   */
+  const currency = ctx.tenant.defaultCurrency
+  const loggedSpend = totalExpenses(monthExpenses.data ?? [], currency)
+  const payroll = totalPayroll(monthPayroll.data ?? [], currency)
+  const revenue = totalRevenue(monthInvoices.data ?? [], currency)
+  const spend = loggedSpend.total + payroll.total
+  const netResult = revenue.total - spend
+  const excludedRows = loggedSpend.excluded + payroll.excluded + revenue.excluded
   const pendingLeaveCount = pendingLeaves.count ?? leaveRows.length
   const expiringVisaCount = expiringVisas.count ?? visas.length
 
@@ -381,6 +429,41 @@ export default async function OrgDashboard() {
           </Card>
         </div>
       </div>
+
+      {/* ----------------------------------------------------------- Money ---
+        What this month cost and what came in. Deliberately three plain figures
+        and no chart: the useful question here is "are we up or down", and a
+        sparkline of two data points answers it worse than the number does.
+      */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle>This month</CardTitle>
+            <CardDescription>
+              Collected against everything spent, including payroll.
+            </CardDescription>
+          </div>
+          <ViewAll href="/org/expenses" label="Expenses" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <MoneyFigure label="Revenue collected" value={formatMoney(revenue.total, currency)} />
+            <MoneyFigure label="Total spend" value={formatMoney(spend, currency)} />
+            <MoneyFigure
+              label={netResult >= 0 ? 'Profit' : 'Loss'}
+              value={formatMoney(Math.abs(netResult), currency)}
+              tone={netResult >= 0 ? 'good' : 'bad'}
+            />
+          </div>
+          {excludedRows > 0 ? (
+            // Said out loud rather than quietly converted — see src/lib/expenses.ts.
+            <p className="mt-3 text-xs text-ink-muted">
+              {excludedRows} {excludedRows === 1 ? 'entry is' : 'entries are'} in another currency
+              and {excludedRows === 1 ? 'is' : 'are'} not counted here. Nothing has been converted.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {/* ------------------------------------------------------------- Lists */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -615,6 +698,27 @@ function DeltaChip({ percent }: { percent: number }) {
 }
 
 /* ------------------------------------------------------------ Small pieces */
+
+function MoneyFigure({
+  label, value, tone,
+}: {
+  label: string
+  value: string
+  tone?: 'good' | 'bad'
+}) {
+  return (
+    <div className="rounded-lg bg-page px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">{label}</p>
+      <p
+        className={`tabular mt-1 text-xl font-bold ${
+          tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-danger' : ''
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
 
 function OperationRow({
   icon: Icon, tone, label, value, href,

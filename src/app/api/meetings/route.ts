@@ -45,13 +45,19 @@ async function handlePOST(request: NextRequest) {
 
   if (error) return jsonError(friendlyDbError(error), 400)
 
-  const googleEventId = await pushToGoogle(ctx.tenantId, {
+  const pushed = await pushToGoogle(ctx.tenantId, {
     ...meeting,
     attendees: input.attendees,
   })
 
-  if (googleEventId) {
-    await supabase.from('meetings').update({ google_event_id: googleEventId }).eq('id', meeting.id)
+  if (pushed) {
+    // The Meet link is minted by Google during create, so it only exists now —
+    // writing it here is what puts a Join button on the card without waiting
+    // for the next incremental sync to bring it back.
+    await supabase
+      .from('meetings')
+      .update({ google_event_id: pushed.eventId, meet_link: pushed.meetLink })
+      .eq('id', meeting.id)
   }
 
   await audit({
@@ -61,16 +67,17 @@ async function handlePOST(request: NextRequest) {
     action: 'meeting.created',
     entity: 'meetings',
     entityId: meeting.id,
-    meta: { syncedToGoogle: !!googleEventId },
+    meta: { syncedToGoogle: !!pushed },
     request,
   })
 
-  return jsonOk({ id: meeting.id, syncedToGoogle: !!googleEventId }, 201)
+  return jsonOk({ id: meeting.id, syncedToGoogle: !!pushed }, 201)
 }
 
 /**
- * Push a new meeting to Google. Returns the event id, or null when the tenant is
- * not connected or the call failed — never throws into the create path.
+ * Push a new meeting to Google. Returns the event id and the Meet link Google
+ * minted for it, or null when the tenant is not connected or the call failed —
+ * never throws into the create path.
  */
 async function pushToGoogle(
   tenantId: string,
@@ -82,7 +89,7 @@ async function pushToGoogle(
     end_time: string
     attendees: Array<{ email: string; name?: string }>
   }
-): Promise<string | null> {
+): Promise<{ eventId: string; meetLink: string | null } | null> {
   try {
     const admin = createAdminClient()
     const { data } = await admin
@@ -104,7 +111,8 @@ async function pushToGoogle(
       console.warn('[meetings] Google create failed', result.status, result.detail)
       return null
     }
-    return result.data.id ?? null
+    if (!result.data.id) return null
+    return { eventId: result.data.id, meetLink: result.data.hangoutLink ?? null }
   } catch (err) {
     console.warn('[meetings] Google push failed; meeting saved locally', err)
     return null

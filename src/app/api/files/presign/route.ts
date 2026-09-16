@@ -48,6 +48,10 @@ const FOLDERS: Record<string, string> = {
   payment_proof: 'payment-proofs',
   employee_doc: 'documents',
   work_auth: 'work-auth',
+  // Deliberately absent from EMPLOYEE_PURPOSES: only an org admin composes an
+  // announcement, so only an org admin has a reason to upload its banner.
+  notification_image: 'announcements',
+  expense_receipt: 'receipts',
   general: 'files',
 }
 

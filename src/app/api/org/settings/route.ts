@@ -35,6 +35,8 @@ const BRANDING_COLUMNS = {
 } as const
 
 const COMPANY_COLUMNS = {
+  orgCode: 'org_code',
+  defaultCurrency: 'default_currency',
   addressLine1: 'address_line1',
   addressLine2: 'address_line2',
   city: 'city',

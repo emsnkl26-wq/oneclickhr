@@ -4,7 +4,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  CalendarDays, Check, ExternalLink, Lock, Pencil, Plus, Trash2, Video, X,
+  CalendarDays, Check, ExternalLink, FileText, Lock, MapPin, Pencil, Plus, Trash2,
+  Users, Video, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { EmptyState, StatusChip } from '@/components/ui/patterns'
@@ -45,6 +46,7 @@ export function MeetingsWorkspace({
   const router = useRouter()
   const [tab, setTab] = React.useState<'upcoming' | 'past'>('upcoming')
   const [editing, setEditing] = React.useState<Meeting | null>(null)
+  const [viewing, setViewing] = React.useState<Meeting | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [deleting, setDeleting] = React.useState<Meeting | null>(null)
   const [busy, setBusy] = React.useState(false)
@@ -116,7 +118,18 @@ export function MeetingsWorkspace({
           {filtered.map((meeting) => (
             <li key={meeting.id}>
               <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-                <div className="flex min-w-0 flex-1 items-start gap-3.5">
+                {/*
+                  A button rather than a link: the detail lives in a dialog, so
+                  there is no URL to navigate to. Only the summary area is
+                  clickable — Join, Edit and Delete sit in the sibling column so
+                  they are never swallowed by it.
+                */}
+                <button
+                  type="button"
+                  onClick={() => setViewing(meeting)}
+                  aria-label={`Open ${meeting.title}`}
+                  className="flex min-w-0 flex-1 items-start gap-3.5 rounded-lg text-left focus-ring"
+                >
                   <span className="tabular grid w-14 shrink-0 rounded-lg bg-page py-2 text-center">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
                       {formatLocal(meeting.start_time, timezone, 'MMM')}
@@ -149,7 +162,7 @@ export function MeetingsWorkspace({
                       </p>
                     ) : null}
                   </div>
-                </div>
+                </button>
 
                 <div className="flex shrink-0 items-center gap-1">
                   {meeting.meet_link ? (
@@ -196,6 +209,16 @@ export function MeetingsWorkspace({
         </ul>
       )}
 
+      <MeetingDetailDialog
+        meeting={viewing}
+        timezone={timezone}
+        onClose={() => setViewing(null)}
+        onEdit={(meeting) => {
+          setViewing(null)
+          setEditing(meeting)
+        }}
+      />
+
       <MeetingDialog
         open={creating || !!editing}
         meeting={editing}
@@ -233,6 +256,139 @@ export function MeetingsWorkspace({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/**
+ * The read-only view of one meeting.
+ *
+ * Deliberately NOT the edit form. Most opens are someone checking where a
+ * meeting is or who is coming, and a form for that invites an accidental save —
+ * doubly so for Google-owned rows, which cannot be saved from here at all.
+ */
+function MeetingDetailDialog({
+  meeting, timezone, onClose, onEdit,
+}: {
+  meeting: Meeting | null
+  timezone: string
+  onClose: () => void
+  onEdit: (meeting: Meeting) => void
+}) {
+  return (
+    <Dialog open={!!meeting} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent>
+        {meeting ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="pr-6">{meeting.title}</DialogTitle>
+            </DialogHeader>
+            <DialogBody className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                {meeting.source === 'google' ? (
+                  <StatusChip status="info" tone="info" label="From Google" />
+                ) : null}
+                {meeting.read_only ? (
+                  <span className="inline-flex items-center gap-1 text-xs text-ink-muted">
+                    <Lock className="size-3.5" aria-hidden />
+                    Read only — edit it in Google Calendar
+                  </span>
+                ) : null}
+              </div>
+
+              <DetailRow icon={CalendarDays} label="When">
+                <span className="tabular">
+                  {formatLocal(meeting.start_time, timezone, 'EEEE d MMMM yyyy, HH:mm')} –{' '}
+                  {formatLocal(meeting.end_time, timezone, 'HH:mm')}
+                </span>
+                <span className="block text-xs text-ink-muted">{timezone}</span>
+              </DetailRow>
+
+              {meeting.location ? (
+                <DetailRow icon={MapPin} label="Where">
+                  {meeting.location}
+                </DetailRow>
+              ) : null}
+
+              {meeting.meet_link ? (
+                <DetailRow icon={Video} label="Video call">
+                  <a
+                    href={meeting.meet_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 break-all font-medium text-brand-600 hover:underline"
+                  >
+                    {meeting.meet_link}
+                    <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+                  </a>
+                </DetailRow>
+              ) : null}
+
+              {meeting.description ? (
+                <DetailRow icon={FileText} label="Description">
+                  <span className="whitespace-pre-line">{meeting.description}</span>
+                </DetailRow>
+              ) : null}
+
+              {meeting.attendees?.length ? (
+                <DetailRow icon={Users} label={`Attendees (${meeting.attendees.length})`}>
+                  <ul className="space-y-1">
+                    {meeting.attendees.map((attendee) => (
+                      <li key={attendee.email} className="min-w-0 truncate">
+                        {attendee.name ? (
+                          <>
+                            {attendee.name}{' '}
+                            <span className="text-ink-muted">{attendee.email}</span>
+                          </>
+                        ) : (
+                          attendee.email
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </DetailRow>
+              ) : null}
+            </DialogBody>
+            <DialogFooter>
+              <Button variant="secondary" onClick={onClose}>
+                Close
+              </Button>
+              {meeting.read_only ? null : (
+                <Button variant="secondary" onClick={() => onEdit(meeting)}>
+                  <Pencil />
+                  Edit
+                </Button>
+              )}
+              {meeting.meet_link ? (
+                <Button asChild>
+                  <a href={meeting.meet_link} target="_blank" rel="noopener noreferrer">
+                    <Video />
+                    Join meeting
+                  </a>
+                </Button>
+              ) : null}
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DetailRow({
+  icon: Icon, label, children,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex gap-3">
+      <Icon className="mt-0.5 size-4 shrink-0 text-ink-muted" aria-hidden />
+      <div className="min-w-0 text-sm">
+        <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">{label}</p>
+        <div className="mt-0.5">{children}</div>
+      </div>
     </div>
   )
 }

@@ -208,13 +208,19 @@ async function handlePOST(request: NextRequest) {
   // caller retries.
   let invoiceNumber = input.invoiceNumber
   if (!invoiceNumber) {
-    const { data: existing } = await supabase
-      .from('invoices')
-      .select('invoice_number')
-      .eq('tenant_id', ctx.tenantId)
-      .order('created_at', { ascending: false })
-      .limit(200)
-    invoiceNumber = suggestInvoiceNumber((existing ?? []).map((row) => row.invoice_number))
+    const [{ data: existing }, { data: tenant }] = await Promise.all([
+      supabase
+        .from('invoices')
+        .select('invoice_number')
+        .eq('tenant_id', ctx.tenantId)
+        .order('created_at', { ascending: false })
+        .limit(200),
+      supabase.from('tenants').select('org_code').eq('id', ctx.tenantId).maybeSingle(),
+    ])
+    invoiceNumber = suggestInvoiceNumber(
+      (existing ?? []).map((row) => row.invoice_number),
+      tenant?.org_code
+    )
   }
 
   const totals = computeTotals(items, input.taxPercent, 0)

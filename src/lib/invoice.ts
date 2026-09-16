@@ -6,6 +6,7 @@
  * subtotal that disagrees with the printed total by a cent is the kind of bug
  * that costs trust rather than money.
  */
+import { invoiceNumberFor } from '@/lib/org-code'
 import type { InvoiceItem } from '@/types/db'
 
 export interface InvoiceTotals {
@@ -57,17 +58,22 @@ export function normalizeItems(
 }
 
 /**
- * Next invoice number in the `INV-0001` series.
+ * Next invoice number in the workspace's series, e.g. `NKL-INV-0008`.
  *
  * Advisory only: the real guarantee is `UNIQUE(tenant_id, invoice_number)`, so
  * two people creating an invoice at the same moment get a conflict rather than
  * a duplicate, and the second one retries with a fresh suggestion.
+ *
+ * The COUNTER is read from the trailing digits of what already exists, whatever
+ * its prefix — so a workspace that adopts an org code mid-year continues at
+ * `NKL-INV-0042` after `INV-0041` rather than restarting the count and
+ * colliding with an invoice it has already sent.
  */
-export function suggestInvoiceNumber(existing: string[]): string {
+export function suggestInvoiceNumber(existing: string[], orgCode?: string | null): string {
   let highest = 0
   for (const number of existing) {
     const match = /(\d+)\s*$/.exec(number || '')
     if (match) highest = Math.max(highest, parseInt(match[1], 10))
   }
-  return `INV-${String(highest + 1).padStart(4, '0')}`
+  return invoiceNumberFor(orgCode, highest + 1)
 }

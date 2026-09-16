@@ -181,12 +181,15 @@ async function handlePOST(request: NextRequest, { params }: Params) {
       )
     }
   } else {
-    const { count } = await admin
-      .from('profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .eq('role', 'employee')
-    employeeCode = suggestEmployeeCode(count ?? 0)
+    const [{ count }, { data: tenant }] = await Promise.all([
+      admin
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('role', 'employee'),
+      admin.from('tenants').select('org_code').eq('id', tenantId).maybeSingle(),
+    ])
+    employeeCode = suggestEmployeeCode(count ?? 0, tenant?.org_code)
   }
 
   // --- 3. The auth user, unless there already is one -----------------------

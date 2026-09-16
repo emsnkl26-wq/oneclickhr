@@ -7,6 +7,7 @@
  */
 import { z } from 'zod'
 import { normalizeDomain, domainProblem } from '@/lib/domain'
+import { notificationImageProblem } from '@/lib/notification-image'
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -69,8 +70,29 @@ export const domainSchema = z
   })
   .transform((value) => normalizeDomain(value) as string)
 
+/**
+ * The organization's own short code, e.g. `NKL`.
+ *
+ * Uppercased on the way in so `nkl` and `NKL` are the same answer — the column
+ * check in 031 only accepts upper case, and rejecting someone's lowercase typing
+ * would be a rule the product invented for itself. Optional everywhere: a
+ * workspace without one falls back to the `EMP-`/`INV-` series.
+ */
+export const orgCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z][A-Z0-9]{1,5}$/, '2–6 letters or digits, starting with a letter')
+
 export const signupSchema = z.object({
   orgName: z.string().trim().min(2, 'Enter your organization name').max(120),
+  /**
+   * Asked at signup because it prefixes every code the workspace ever
+   * generates, and changing it later does not renumber what is already issued.
+   * Optional so nobody is blocked at the door: left blank, the provisioning
+   * trigger derives one from the organization name.
+   */
+  orgCode: orgCodeSchema.optional().or(z.literal('').transform(() => undefined)),
   fullName: z.string().trim().min(2, 'Enter your name').max(120),
   email: emailSchema,
   password: passwordSchema,
@@ -565,11 +587,89 @@ export const notificationSchema = z
     description: optionalText(4000),
     sendToType: z.enum(['all', 'department', 'employee']),
     targetId: uuid.nullable().optional(),
+    /**
+     * Either an R2 object key from the ordinary upload flow, or an external
+     * `https://` URL somebody pasted. Validated by `notificationImageProblem`
+     * below rather than by a regex here, because the two shapes have genuinely
+     * different rules and one union of patterns would explain neither in its
+     * error message.
+     */
+    imageUrl: optionalText(2000).superRefine((value, ctx) => {
+      const problem = notificationImageProblem(value)
+      if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem })
+    }),
   })
   .refine((v) => v.sendToType === 'all' || !!v.targetId, {
     message: 'Choose who this goes to',
     path: ['targetId'],
   })
+
+// ---------------------------------------------------------------------------
+// Expenses (033_expenses.sql)
+// ---------------------------------------------------------------------------
+
+export const expenseCategories = [
+  'payroll', 'software', 'rent', 'utilities', 'travel', 'marketing',
+  'equipment', 'professional_services', 'taxes', 'insurance', 'other',
+] as const
+
+const expenseCategory = z.enum(expenseCategories)
+
+/**
+ * Money, as the column stores it: `numeric(14,2)`, strictly positive.
+ *
+ * A NEGATIVE EXPENSE IS REFUSED rather than read as a refund. "Expenses" that
+ * quietly contain credits make every total on the dashboard unexplainable —
+ * a refund is a different event and deserves its own row when this product
+ * grows one. Rounded to two places here so the client and the column agree on
+ * what was saved; leaving it to Postgres would silently accept 10.999.
+ */
+const money = z.coerce
+  .number()
+  .positive('Enter an amount greater than zero')
+  .max(99_999_999_999.99)
+  .transform((value) => Math.round(value * 100) / 100)
+
+const currency = z.string().trim().length(3).toUpperCase().default('USD')
+
+export const expenseSchema = z.object({
+  title: z.string().trim().min(1, 'What was this for?').max(200),
+  description: optionalText(2000),
+  category: expenseCategory.default('other'),
+  vendor: optionalText(200),
+  amount: money,
+  currency,
+  spentOn: isoDate,
+  receiptKey: optionalText(300),
+})
+export type ExpenseInput = z.infer<typeof expenseSchema>
+
+/** Every field optional, but at least one present — a no-op PATCH is a mistake. */
+export const updateExpenseSchema = expenseSchema
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to change' })
+
+export const recurringExpenseSchema = z.object({
+  title: z.string().trim().min(1, 'What is this for?').max(200),
+  description: optionalText(2000),
+  category: expenseCategory.default('other'),
+  vendor: optionalText(200),
+  amount: money,
+  currency,
+  /**
+   * Capped at 28 to match the column. 29–31 do not exist in every month, and a
+   * rule set to the 31st would silently skip five of them — see 033's header.
+   */
+  dayOfMonth: z.coerce.number().int().min(1).max(28).default(1),
+  startDate: isoDate,
+  endDate: isoDate.nullable().optional(),
+  isActive: z.boolean().default(true),
+})
+export type RecurringExpenseInput = z.infer<typeof recurringExpenseSchema>
+
+export const updateRecurringExpenseSchema = recurringExpenseSchema
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to change' })
 
 // ---------------------------------------------------------------------------
 // Work authorization (H-1B)
@@ -734,7 +834,10 @@ export const presignSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   contentType: z.string().trim().min(1).max(160),
   sizeBytes: z.number().int().positive().max(50 * 1024 * 1024),
-  purpose: z.enum(['photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo', 'general']),
+  purpose: z.enum([
+    'photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo',
+    'notification_image', 'expense_receipt', 'general',
+  ]),
 })
 
 export const finalizeUploadSchema = z.object({
@@ -1020,6 +1123,19 @@ export const skillsSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const companyDetailsSchema = z.object({
+  /**
+   * Editable after signup so a typo is fixable, but it only steers what is
+   * generated NEXT — nothing already issued is renumbered, because an employee
+   * ID that has been on an offer letter cannot be quietly changed underneath it.
+   * Clearing it drops the workspace back to the `EMP-`/`INV-` series.
+   */
+  orgCode: orgCodeSchema.nullable().optional().or(z.literal('').transform(() => null)),
+  /**
+   * The unit every money figure in this workspace is reported in (033). NOT
+   * nullable: a total without a currency is a number with no meaning, so the
+   * column is `not null default 'USD'` and this matches it.
+   */
+  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Use a 3-letter code like USD').optional(),
   addressLine1: optionalText(200),
   addressLine2: optionalText(200),
   city: optionalText(80),

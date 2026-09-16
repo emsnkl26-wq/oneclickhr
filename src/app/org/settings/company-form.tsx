@@ -7,9 +7,26 @@ import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
+import {
+  COUNTRY_CODES, countryCodeOf, countryName, divisionLabel, divisionsFor,
+} from '@/lib/geo'
 import type { CompanyDetails } from '@/types/db'
+
+/** Sentinel for "my country isn't on the list" — keeps the free-text box reachable. */
+const OTHER = '__other'
+
+/**
+ * The currencies these workspaces actually bill and spend in. A static list for
+ * the same reason src/lib/geo.ts keeps one: the alternative is a service to
+ * key, rate limit, and be down while somebody is fixing their settings.
+ */
+const CURRENCY_CODES = [
+  'USD', 'EUR', 'GBP', 'INR', 'CAD', 'AUD', 'NZD', 'AED', 'SGD', 'ZAR',
+  'JPY', 'CHF', 'SEK', 'MXN', 'BRL', 'PHP',
+] as const
 
 /**
  * The company details a generated document prints on its letterhead.
@@ -31,6 +48,8 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
     stateProvince: company.stateProvince ?? '',
     postalCode: company.postalCode ?? '',
     country: company.country ?? '',
+    orgCode: company.orgCode ?? '',
+    defaultCurrency: company.defaultCurrency ?? 'USD',
     registrationNumber: company.registrationNumber ?? '',
     companyEmail: company.companyEmail ?? '',
     companyPhone: company.companyPhone ?? '',
@@ -43,8 +62,34 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
 
+  /*
+   * The dropdown works in ISO-2 codes; the COLUMN keeps the printed name, since
+   * that string goes on a letterhead. A stored country we don't have a list for
+   * (or a hand-typed one from before this was a dropdown) resolves to OTHER, so
+   * nobody's saved value is silently dropped the first time they open the form.
+   */
+  const [countryCode, setCountryCode] = React.useState(() => {
+    const resolved = countryCodeOf(company.country)
+    if (resolved) return resolved
+    return company.country?.trim() ? OTHER : ''
+  })
+
+  const divisions = divisionsFor(countryCode)
+
   const set = (key: keyof typeof values) => (event: { target: { value: string } }) =>
     setValues((current) => ({ ...current, [key]: event.target.value }))
+
+  function onCountryChange(event: { target: { value: string } }) {
+    const next = event.target.value
+    setCountryCode(next)
+    setValues((current) => ({
+      ...current,
+      country: next === OTHER || next === '' ? '' : countryName(next),
+      // The old division belongs to the old country's list. Keeping "Maryland"
+      // under Canada would save a state that country does not have.
+      stateProvince: '',
+    }))
+  }
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -105,21 +150,61 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <FormField label="Country" error={fields.country}>
+                <Select value={countryCode} onChange={onCountryChange} placeholder="Select a country">
+                  <option value="">Not set</option>
+                  {COUNTRY_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      {countryName(code)}
+                    </option>
+                  ))}
+                  <option value={OTHER}>Somewhere else…</option>
+                </Select>
+                {countryCode === OTHER ? (
+                  <Input
+                    className="mt-2"
+                    value={values.country}
+                    onChange={set('country')}
+                    placeholder="Country"
+                    aria-label="Country"
+                  />
+                ) : null}
+              </FormField>
+
+              <FormField
+                label={divisionLabel(countryCode)}
+                error={fields.stateProvince}
+                hint={
+                  countryCode === '' ? 'Pick a country first to choose from a list.' : undefined
+                }
+              >
+                {divisions.length > 0 ? (
+                  <Select
+                    value={values.stateProvince}
+                    onChange={set('stateProvince')}
+                    placeholder={`Select a ${divisionLabel(countryCode).toLowerCase()}`}
+                  >
+                    <option value="">Not set</option>
+                    {divisions.map((division) => (
+                      <option key={division} value={division}>
+                        {division}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    value={values.stateProvince}
+                    onChange={set('stateProvince')}
+                    placeholder="Maryland"
+                  />
+                )}
+              </FormField>
+
               <FormField label="City" error={fields.city}>
                 <Input value={values.city} onChange={set('city')} placeholder="Ellicott City" />
               </FormField>
-              <FormField label="State / province" error={fields.stateProvince}>
-                <Input
-                  value={values.stateProvince}
-                  onChange={set('stateProvince')}
-                  placeholder="MD"
-                />
-              </FormField>
               <FormField label="ZIP / postal code" error={fields.postalCode}>
                 <Input value={values.postalCode} onChange={set('postalCode')} placeholder="21043" />
-              </FormField>
-              <FormField label="Country" error={fields.country}>
-                <Input value={values.country} onChange={set('country')} placeholder="United States" />
               </FormField>
             </div>
           </div>
@@ -130,6 +215,41 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
             </p>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {/*
+                Editable, but only forward-looking: it changes what the NEXT
+                employee ID and invoice number look like. Renumbering the codes
+                already printed on offer letters and sent invoices is not
+                something a settings field should be able to do by accident.
+              */}
+              <FormField
+                label="Organization code"
+                error={fields.orgCode}
+                hint="Prefixes new employee IDs and invoice numbers. Existing ones keep theirs."
+              >
+                <Input
+                  value={values.orgCode}
+                  onChange={(e) =>
+                    setValues((current) => ({
+                      ...current,
+                      orgCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                    }))
+                  }
+                  maxLength={6}
+                  placeholder="NKL"
+                  className="uppercase"
+                />
+              </FormField>
+              <FormField
+                label="Currency"
+                error={fields.defaultCurrency}
+                hint="What expenses, invoices and the profit figure are reported in."
+              >
+                <Select
+                  value={values.defaultCurrency}
+                  onChange={set('defaultCurrency')}
+                  options={CURRENCY_CODES.map((code) => ({ value: code, label: code }))}
+                />
+              </FormField>
               <FormField
                 label="Registration number"
                 error={fields.registrationNumber}

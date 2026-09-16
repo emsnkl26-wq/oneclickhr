@@ -14,7 +14,7 @@ export default async function NotificationsPage() {
   const [{ data: sent }, { data: departments }, { data: employees }] = await Promise.all([
     supabase
       .from('notifications')
-      .select('id, title, description, send_to_type, target_id, created_at')
+      .select('id, title, description, send_to_type, target_id, image_url, created_at')
       .order('created_at', { ascending: false })
       .limit(100),
     supabase.from('departments').select('id, name').order('name'),

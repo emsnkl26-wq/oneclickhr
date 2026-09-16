@@ -36,6 +36,12 @@ export const SIZE_LIMITS: Record<string, number> = {
   payment_proof: 15 * 1024 * 1024,
   employee_doc: 25 * 1024 * 1024,
   work_auth: 25 * 1024 * 1024,
+  // An announcement banner. Capped low on purpose: it renders inline in a list
+  // and in an email, so a 20MB photo would only be a slow way to draw the same
+  // picture.
+  notification_image: 5 * 1024 * 1024,
+  // A receipt is a phone photo or a one-page PDF. Same ceiling as a payslip.
+  expense_receipt: 15 * 1024 * 1024,
   general: 50 * 1024 * 1024,
 }
 
@@ -44,7 +50,7 @@ export function sizeLimitFor(purpose: string): number {
 }
 
 /** Purposes that must end up as a genuine raster image. */
-export const IMAGE_PURPOSES = new Set(['photo', 'logo'])
+export const IMAGE_PURPOSES = new Set(['photo', 'logo', 'notification_image'])
 /** Purposes where an SVG is acceptable (after sanitization). */
 export const SVG_ALLOWED_PURPOSES = new Set(['logo'])
 
@@ -118,6 +124,15 @@ export function checkPresignClaims(
     const type = contentType.toLowerCase()
     if (type !== 'application/pdf' && !type.startsWith('image/')) {
       return { ok: false, error: 'Attach a PDF or an image of the payment confirmation.' }
+    }
+  }
+  // A receipt is the same story as a payment confirmation: far more often a
+  // photo of a piece of paper than a PDF, and refusing that would push the
+  // whole feature back onto somebody's camera roll.
+  if (purpose === 'expense_receipt') {
+    const type = contentType.toLowerCase()
+    if (type !== 'application/pdf' && !type.startsWith('image/')) {
+      return { ok: false, error: 'Attach a PDF or an image of the receipt.' }
     }
   }
   return { ok: true }

@@ -67,13 +67,16 @@ export default async function InvoicesPage({
     supabase
       .from('tenants')
       .select(
-        'address_line1, address_line2, city, state_province, postal_code, country, company_email, company_phone'
+        'org_code, address_line1, address_line2, city, state_province, postal_code, country, company_email, company_phone'
       )
       .eq('id', ctx.tenantId)
       .maybeSingle(),
   ])
 
-  const suggested = suggestInvoiceNumber((recentNumbers ?? []).map((row) => row.invoice_number))
+  const suggested = suggestInvoiceNumber(
+    (recentNumbers ?? []).map((row) => row.invoice_number),
+    company?.org_code
+  )
 
   return (
     <div className="space-y-6">

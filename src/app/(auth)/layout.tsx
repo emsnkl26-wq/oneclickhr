@@ -66,6 +66,19 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             <span className="text-[17px] font-semibold tracking-[-0.01em]">Oneclickhr</span>
           </Link>
           {children}
+
+          {/*
+            The one door on this screen that needs no account. Job seekers land
+            on /login from a shared posting more often than you would think, and
+            without this the only way out is the back button.
+          */}
+          <p className="mt-8 border-t border-line pt-5 text-center text-xs text-ink-muted">
+            Looking for a job?{' '}
+            <Link href="/jobs" className="font-medium text-brand-600 hover:underline">
+              Browse open roles
+            </Link>{' '}
+            — no account needed.
+          </p>
         </div>
       </main>
     </div>

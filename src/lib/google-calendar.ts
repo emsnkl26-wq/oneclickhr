@@ -244,6 +244,15 @@ export interface GoogleEvent {
   attendees?: Array<{ email: string; displayName?: string; responseStatus?: string }>
   organizer?: { email?: string; self?: boolean }
   updated?: string
+  /**
+   * Set on the way OUT to ask Google to mint a Meet room; comes back populated
+   * with the conference it created. `hangoutLink` is the flattened copy of the
+   * same URL and is what we store.
+   */
+  conferenceData?: {
+    createRequest?: { requestId: string; conferenceSolutionKey: { type: 'hangoutsMeet' } }
+    entryPoints?: Array<{ entryPointType?: string; uri?: string }>
+  }
 }
 
 async function callCalendar<T>(
@@ -288,11 +297,30 @@ export function meetingToEvent(meeting: MeetingForEvent): GoogleEvent {
   }
 }
 
+/**
+ * Create an event, asking Google for a Meet room as it goes.
+ *
+ * `conferenceDataVersion=1` is REQUIRED — without that query parameter Google
+ * silently discards `conferenceData` and returns an event with no `hangoutLink`,
+ * which is exactly why meetings made in this app used to show no Join button
+ * while Google-owned ones did. The `requestId` is the idempotency key: a retry
+ * carrying the same one attaches the same room rather than minting a second.
+ */
 export async function createEvent(accessToken: string, event: GoogleEvent) {
-  return callCalendar<GoogleEvent>(accessToken, `/calendars/${CALENDAR_ID}/events`, {
-    method: 'POST',
-    body: JSON.stringify(event),
-  })
+  const body: GoogleEvent = {
+    ...event,
+    conferenceData: event.conferenceData ?? {
+      createRequest: {
+        requestId: crypto.randomUUID(),
+        conferenceSolutionKey: { type: 'hangoutsMeet' },
+      },
+    },
+  }
+  return callCalendar<GoogleEvent>(
+    accessToken,
+    `/calendars/${CALENDAR_ID}/events?conferenceDataVersion=1`,
+    { method: 'POST', body: JSON.stringify(body) }
+  )
 }
 
 export async function patchEvent(accessToken: string, eventId: string, event: GoogleEvent) {

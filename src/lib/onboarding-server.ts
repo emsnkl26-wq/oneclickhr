@@ -14,6 +14,7 @@ import 'server-only'
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { encryptToken, decryptToken, isEncryptionConfigured } from '@/lib/crypto'
+import { employeeCodeFor } from '@/lib/org-code'
 import {
   DRAFT_COLUMNS, EMPLOYEE_EDITABLE_KEYS,
   type DraftFieldKey, type OnboardingDraft,
@@ -94,14 +95,19 @@ export function accountLast4(ciphertext: string | null | undefined): string | nu
 }
 
 /**
- * A unique employee code for this tenant, e.g. `EMP-0007`.
+ * A unique employee code for this tenant, e.g. `NKL-0007`.
  *
  * Called only when the org left the field blank. The uniqueness index on
  * (tenant_id, employee_code) is the real guarantee — this just picks a
  * candidate that is very likely free, and the caller retries on conflict.
+ *
+ * `orgCode` is the workspace's own prefix (031_org_code.sql). A workspace
+ * without one keeps the original `EMP-` series, which matters for the ones that
+ * predate the column: their existing IDs are on signed paperwork and this must
+ * not start a second series alongside them.
  */
-export function suggestEmployeeCode(existingCount: number): string {
-  return `EMP-${String(existingCount + 1).padStart(4, '0')}`
+export function suggestEmployeeCode(existingCount: number, orgCode?: string | null): string {
+  return employeeCodeFor(orgCode, existingCount + 1)
 }
 
 /**

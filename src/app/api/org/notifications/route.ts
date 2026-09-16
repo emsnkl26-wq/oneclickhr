@@ -4,6 +4,8 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { notificationSchema } from '@/lib/schemas'
 import { sendAnnouncement, isEmailConfigured } from '@/lib/email'
+import { isExternalImage } from '@/lib/notification-image'
+import { keyBelongsToTenant } from '@/lib/r2'
 import { audit } from '@/lib/audit'
 import { z } from 'zod'
 
@@ -48,6 +50,19 @@ async function handlePOST(request: NextRequest) {
     if (!data) return jsonError('That employee was not found.', 404)
   }
 
+  /*
+   * An uploaded image arrives as a storage KEY, and a key is a path — so it is
+   * checked against this tenant's prefix before it is stored. Without this, an
+   * admin could paste another workspace's key and have /api/files/view resolve
+   * it for their whole team. An external https:// link has no such check to
+   * make: zod has already refused every other scheme.
+   */
+  if (input.imageUrl && !isExternalImage(input.imageUrl)) {
+    if (!keyBelongsToTenant(input.imageUrl, ctx.tenantId)) {
+      return jsonError('That image does not belong to this workspace.', 403)
+    }
+  }
+
   const { data: created, error } = await supabase
     .from('notifications')
     .insert({
@@ -56,6 +71,7 @@ async function handlePOST(request: NextRequest) {
       description: input.description,
       send_to_type: input.sendToType,
       target_id: input.sendToType === 'all' ? null : input.targetId,
+      image_url: input.imageUrl,
       created_by: ctx.userId,
     })
     .select('id')
@@ -88,6 +104,10 @@ async function handlePOST(request: NextRequest) {
           description: input.description,
           orgName: ctx.tenant.name,
           brandColor: ctx.tenant.primaryColor,
+          // Only a pasted link survives the trip to an inbox — see the note on
+          // AnnouncementArgs.imageUrl.
+          imageUrl:
+            input.imageUrl && isExternalImage(input.imageUrl) ? input.imageUrl : null,
         })
         if (result.ok) emailed += chunk.length
       }
