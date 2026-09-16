@@ -59,6 +59,12 @@ export function CredentialsPanel({ credentials }: { credentials: NewCredentials 
             </>
           ) : (
             <>
+              {credentials.emailError ? (
+                <>
+                  <strong>The email could not be sent — {credentials.emailError}</strong>
+                  <br />
+                </>
+              ) : null}
               No email was sent, so this is the only copy of the password. Copy it now — it is
               stored nowhere and cannot be shown again. A fresh one can be issued from their
               employee page at any time.

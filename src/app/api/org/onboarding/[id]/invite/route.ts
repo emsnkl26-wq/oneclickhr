@@ -258,7 +258,12 @@ async function handlePOST(request: NextRequest, { params }: Params) {
 
   // --- 7. Deliver the credentials -----------------------------------------
   let emailSent = false
-  if (input.sendCredentialsEmail && isEmailConfigured()) {
+  // Why it did not go, so the org sees the cause instead of a silent "no email".
+  let emailError: string | null = null
+  if (input.sendCredentialsEmail && !isEmailConfigured()) {
+    emailError = 'Email is not configured on the server (RESEND_API_KEY or EMAIL_FROM is missing).'
+    console.error('[onboarding/invite] email not configured')
+  } else if (input.sendCredentialsEmail) {
     const result = await sendEmployeeCredentials({
       to: email,
       fullName,
@@ -270,6 +275,7 @@ async function handlePOST(request: NextRequest, { params }: Params) {
       completeOnboarding: true,
     })
     emailSent = result.ok
+    if (!result.ok) emailError = result.error ?? 'Email delivery failed'
   }
 
   await audit({
@@ -288,6 +294,7 @@ async function handlePOST(request: NextRequest, { params }: Params) {
       id: userId,
       email,
       emailSent,
+      emailError,
       // Returned once. Stored nowhere and unrecoverable afterwards — the org
       // copies it from the dialog, or issues a fresh one from the employee's
       // page later.

@@ -11,6 +11,8 @@ export interface NewCredentials {
   email: string
   tempPassword: string | null
   emailSent: boolean
+  /** Why the requested email did not go, if it did not. */
+  emailError?: string | null
   loginUrl: string
 }
 
