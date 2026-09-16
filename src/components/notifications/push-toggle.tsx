@@ -76,6 +76,13 @@ const PRESENTATION: Record<PushState, Presentation> = {
     description:
       'This has to be changed where your browser keeps site permissions — open the padlock or site-settings icon next to the address bar and allow notifications for this site, then reload.',
   },
+  'service-blocked': {
+    icon: BellOff,
+    tone: 'text-ink-muted',
+    title: 'Your browser’s push service is switched off',
+    description:
+      'Notifications are allowed for this site, but the browser refused to connect to its push service. In Brave, open brave://settings/privacy, turn on “Use Google services for push messaging”, restart the browser and click Try again. Privacy extensions can cause this too.',
+  },
   unsupported: {
     icon: BellOff,
     tone: 'text-ink-muted',
@@ -128,6 +135,8 @@ export function PushToggle({ className }: { className?: string }) {
       } else if (next === 'default') {
         // Dismissed rather than refused. Nothing went wrong and nothing changed.
         toast('No problem — you can turn these on whenever you like.')
+      } else if (next === 'service-blocked') {
+        toast.error('Your browser’s push service is off. See the steps in the card above.')
       } else if (next === 'unconfigured') {
         toast.error('Push notifications are not set up for this workspace yet.')
       } else {
@@ -163,7 +172,7 @@ export function PushToggle({ className }: { className?: string }) {
 
   const presentation = PRESENTATION[state]
   const Icon = presentation.icon
-  const canAsk = state === 'default' || state === 'disabled'
+  const canAsk = state === 'default' || state === 'disabled' || state === 'service-blocked'
 
   return (
     <Card className={className}>
@@ -181,7 +190,7 @@ export function PushToggle({ className }: { className?: string }) {
         {canAsk ? (
           <Button className="shrink-0" loading={busy} onClick={turnOn}>
             <Bell />
-            Turn on
+            {state === 'service-blocked' ? 'Try again' : 'Turn on'}
           </Button>
         ) : state === 'enabled' ? (
           <Button variant="secondary" className="shrink-0" loading={busy} onClick={turnOff}>

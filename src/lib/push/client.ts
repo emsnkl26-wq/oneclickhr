@@ -26,6 +26,26 @@ export type PushState =
   | 'disabled'
   /** Blocked at the browser level. We cannot ask again; only the user can undo. */
   | 'denied'
+  /**
+   * Permission is granted but the browser's push service refused to issue a
+   * subscription. Brave does this by default ("Use Google services for push
+   * messaging" is off), as do some privacy extensions and enterprise policies.
+   */
+  | 'service-blocked'
+
+/** True for the Brave browser, which exposes `navigator.brave`. */
+export function isBrave(): boolean {
+  return typeof navigator !== 'undefined' && 'brave' in navigator
+}
+
+/**
+ * `subscribe()` rejecting with AbortError / "push service error" means the
+ * browser has no working push service — not that anything is wrong with us.
+ */
+function isPushServiceError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  return err.name === 'AbortError' || /push service|registration failed/i.test(err.message)
+}
 
 /**
  * Feature detection, in the order that gives the most useful answer.
@@ -85,7 +105,11 @@ function pushConfig(): Promise<{ configured: boolean; publicKey: string | null }
 async function registration(): Promise<ServiceWorkerRegistration | null> {
   try {
     await navigator.serviceWorker.register('/sw.js', { scope: '/' })
-    return await navigator.serviceWorker.ready
+    // `ready` never settles if the worker fails to activate; do not hang the UI.
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000)),
+    ])
   } catch (err) {
     console.warn('[push] service worker registration failed', err)
     return null
@@ -127,11 +151,9 @@ export async function getPushState(): Promise<PushState> {
   if (Notification.permission === 'denied') return 'denied'
   if (Notification.permission !== 'granted') return 'default'
 
-  const reg = await registration()
-  if (!reg) return 'unsupported'
-
-  const existing = await reg.pushManager.getSubscription()
-  return existing ? 'enabled' : 'disabled'
+  // Permission is already granted, so subscribing cannot prompt. Doing it here
+  // means "allowed in the browser" and "on" never disagree on screen.
+  return ensurePushSubscription()
 }
 
 /**
@@ -200,7 +222,7 @@ export async function ensurePushSubscription(): Promise<PushState> {
     return ok ? 'enabled' : 'disabled'
   } catch (err) {
     console.warn('[push] could not refresh the subscription', err)
-    return 'disabled'
+    return isPushServiceError(err) ? 'service-blocked' : 'disabled'
   }
 }
 
@@ -257,7 +279,7 @@ export async function enablePush(): Promise<PushState> {
     return 'enabled'
   } catch (err) {
     console.warn('[push] could not enable notifications', err)
-    return 'disabled'
+    return isPushServiceError(err) ? 'service-blocked' : 'disabled'
   }
 }
 

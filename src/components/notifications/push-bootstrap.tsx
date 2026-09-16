@@ -1,77 +1,73 @@
 'use client'
 
 import * as React from 'react'
-import { ensurePushSubscription } from '@/lib/push/client'
+import { usePathname } from 'next/navigation'
+import { toast } from 'sonner'
+import { enablePush, ensurePushSubscription, isPushSupported } from '@/lib/push/client'
+
+/** Portal home pages — the only places we ask for permission unprompted. */
+const DASHBOARD_PATHS = new Set(['/employee', '/org'])
+const ASKED_KEY = 'push:asked-this-session'
 
 /**
- * Keeps this browser's push registration current. RENDERS NOTHING.
+ * Keeps this browser's push registration current, and asks for permission on
+ * the dashboard. RENDERS NOTHING.
  *
- * Mounted once, in the app shell, so it runs for every signed-in page in both
- * portals. That placement is the point: a subscription is not a thing you set up
- * once and own forever — the browser rotates the endpoint on its own schedule,
- * the service worker can be evicted under storage pressure, a VAPID rotation
- * invalidates every endpoint minted against the old key, and
- * `pushsubscriptionchange` is not fired dependably by every engine. Re-announcing
- * on each page load means the server's idea of this device is never more than one
- * navigation stale, and it costs one small POST against a page that is already
- * doing several.
+ * Mounted once, in the app shell. On every page it re-announces an existing
+ * subscription (endpoints rotate silently). On a portal home page, if the user
+ * has never answered, it asks — once per browser session, so a dismissed prompt
+ * does not come back on every navigation.
  *
- * ┌────────────────────────────────────────────────────────────────────────┐
- * │ IT NEVER PROMPTS, AND THAT IS NOT A STYLE PREFERENCE.                  │
- * │                                                                        │
- * │ Chrome permanently blocks an origin that requests notification         │
- * │ permission without a user gesture — one automatic prompt and NOBODY in │
- * │ the workspace can ever be asked again on that device. So this only     │
- * │ ever refreshes a permission that has ALREADY been granted;             │
- * │ `ensurePushSubscription` returns early otherwise, and asking is left   │
- * │ entirely to the button in <PushToggle>.                                │
- * └────────────────────────────────────────────────────────────────────────┘
+ * Chromium browsers show the prompt straight from page load. Firefox and Safari
+ * ignore a request without a user gesture, so when the permission is still
+ * undecided afterwards a toast with an "Allow" button offers the gesture.
  */
 export function PushBootstrap() {
+  const pathname = usePathname()
+
   React.useEffect(() => {
     let cancelled = false
 
-    /*
-     * Deferred past first paint. Registering a service worker and talking to a
-     * push service competes for the main thread with hydration, and nothing here
-     * is urgent — the notification it might carry has already been written and is
-     * already in the portal. `requestIdleCallback` where it exists, a short
-     * timeout on Safari, which still does not implement it.
-     */
-    const run = () => {
+    const run = async () => {
       if (cancelled) return
-      // Fire and forget: `ensurePushSubscription` resolves to a state and never
-      // rejects, and there is no UI here to tell about it either way.
-      void ensurePushSubscription()
+      await ensurePushSubscription()
+
+      if (cancelled || !DASHBOARD_PATHS.has(pathname)) return
+      if (!isPushSupported() || Notification.permission !== 'default') return
+
+      try {
+        if (sessionStorage.getItem(ASKED_KEY)) return
+        sessionStorage.setItem(ASKED_KEY, '1')
+      } catch {
+        /* storage unavailable — ask anyway */
+      }
+
+      const state = await enablePush()
+      if (cancelled || state !== 'default' || Notification.permission !== 'default') return
+
+      toast('Turn on notifications?', {
+        description: 'Get timesheet decisions, replies and announcements as they happen.',
+        duration: 15000,
+        action: {
+          label: 'Allow',
+          onClick: () => {
+            void enablePush().then((next) => {
+              if (next === 'enabled') toast.success('Notifications are on for this browser')
+              else if (next === 'service-blocked') {
+                toast.error('Your browser’s push service is off. See Notifications for how to fix it.')
+              }
+            })
+          },
+        },
+      })
     }
 
-    /*
-     * Safari still does not implement `requestIdleCallback`, so the check below
-     * is a real one — TypeScript's DOM library declares it as always present,
-     * which is why `window` is re-typed here with the two members marked
-     * optional. Without that the compiler collapses the guard to "always true"
-     * and the Safari path becomes unreachable code that is nonetheless the one
-     * that runs there.
-     */
-    const win = window as unknown as {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number
-      cancelIdleCallback?: (handle: number) => void
-    }
-
-    let cancelScheduled: () => void
-    if (win.requestIdleCallback) {
-      const handle = win.requestIdleCallback(run, { timeout: 4000 })
-      cancelScheduled = () => win.cancelIdleCallback?.(handle)
-    } else {
-      const handle = window.setTimeout(run, 1200)
-      cancelScheduled = () => window.clearTimeout(handle)
-    }
-
+    const handle = window.setTimeout(() => void run(), 1200)
     return () => {
       cancelled = true
-      cancelScheduled()
+      window.clearTimeout(handle)
     }
-  }, [])
+  }, [pathname])
 
   return null
 }
