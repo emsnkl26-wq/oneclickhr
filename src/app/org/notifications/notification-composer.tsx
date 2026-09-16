@@ -64,16 +64,35 @@ export function NotificationComposer({
     setFields({})
     setSubmitting(true)
     try {
-      const result = await apiPost<{ emailed: number }>('/api/org/notifications', {
-        title,
-        description: description || undefined,
-        sendToType,
-        targetId: sendToType === 'all' ? null : targetId,
-        imageUrl: imageUrl.trim() || undefined,
-        alsoEmail,
-      })
+      const result = await apiPost<{ emailed: number; pushed: number }>(
+        '/api/org/notifications',
+        {
+          title,
+          description: description || undefined,
+          sendToType,
+          targetId: sendToType === 'all' ? null : targetId,
+          imageUrl: imageUrl.trim() || undefined,
+          alsoEmail,
+        }
+      )
+
+      /*
+       * Report what actually left the building, not what was attempted.
+       *
+       * `pushed` counts PEOPLE reached on at least one device, and it is
+       * routinely lower than the audience — most people have not turned
+       * notifications on, and that is fine. Saying so is still worth it: the
+       * alternative is a flat "Notification sent" that gives an administrator
+       * no way to tell a working push setup from one where the VAPID keys were
+       * never configured.
+       */
+      const delivered = [
+        result.pushed ? `notified ${result.pushed} on their devices` : null,
+        result.emailed ? `emailed ${result.emailed}` : null,
+      ].filter(Boolean)
+
       toast.success(
-        result.emailed ? `Sent, and emailed to ${result.emailed} people` : 'Notification sent'
+        delivered.length ? `Sent — ${delivered.join(', ')}` : 'Notification sent'
       )
       setTitle('')
       setDescription('')

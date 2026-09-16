@@ -6,6 +6,7 @@ import { PageHeader, EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Card } from '@/components/ui/card'
 import { formatLocal } from '@/lib/time'
 import { notificationImageSrc } from '@/lib/notification-image'
+import { PushToggle } from '@/components/notifications/push-toggle'
 import { NotificationReader } from './notification-reader'
 
 export const metadata: Metadata = { title: 'Notifications' }
@@ -47,6 +48,8 @@ export default async function EmployeeNotificationsPage() {
           unread.length ? <NotificationReader ids={unread.map((r) => r.id)} /> : undefined
         }
       />
+
+      <PushToggle />
 
       {rows.length === 0 ? (
         <Card>

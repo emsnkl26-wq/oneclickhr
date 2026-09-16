@@ -441,3 +441,75 @@ export async function sendNewApplicationAlert(args: NewApplicationArgs): Promise
 
   return sendEmail({ to: args.to, subject, html })
 }
+
+// ---------------------------------------------------------------------------
+// The generic notification email (035)
+// ---------------------------------------------------------------------------
+
+export interface NotificationEmailArgs {
+  to: string | string[]
+  title: string
+  description?: string | null
+  /** In-app path the button opens. Made absolute here, against APP_URL. */
+  path: string
+  orgName: string
+  brandColor?: string
+  /**
+   * An absolute https:// image URL, or omitted — the same rule as
+   * AnnouncementArgs.imageUrl, and for the same reason: an R2 key resolves only
+   * through /api/files/view, which authorizes by session cookie, and a mail
+   * client fetching an <img> sends none. Callers filter; dispatch.ts does.
+   */
+  imageUrl?: string | null
+}
+
+/**
+ * The email copy of a notification that was judged `important` (035).
+ *
+ * ONE TEMPLATE FOR EVERY EVENT, on purpose. The bespoke emails above exist
+ * because each says something the in-app notification does not — a temporary
+ * password, a visa's expiry date, an applicant's name. This one says exactly
+ * what the notification says, because that is the whole contract: the same fact,
+ * delivered somewhere it cannot be missed. Giving each event its own layout here
+ * would be six templates to keep in agreement with six notification titles, and
+ * they would stop agreeing.
+ *
+ * The subject carries the workspace name because this arrives in a personal
+ * inbox alongside mail from everywhere else, and "Timesheet TS-0042 approved"
+ * with no context is indistinguishable from a phishing attempt.
+ */
+export async function sendNotificationEmail(args: NotificationEmailArgs): Promise<SendResult> {
+  const url = `${appUrl()}${args.path.startsWith('/') ? args.path : `/${args.path}`}`
+
+  const html = layout(
+    `
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">${esc(
+      args.title
+    )}</h1>
+    ${
+      args.description
+        ? `<p style="margin:0 0 18px;white-space:pre-line;">${esc(args.description)}</p>`
+        : ''
+    }
+    ${
+      args.imageUrl
+        ? `<img src="${esc(
+            args.imageUrl
+          )}" alt="" style="display:block;width:100%;max-width:520px;height:auto;border:0;border-radius:10px;margin:0 0 18px;" />`
+        : ''
+    }
+    ${button(url, 'Open in the portal', args.brandColor || '#C41E33')}
+    <p style="margin:0;font-size:13px;color:#6B7280;">
+      You are receiving this because it needs your attention on ${esc(args.orgName)}.
+      Routine updates are not emailed — you will find those in the portal.
+    </p>
+  `,
+    {
+      brandName: args.orgName,
+      brandColor: args.brandColor,
+      preheader: args.description ? args.description.slice(0, 140) : args.title,
+    }
+  )
+
+  return sendEmail({ to: args.to, subject: `${args.orgName}: ${args.title}`, html })
+}

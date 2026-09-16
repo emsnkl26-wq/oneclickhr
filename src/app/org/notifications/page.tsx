@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
+import { PushToggle } from '@/components/notifications/push-toggle'
 import { NotificationComposer } from './notification-composer'
 
 export const metadata: Metadata = { title: 'Notifications' }
@@ -32,6 +33,10 @@ export default async function NotificationsPage() {
         title="Notifications"
         description="Send an announcement to everyone, a department, or one person."
       />
+
+      {/* An administrator receives notifications too — tasks, ticket replies — so
+          the control belongs on their side of the product as well. */}
+      <PushToggle />
       <NotificationComposer
         sent={sent ?? []}
         departments={departments ?? []}

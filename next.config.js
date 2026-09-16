@@ -18,7 +18,14 @@ const nextConfig = {
     // Lint is a separate `npm run lint` gate; a style nit must not fail a deploy.
     ignoreDuringBuilds: true,
   },
-  serverExternalPackages: ['unpdf', 'isomorphic-dompurify', 'file-type'],
+  /*
+   * `web-push` stays external (035). It is CommonJS and reaches for Node
+   * built-ins — https, crypto, zlib — through `asn1.js` and `http_ece`, which
+   * the bundler either mangles or tries to polyfill. Left external it is
+   * `require`d at runtime by the Node lambda that actually sends the push, which
+   * is the only place it is ever loaded.
+   */
+  serverExternalPackages: ['unpdf', 'isomorphic-dompurify', 'file-type', 'web-push'],
 
   /*
    * Barrel files are a real cost here. `lucide-react` alone re-exports well over

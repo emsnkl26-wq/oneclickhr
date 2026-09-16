@@ -3,6 +3,7 @@ import { withErrorHandler, jsonOk } from '@/lib/api'
 import { requireCron } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendVisaReminder, isEmailConfigured } from '@/lib/email'
+import { deliverNotification } from '@/lib/notifications/dispatch'
 import { daysUntil, safeTimezone } from '@/lib/time'
 import { recordCronRun } from '@/lib/audit'
 import type { VisaMilestone } from '@/types/db'
@@ -50,6 +51,7 @@ async function handlePOST(request: NextRequest) {
     scanned: 0,
     matched: 0,
     sent: 0,
+    pushed: 0,
     alreadyLogged: 0,
     emailFailed: 0,
     errors: [] as string[],
@@ -134,18 +136,55 @@ async function handlePOST(request: NextRequest) {
         const employeeName = employee?.full_name || employee?.email || 'An employee'
 
         // In-app notification, addressed to the employee.
-        const { error: notifyError } = await admin.from('notifications').insert({
-          tenant_id: auth.tenant_id,
-          title:
-            remaining === 0
-              ? `${auth.visa_type} expires today`
-              : `${auth.visa_type} expires in ${remaining} day${remaining === 1 ? '' : 's'}`,
-          description: `${employeeName}'s ${auth.visa_type} (expiry ${auth.expiry_date}) is approaching. Please start the renewal process.`,
-          send_to_type: 'employee',
-          target_id: auth.employee_id,
-        })
+        const title =
+          remaining === 0
+            ? `${auth.visa_type} expires today`
+            : `${auth.visa_type} expires in ${remaining} day${remaining === 1 ? '' : 's'}`
+        const description = `${employeeName}'s ${auth.visa_type} (expiry ${auth.expiry_date}) is approaching. Please start the renewal process.`
+
+        const { data: notification, error: notifyError } = await admin
+          .from('notifications')
+          .insert({
+            tenant_id: auth.tenant_id,
+            title,
+            description,
+            send_to_type: 'employee',
+            target_id: auth.employee_id,
+            importance: 'important',
+          })
+          .select('id')
+          .single()
+
         if (notifyError) {
           summary.errors.push(`notify ${auth.id}: ${notifyError.message}`)
+        }
+
+        /*
+         * The push copy — and ONLY the push copy.
+         *
+         * `importance: 'normal'` is an override of the catalog, which calls this
+         * event important, and it is here for a specific reason rather than as a
+         * downgrade: this job sends its own email a few lines below, and that one
+         * is strictly better. It carries the visa type, the expiry date and the
+         * urgency banner, and it goes to the WORKSPACE OWNERS as well as the
+         * employee — an audience the notification row cannot express, because a
+         * notification addressed to the employee is addressed to the employee.
+         *
+         * Letting the generic pipeline email as well would send two messages
+         * about one deadline, the second one less useful than the first. So the
+         * engine keeps its email and borrows only the device delivery.
+         */
+        if (notification?.id) {
+          const report = await deliverNotification({
+            notificationId: notification.id,
+            tenantId: auth.tenant_id,
+            audience: { type: 'employee', targetId: auth.employee_id },
+            title,
+            description,
+            event: 'visa.expiring',
+            importance: 'normal',
+          })
+          summary.pushed += report.pushed
         }
 
         if (isEmailConfigured()) {

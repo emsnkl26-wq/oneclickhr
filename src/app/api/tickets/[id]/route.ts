@@ -48,6 +48,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     tenantId: ctx.tenantId,
     employeeId: ticket.employee_id,
     createdBy: ctx.userId,
+    event: 'ticket.status',
+    subjectId: id,
     title: `Ticket ${ticket.code} is now ${humanize(input.status).toLowerCase()}`,
     description: ticket.subject,
   })

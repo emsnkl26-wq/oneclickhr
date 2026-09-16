@@ -22,6 +22,7 @@ in a state you can verify before moving on.
 10. [Schedule the background jobs](#10-schedule-the-background-jobs)
 11. [Verification checklist](#11-verification-checklist)
 12. [Troubleshooting](#12-troubleshooting)
+13. [Browser push notifications](#13-browser-push-notifications)
 
 ---
 
@@ -592,7 +593,7 @@ Hobby plan only allows one run per day (too infrequent for the calendar
 fallback), and pg_net is fire-and-forget, so a 500 from the app would show up as
 a green run.
 
-Sign up at [cron-job.org](https://cron-job.org), then create **four** jobs. All
+Sign up at [cron-job.org](https://cron-job.org), then create **five** jobs. All
 use the same settings apart from the URL and the schedule:
 
 | Setting | Visa reminders | Calendar sync fallback | Résumé sweep | Auto expenses |
@@ -602,6 +603,25 @@ use the same settings apart from the URL and the schedule:
 | Request method | `POST` | `POST` | `POST` | `POST` |
 | Header | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` | `x-cron-secret: <your CRON_SECRET>` |
 | Save responses | on | on | on | on |
+
+Plus a fifth, added with browser push (§13):
+
+| Setting | Push housekeeping |
+| --- | --- |
+| URL | `https://your-domain.com/api/cron/push-gc` |
+| Schedule | Daily at **05:00 UTC** |
+| Request method | `POST` |
+| Header | `x-cron-secret: <your CRON_SECRET>` |
+| Save responses | on |
+
+> **Push housekeeping is optional but wanted.** Sending already deletes a
+> subscription the moment a push service says it is gone (404/410). What it
+> cannot catch are the ones nobody pushes to — an employee who left, a browser
+> used once on a shared machine — and each of those costs a doomed HTTPS round
+> trip on every future fan-out to that person. This job also trims the delivery
+> ledger, which is otherwise the fastest-growing table in the schema. Nothing it
+> deletes is anything a user would notice: a browser that reappears re-registers
+> itself on its next page load.
 
 > **Auto expenses is safe to run as often as you like.** It books this month's
 > line for every active recurring expense, and the guarantee that it does so
@@ -919,6 +939,142 @@ Something is computing a calendar day in UTC instead of the org's timezone.
 Attendance days, late-login checks and visa day-diffs must all go through the
 helpers in `src/lib/time.ts`, which take the timezone explicitly.
 
+## 13. Browser push notifications
+
+Every notification the product raises is also delivered as a **browser push**,
+and the ones that cost something to miss are additionally **emailed** through
+Resend. This section is what turns the first half on.
+
+**It is optional.** With no keys configured, notifications still appear in the
+portal and important ones are still emailed — the app logs a warning at boot,
+reports push as off, and stops asking people for a permission it could not use.
+Nothing breaks.
+
+### 13.1 Generate a VAPID keypair
+
+```bash
+npm run push:keys
+```
+
+It prints two variables. Set both, in Vercel and in your local `.env`:
+
+```
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=BF...
+VAPID_PRIVATE_KEY=kB...
+```
+
+`VAPID_SUBJECT` is optional — leave it blank and it is derived from
+`EMAIL_FROM`, then `APP_URL`.
+
+> **Generate once, then leave them alone.** `pushManager.subscribe()` bakes the
+> public key into the endpoint the browser returns, so the pair is part of the
+> identity of every subscription already stored. Replacing it makes all of them
+> permanently undeliverable — the push service answers 403 forever, for every
+> device, and no retry repairs it.
+>
+> If you must rotate: deploy the new pair, then run
+> `delete from public.push_subscriptions;`. Browsers re-register by themselves
+> on their next page load, and the client also detects the mismatch and
+> re-subscribes on its own — the delete is belt and braces, not the only
+> mechanism.
+>
+> Use **different pairs** for staging and production.
+
+> **A malformed key is an error, not a warning.** It is treated the same way
+> `GOOGLE_TOKEN_ENCRYPTION_KEY` is, and for the same reason: the failure is
+> completely silent. Every push signed with a bad key is refused with a 403,
+> once per device per notification, while the application's own logs show
+> notifications being raised normally. So `boot` refuses to use a pair that does
+> not decode to a 65-byte `0x04`-tagged P-256 point and a 32-byte scalar, prints
+> exactly what is wrong, and reports push as **off**. Off and honest beats on
+> and broken.
+
+### 13.2 Apply migration 035
+
+`supabase/migrations/035_push_notifications.sql` adds `push_subscriptions`, the
+`notification_deliveries` ledger, and `notifications.importance`. Run it the
+same way as every other migration (§2). Push silently does nothing until it is
+applied — the subscribe endpoint has no table to write to.
+
+### 13.3 Schedule the housekeeping job
+
+See §10 for `/api/cron/push-gc`. Optional, but wanted.
+
+### 13.4 What gets emailed, and what does not
+
+The policy lives in one file — `src/lib/notifications/events.ts` — precisely so
+this question has one answer you can read in a screen rather than grep for:
+
+| Event | Push | Email |
+| --- | --- | --- |
+| Timesheet approved / returned | yes | **yes** |
+| Payment confirmed / returned | yes | **yes** |
+| Onboarding changes requested | yes | **yes** |
+| Work authorization expiring | yes | **yes** |
+| Announcement | yes | only if the composer ticks *also send by email* |
+| Help desk reply / status change | yes | no |
+| Task assigned / commented on | yes | no |
+
+The line is: **important** means the recipient has to do something, or money or
+eligibility is involved, or it is time-bound. **Normal** means somebody should
+know and will, next time they look. Task chatter is the archetype of the second
+kind — it is the highest-volume event in the product and the lowest-stakes one,
+and emailing it is how a team learns to filter mail from this product into a
+folder they never open, which is how the important ones stop being read too.
+
+An unrecognised event defaults to **normal**, deliberately: forgetting to add a
+catalog entry must never turn into an accidental email to the whole company.
+
+### 13.5 How people turn it on
+
+There is no server-side preference to manage. The subscription *is* the
+preference — a row in `push_subscriptions` means that browser receives, its
+absence means it does not.
+
+Both `/employee/notifications` and `/org/notifications` carry a card that asks.
+It never prompts by itself: Chrome permanently blocks an origin that requests
+notification permission without a user gesture, and one automatic prompt would
+mean nobody in the workspace could ever be asked again on that device.
+
+**On iPhone and iPad**, Safari only allows notifications for sites added to the
+**Home Screen** (Share → Add to Home Screen), and only on iOS 16.4 or later. The
+card says so rather than showing a button that cannot work.
+
+### 13.6 Verifying it end to end
+
+1. Sign in, open **Notifications**, click **Turn on**, allow the prompt. The
+   card should switch to *Notifications are on for this browser*.
+2. Confirm the row exists:
+   ```sql
+   select user_id, left(endpoint, 60), last_seen_at from public.push_subscriptions;
+   ```
+3. From another account, send an announcement to that person, or approve one of
+   their timesheets. The notification should arrive **with the tab closed**.
+4. Click it — it should focus the existing tab (not open a second one) and land
+   on the right portal's page.
+5. Check what actually went out:
+   ```sql
+   select channel, status, detail, created_at
+   from public.notification_deliveries
+   order by created_at desc limit 20;
+   ```
+   `status = 'sent'` on a `push` row means a push service accepted it for at
+   least one of that person's devices. A `failed` row carries the reason.
+
+### 13.7 If nothing arrives
+
+| Symptom | Cause |
+| --- | --- |
+| Card says *not set up* | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` unset or malformed. Check the boot log — it names the problem. |
+| Card says *blocked* | The user denied permission. Only they can undo it, in the browser's site settings. |
+| Card says *this browser cannot* | Not a secure origin, or iOS Safari without the site on the Home Screen. |
+| Ledger shows `failed` with `403` | The subscription was minted against a **different VAPID key**. A rotation happened without clearing the table — see 13.1. |
+| Ledger rows exist but nothing buzzes | Check the OS notification settings for the browser. macOS and Windows both silence browsers independently of the site permission. |
+| No ledger rows at all | Migration 035 has not been applied, or nobody has enabled push. |
+| Worked, then stopped after signing out and in | Confirm `sw.js` is excluded from the middleware matcher. Run through the session rules, the fetch is answered with a redirect to `/login`, the browser refuses it on MIME type, and the worker update fails. |
+
+---
+
 ---
 
 ## Reference
@@ -933,5 +1089,10 @@ helpers in `src/lib/time.ts`, which take the timezone explicitly.
 | Fail-closed encryption | `src/lib/crypto.ts` |
 | Timezone rules | `src/lib/time.ts` |
 | Idempotent visa engine | `src/app/api/cron/visa-reminders/route.ts` |
+| Notification fan-out (one funnel) | `src/lib/notifications/dispatch.ts` |
+| What gets emailed vs. pushed | `src/lib/notifications/events.ts` |
+| VAPID keys, fail-closed | `src/lib/push/vapid.ts` |
+| Push delivery + dead-endpoint pruning | `src/lib/push/send.ts` |
+| Service worker (no fetch handler) | `public/sw.js` |
 | Two-way calendar sync | `src/lib/calendar-sync.ts` |
 | Isolation proof | `scripts/tenant-isolation-test.ts` |

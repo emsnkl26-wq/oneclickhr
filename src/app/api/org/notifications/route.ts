@@ -3,7 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from 
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { notificationSchema } from '@/lib/schemas'
-import { sendAnnouncement, isEmailConfigured } from '@/lib/email'
+import { deliverNotification } from '@/lib/notifications/dispatch'
 import { isExternalImage } from '@/lib/notification-image'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { audit } from '@/lib/audit'
@@ -63,6 +63,18 @@ async function handlePOST(request: NextRequest) {
     }
   }
 
+  /*
+   * The composer's "also send by email" checkbox is what decides IMPORTANCE for
+   * an announcement, and it is the only event whose importance is not fixed by
+   * the catalog (see src/lib/notifications/events.ts). That is the right shape
+   * for this one: "is this worth an email?" is a judgement about the message
+   * somebody has just typed, and the person typing it is the one who knows.
+   *
+   * It is stored on the row rather than kept as a local, so the record says what
+   * was promised at send time even after the fact.
+   */
+  const importance = input.alsoEmail ? ('important' as const) : ('normal' as const)
+
   const { data: created, error } = await supabase
     .from('notifications')
     .insert({
@@ -72,6 +84,7 @@ async function handlePOST(request: NextRequest) {
       send_to_type: input.sendToType,
       target_id: input.sendToType === 'all' ? null : input.targetId,
       image_url: input.imageUrl,
+      importance,
       created_by: ctx.userId,
     })
     .select('id')
@@ -79,40 +92,32 @@ async function handlePOST(request: NextRequest) {
 
   if (error) return jsonError(friendlyDbError(error), 400)
 
-  // Optional email copy. In-app delivery has already happened by this point, so
-  // a mail failure is reported but never rolls the notification back.
-  let emailed = 0
-  if (input.alsoEmail && isEmailConfigured()) {
-    let query = supabase
-      .from('profiles')
-      .select('email')
-      .eq('role', 'employee')
-      .eq('is_active', true)
-    if (input.sendToType === 'department') query = query.eq('department_id', input.targetId!)
-    if (input.sendToType === 'employee') query = query.eq('id', input.targetId!)
-
-    const { data: recipients } = await query
-    const addresses = (recipients ?? []).map((r) => r.email).filter(Boolean) as string[]
-
-    if (addresses.length) {
-      // Resend caps recipients per call; chunk so a large team still receives it.
-      for (let i = 0; i < addresses.length; i += 45) {
-        const chunk = addresses.slice(i, i + 45)
-        const result = await sendAnnouncement({
-          to: chunk,
-          title: input.title,
-          description: input.description,
-          orgName: ctx.tenant.name,
-          brandColor: ctx.tenant.primaryColor,
-          // Only a pasted link survives the trip to an inbox — see the note on
-          // AnnouncementArgs.imageUrl.
-          imageUrl:
-            input.imageUrl && isExternalImage(input.imageUrl) ? input.imageUrl : null,
-        })
-        if (result.ok) emailed += chunk.length
-      }
-    }
-  }
+  /*
+   * Everything beyond this point is delivery, and delivery never rolls the
+   * notification back. It is in the portal now; whether a push service or Resend
+   * was reachable a second later does not change that.
+   *
+   * The audience, the chunking and the "only an external image survives the trip
+   * to an inbox" rule all used to live here as a block of inline email code.
+   * They moved into `deliverNotification` when browser push landed, so that the
+   * composer, `notifyEmployee` and the visa cron cannot end up with three
+   * different answers to "who gets told, and how?".
+   */
+  const report = await deliverNotification({
+    notificationId: created.id,
+    tenantId: ctx.tenantId,
+    audience:
+      input.sendToType === 'all'
+        ? { type: 'all' }
+        : { type: input.sendToType, targetId: input.targetId! },
+    title: input.title,
+    description: input.description,
+    imageUrl: input.imageUrl,
+    event: 'announcement',
+    importance,
+    // The author does not need their own phone to buzz about their own notice.
+    actorId: ctx.userId,
+  })
 
   await audit({
     tenantId: ctx.tenantId,
@@ -121,11 +126,17 @@ async function handlePOST(request: NextRequest) {
     action: 'notification.sent',
     entity: 'notifications',
     entityId: created.id,
-    meta: { sendToType: input.sendToType, emailed },
+    meta: {
+      sendToType: input.sendToType,
+      emailed: report.emailed,
+      pushed: report.pushed,
+      recipients: report.recipients,
+    },
     request,
   })
 
-  return jsonOk({ id: created.id, emailed }, 201)
+  // `emailed` keeps the name and the meaning the composer has always read.
+  return jsonOk({ id: created.id, emailed: report.emailed, pushed: report.pushed }, 201)
 }
 
 export const POST = withErrorHandler(handlePOST)

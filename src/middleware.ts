@@ -229,7 +229,21 @@ export const config = {
      * proves the object belongs to the caller's tenant, which was always the
      * real gate. Session refresh is unaffected — that rides on the navigation
      * requests, which still run this in full.
+     *
+     * `sw.js` MUST be excluded, and it is the one entry here that is a
+     * correctness fix rather than an optimization.
+     *
+     * The service worker is fetched by the browser on its own schedule — on
+     * registration, and again every time it checks for an update — with no
+     * regard for whether a session is currently valid. Run through the rules
+     * below, a fetch made while signed out is answered with a 307 to /login,
+     * so the browser receives an HTML page where it expected JavaScript. It
+     * refuses it on MIME type, the update fails, and depending on the engine
+     * the existing worker is discarded — taking every push subscription in
+     * that browser with it, silently, some time after the user signed out and
+     * back in. Serving the file as a static asset is also simply correct: it
+     * is public, identical for everybody, and carries nothing to authorize.
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/files/view|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw.js|icons/|api/files/view|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

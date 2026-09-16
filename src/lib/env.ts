@@ -12,6 +12,9 @@
  */
 import 'server-only'
 import { z } from 'zod'
+// Pure shape validators only — `vapid.ts` deliberately does not import back from
+// here (it reads process.env directly), so there is no cycle between the two.
+import { publicKeyProblem, privateKeyProblem } from '@/lib/push/vapid'
 
 /** Cannot run without these. */
 const criticalSchema = z.object({
@@ -47,6 +50,12 @@ const optionalSchema = z.object({
   RESEND_API_KEY: opt.str(10),
   EMAIL_FROM: opt.str(3),
   SUPABASE_SEND_EMAIL_HOOK_SECRET: opt.str(10),
+
+  // Web push (035). Shape-checked in strengthProblems() rather than here: the
+  // rule is about the DECODED bytes, which a string schema cannot express.
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: opt.str(80),
+  VAPID_PRIVATE_KEY: opt.str(40),
+  VAPID_SUBJECT: opt.str(7),
 
   R2_ACCOUNT_ID: opt.str(4),
   R2_ACCESS_KEY_ID: opt.str(8),
@@ -128,6 +137,54 @@ function strengthProblems(env: NodeJS.ProcessEnv): { errors: string[]; warnings:
 
   if (env.RESEND_API_KEY && !env.EMAIL_FROM) {
     warnings.push('RESEND_API_KEY is set but EMAIL_FROM is not — transactional email will not send.')
+  }
+
+  /*
+   * WEB PUSH (035).
+   *
+   * A malformed key here is an ERROR rather than a warning, for the same reason
+   * GOOGLE_TOKEN_ENCRYPTION_KEY is: the failure it causes is completely silent.
+   * Every push signed with a bad key is refused by the push service with a 403 —
+   * once per device, per notification, forever — while the application's own
+   * logs show a notification raised and a row written. Nobody finds that by
+   * watching the product; they find it when an employee says they never heard
+   * about a rejected timesheet.
+   *
+   * So `vapidConfig()` refuses to use a pair that does not pass these checks and
+   * reports push as OFF, and the specific complaint is printed here, once, at
+   * boot. Off and honest beats on and broken.
+   */
+  const vapidPublic = env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const vapidPrivate = env.VAPID_PRIVATE_KEY
+
+  if (vapidPublic) {
+    const problem = publicKeyProblem(vapidPublic)
+    if (problem) errors.push(problem)
+  }
+  if (vapidPrivate) {
+    const problem = privateKeyProblem(vapidPrivate)
+    if (problem) errors.push(problem)
+  }
+
+  if (!!vapidPublic !== !!vapidPrivate) {
+    const missing = vapidPublic ? 'VAPID_PRIVATE_KEY' : 'NEXT_PUBLIC_VAPID_PUBLIC_KEY'
+    warnings.push(
+      `Web push is half-configured (${missing} missing) — browser notifications are ` +
+        'switched off and the in-app list is the only delivery. Generate a pair with: npm run push:keys'
+    )
+  } else if (!vapidPublic) {
+    warnings.push(
+      'NEXT_PUBLIC_VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set — browser push ' +
+        'notifications are off. Notifications still appear in the portal, and important ' +
+        'ones are still emailed. Generate a pair with: npm run push:keys'
+    )
+  }
+
+  if (env.VAPID_SUBJECT && !/^(mailto:|https:\/\/)/i.test(env.VAPID_SUBJECT)) {
+    warnings.push(
+      'VAPID_SUBJECT must start with "mailto:" or "https://" — it is being ignored, and ' +
+        'the subject is being derived from EMAIL_FROM or APP_URL instead.'
+    )
   }
 
   // Only a problem for a deployment that has turned the OPTIONAL Send Email hook

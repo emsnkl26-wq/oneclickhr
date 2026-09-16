@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Sidebar, type ShellBrand, type ShellUser } from '@/components/shell/sidebar'
 import { DomainBanner } from '@/components/shell/domain-banner'
 import { SupportButton } from '@/components/support/support-button'
+import { PushBootstrap } from '@/components/notifications/push-bootstrap'
 import { hexToHslTriple, shiftLightness } from '@/lib/utils'
 import { daysUntilDeadline } from '@/lib/domain'
 import type { AppContext } from '@/lib/auth/context'
@@ -123,6 +124,17 @@ export function AppShell({
         thought only administrators have.
       */}
       {ctx.role !== 'super_admin' ? <SupportButton /> : null}
+
+      {/*
+        Renders nothing. Keeps this browser’s push registration current on every
+        page load, and never prompts — see the component header.
+
+        Inside the shell rather than the root layout, because the shell is the
+        part that only signed-in pages mount. Registering a worker on /login or
+        the public job portal would be registering one for somebody who has no
+        notifications to receive.
+      */}
+      <PushBootstrap />
     </div>
   )
 }

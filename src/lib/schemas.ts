@@ -1577,3 +1577,93 @@ export const supportStatusSchema = z.object({
   status: z.enum(SUPPORT_STATUSES),
   resolutionNote: optionalText(5000),
 })
+
+// ---------------------------------------------------------------------------
+// Web push subscriptions (035)
+// ---------------------------------------------------------------------------
+
+/**
+ * What `PushSubscription.toJSON()` produces, re-validated on the server.
+ *
+ * EVERY FIELD HERE IS ATTACKER-CONTROLLED, because "the browser generated it"
+ * is a statement about the honest case only — the request is an ordinary POST
+ * that anything can make. Two properties are worth being explicit about:
+ *
+ *   • `endpoint` becomes the URL the server makes an outbound HTTPS request to,
+ *     once per notification, forever. That is a server-side request forgery
+ *     primitive if it is left as "any string": point it at an internal address
+ *     and the product becomes a probe of its own network, faithfully reporting
+ *     status codes through the delivery ledger. So the scheme is pinned to
+ *     https and the host is checked against the push services that actually
+ *     exist. A new browser vendor is a one-line addition here, and until then
+ *     the answer to an unknown host is no.
+ *
+ *   • `p256dh` and `auth` are fed to the payload encrypter. Malformed values
+ *     throw inside it on every send rather than at the point they were
+ *     accepted, so the shapes are pinned here — an uncompressed P-256 point and
+ *     a 16-byte salt, both base64url — and a bad pair is refused once, at the
+ *     door, with an error that says which field.
+ */
+const base64Url = (min: number, max: number, field: string) =>
+  z
+    .string()
+    .trim()
+    .min(min, `${field} is not a valid subscription key`)
+    .max(max, `${field} is not a valid subscription key`)
+    .regex(/^[A-Za-z0-9_-]+$/, `${field} is not a valid subscription key`)
+
+/**
+ * The push services in existence. Chrome/Edge/Brave and every other Chromium
+ * browser use FCM; Firefox uses Mozilla's autopush; Safari (macOS and iOS 16.4+)
+ * uses Apple's. `windows.com` covers the legacy WNS endpoints that older Edge
+ * installs still hand out.
+ */
+const PUSH_HOSTS = [
+  'android.googleapis.com',
+  'fcm.googleapis.com',
+  'updates.push.services.mozilla.com',
+  'updates-autopush.stage.mozaws.net',
+  'web.push.apple.com',
+  'notify.windows.com',
+  'push.services.mozilla.com',
+] as const
+
+function pushEndpointProblem(value: string): string | null {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return 'That is not a valid push endpoint'
+  }
+  if (url.protocol !== 'https:') return 'A push endpoint must be https'
+  const host = url.hostname.toLowerCase()
+  // Exact host, or a sub-domain of one — `*.push.apple.com` style sharding is
+  // real. Matched on a LABEL boundary so `evil-web.push.apple.com.attacker.test`
+  // cannot inherit the allowance.
+  const known = PUSH_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))
+  return known ? null : 'That push service is not recognised'
+}
+
+export const pushSubscriptionSchema = z.object({
+  endpoint: z
+    .string()
+    .trim()
+    .min(20)
+    .max(2000)
+    .superRefine((value, ctx) => {
+      const problem = pushEndpointProblem(value)
+      if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem })
+    }),
+  keys: z.object({
+    // 65 bytes base64url — 87 chars unpadded, 88 with padding stripped by trim.
+    p256dh: base64Url(80, 200, 'The device key'),
+    // 16 bytes base64url — 22 chars unpadded.
+    auth: base64Url(16, 40, 'The device key'),
+  }),
+})
+export type PushSubscriptionInput = z.infer<typeof pushSubscriptionSchema>
+
+/** Unsubscribing needs only the endpoint, and never the keys. */
+export const pushUnsubscribeSchema = z.object({
+  endpoint: z.string().trim().min(20).max(2000),
+})

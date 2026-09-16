@@ -75,6 +75,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     tenantId: ctx.tenantId,
     employeeId: row.employee_id,
     createdBy: ctx.userId,
+    event: 'payment.decided',
     title:
       input.status === 'verified'
         ? `Payment for ${period} confirmed`

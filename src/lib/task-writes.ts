@@ -167,6 +167,7 @@ export async function notifyAssigned(
         title: 'A task was assigned to you',
         description: label,
         createdBy: args.actorId,
+        event: 'task.assigned',
       })
     )
   )
@@ -214,6 +215,8 @@ export async function notifyCommented(
         title: `${args.actorName} commented on ${args.taskTitle}`,
         description: preview,
         createdBy: args.actorId,
+        event: 'task.commented',
+        subjectId: args.taskId,
       })
     )
   )

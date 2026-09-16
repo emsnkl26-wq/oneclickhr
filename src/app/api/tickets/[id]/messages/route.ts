@@ -84,6 +84,10 @@ async function handlePOST(request: NextRequest, { params }: Params) {
       createdBy: ctx.userId,
       title: `New reply on ticket ${ticket.code}`,
       description: truncate(input.body, 240),
+      event: 'ticket.replied',
+      // Tagged by ticket: a burst of replies on one thread collapses into a
+      // single badge on the device rather than stacking.
+      subjectId: id,
     })
   }
 

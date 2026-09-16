@@ -104,6 +104,9 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     tenantId: ctx.tenantId,
     employeeId: sheet.employee_id,
     createdBy: ctx.userId,
+    // Their hours, and therefore their pay — and a returned sheet has to be
+    // corrected before the payroll cut-off. The catalog emails this one.
+    event: 'timesheet.decided',
     title:
       input.status === 'approved'
         ? `Timesheet ${sheet.code} approved`

@@ -75,6 +75,9 @@ async function handlePOST(request: NextRequest, { params }: Params) {
     title: 'Your onboarding details need a change',
     description: input.notes,
     createdBy: ctx.userId,
+    // They are confined to the onboarding form until they act on this, so
+    // there is no screen on which they could notice it passively.
+    event: 'onboarding.changes_requested',
   })
 
   await audit({

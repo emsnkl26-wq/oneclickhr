@@ -18,7 +18,9 @@
     "r2:doctor": "tsx scripts/r2-doctor.ts",
     "auth:doctor": "tsx scripts/auth-doctor.ts",
     "email:templates": "tsx scripts/render-supabase-templates.ts",
-    "check:boundaries": "tsx scripts/check-client-boundary.ts"
+    "check:boundaries": "tsx scripts/check-client-boundary.ts",
+    "push:keys": "tsx scripts/push-keys.ts",
+    "push:icons": "tsx scripts/make-push-icons.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.716.0",
@@ -60,12 +62,14 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "unpdf": "^0.12.1",
+    "web-push": "^3.6.7",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.20",
     "dotenv": "^16.4.7",
     "eslint": "^8.57.1",

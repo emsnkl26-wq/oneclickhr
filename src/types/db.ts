@@ -11,6 +11,11 @@ export type UserRole = 'super_admin' | 'org' | 'employee'
 export type TenantStatus = 'active' | 'suspended'
 export type LeaveStatus = 'pending' | 'approved' | 'rejected'
 export type NotificationTarget = 'all' | 'department' | 'employee'
+
+/** 035. `normal` = in-app + web push; `important` = those plus an email. */
+export type NotificationImportance = 'normal' | 'important'
+export type NotificationChannel = 'push' | 'email'
+export type NotificationDeliveryStatus = 'sent' | 'failed' | 'skipped'
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
 export type CalendarStatus = 'connected' | 'needs_reauth' | 'revoked'
 export type MeetingSource = 'app' | 'google'
@@ -283,6 +288,11 @@ export interface AppNotification {
    * the two shapes load by different routes.
    */
   image_url: string | null
+  /**
+   * Whether this one also warranted an email (035). Written by the server from
+   * the catalog in `lib/notifications/events.ts`, never by a client.
+   */
+  importance: NotificationImportance
   created_by: string | null
   created_at: string
 }
@@ -1099,4 +1109,47 @@ export interface SupportRequest {
   resolved_at: string | null
   created_at: string
   updated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Web push (035_push_notifications.sql)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per BROWSER that has granted notification permission — not per user.
+ * A person with a laptop and a phone is two rows, and both are delivered to.
+ *
+ * `p256dh` and `auth` are the keys that encrypt a payload for that one browser,
+ * so they are secrets: RLS is self-only, and nothing outside src/lib/push reads
+ * them. They are typed here for the server code that does.
+ */
+export interface PushSubscriptionRow {
+  id: string
+  tenant_id: string
+  user_id: string
+  /** Identifies the subscription. Unique across the table — see 035's header. */
+  endpoint: string
+  p256dh: string
+  auth: string
+  user_agent: string | null
+  created_at: string
+  /** Touched on every page load, which is how staleness is detected. */
+  last_seen_at: string
+  /** Consecutive NON-fatal failures. A fatal one deletes the row instead. */
+  failure_count: number
+}
+
+/**
+ * The claim-then-send ledger. Its primary key is what makes a retried request
+ * safe: the second attempt loses the insert and therefore sends nothing.
+ */
+export interface NotificationDelivery {
+  notification_id: string
+  user_id: string
+  channel: NotificationChannel
+  tenant_id: string
+  status: NotificationDeliveryStatus
+  /** A short reason when status is not 'sent'. Operator-facing only. */
+  detail: string | null
+  created_at: string
 }
