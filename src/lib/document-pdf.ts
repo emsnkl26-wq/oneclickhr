@@ -165,24 +165,38 @@ export async function loadOrgLogo(logoKey: string | null): Promise<LogoAsset | n
     if (!response.ok) return null
 
     const payload = (await response.json()) as { dataUrl: string | null; format: string | null }
-    if (!payload?.dataUrl || (payload.format !== 'PNG' && payload.format !== 'JPEG')) return null
+    if (!payload?.dataUrl) return null
+
+    const image = await new Promise<HTMLImageElement | null>((resolve) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => resolve(null)
+      img.src = payload.dataUrl as string
+    })
+    if (!image) return null
 
     // Natural dimensions, so the logo keeps its aspect ratio in the header and
-    // in the watermark instead of being squashed into a square. A data URL needs
-    // no CORS to measure.
-    const size = await new Promise<{ width: number; height: number }>((resolve) => {
-      const image = new Image()
-      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
-      image.onerror = () => resolve({ width: 1, height: 1 })
-      image.src = payload.dataUrl as string
-    })
+    // in the watermark instead of being squashed into a square. An SVG without
+    // explicit width/height can report 0, so fall back to a square box.
+    const width = image.naturalWidth || 512
+    const height = image.naturalHeight || 512
 
-    return {
-      dataUrl: payload.dataUrl,
-      format: payload.format,
-      width: size.width || 1,
-      height: size.height || 1,
+    if (payload.format === 'PNG' || payload.format === 'JPEG') {
+      return { dataUrl: payload.dataUrl, format: payload.format, width, height }
     }
+
+    // jsPDF embeds only PNG and JPEG reliably. Anything else the upload accepts
+    // (WebP, SVG, GIF, AVIF, BMP) is rasterized to PNG here. A data URL never
+    // taints the canvas, so no CORS question arises.
+    const scale = Math.min(4, Math.max(1, 1024 / Math.max(width, height)))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(width * scale)
+    canvas.height = Math.round(height * scale)
+    const context = canvas.getContext('2d')
+    if (!context) return null
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+    return { dataUrl: canvas.toDataURL('image/png'), format: 'PNG', width, height }
   } catch {
     return null
   }

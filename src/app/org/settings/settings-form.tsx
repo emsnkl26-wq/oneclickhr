@@ -47,10 +47,30 @@ export function SettingsForm({
       // Logos accept SVG — which is why the pipeline sanitizes them before
       // anything is stored.
       const uploaded = await uploadFile(file, 'logo')
+      // Applied immediately rather than waiting on the form's Save button —
+      // the preview already shows it changed, so leaving it unsaved until an
+      // unrelated field is also submitted is a trap, not a draft.
+      await apiPatch('/api/org/settings', { logoKey: uploaded.key })
       setLogoKey(uploaded.key)
-      toast.success('Logo uploaded — save to apply it')
+      toast.success('Logo updated')
+      router.refresh()
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'That upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function onLogoRemove() {
+    setUploading(true)
+    setError(null)
+    try {
+      await apiPatch('/api/org/settings', { logoKey: null })
+      setLogoKey(null)
+      toast.success('Logo removed')
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'That failed')
     } finally {
       setUploading(false)
     }
@@ -68,7 +88,6 @@ export function SettingsForm({
         timezone,
         workStartTime,
         defaultTrackingMode,
-        logoKey,
       })
       toast.success('Settings saved')
       router.refresh()
@@ -130,7 +149,13 @@ export function SettingsForm({
                 />
               </label>
               {logoKey ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setLogoKey(null)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={uploading}
+                  onClick={onLogoRemove}
+                >
                   Remove
                 </Button>
               ) : null}

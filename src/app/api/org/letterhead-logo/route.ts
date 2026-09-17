@@ -30,15 +30,36 @@ export const dynamic = 'force-dynamic'
 const MAX_BYTES = 2 * 1024 * 1024
 
 /**
- * jsPDF's `addImage` handles PNG and JPEG reliably and nothing else — an SVG
- * has no raster to embed, and WebP support varies by build. Sniffed from the
- * leading bytes rather than trusted from a stored content type.
+ * The image's real type, sniffed from its leading bytes rather than trusted from
+ * a stored content type. Every type the logo upload accepts is recognised here:
+ * jsPDF only embeds PNG and JPEG, but the browser rasterizes the rest to PNG
+ * before handing it over (see `loadOrgLogo`), so refusing them here would make
+ * a WebP or SVG logo silently vanish from every document.
  */
-function rasterFormat(bytes: Buffer): 'PNG' | 'JPEG' | null {
+function imageMime(bytes: Buffer): string | null {
   if (bytes.length < 4) return null
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'PNG'
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'JPEG'
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  const ascii = bytes.subarray(0, 16).toString('latin1')
+  if (ascii.startsWith('GIF8')) return 'image/gif'
+  if (ascii.startsWith('BM')) return 'image/bmp'
+  if (ascii.startsWith('RIFF') && ascii.slice(8, 12) === 'WEBP') return 'image/webp'
+  if (ascii.slice(4, 12) === 'ftypavif' || ascii.slice(4, 12) === 'ftypavis') return 'image/avif'
+  const head = bytes.subarray(0, 1024).toString('utf8').replace(/^﻿/, '').trimStart().toLowerCase()
+  if (head.startsWith('<svg') || ((head.startsWith('<?xml') || head.startsWith('<!')) && head.includes('<svg'))) {
+    return 'image/svg+xml'
+  }
   return null
+}
+
+const FORMAT_BY_MIME: Record<string, string> = {
+  'image/png': 'PNG',
+  'image/jpeg': 'JPEG',
+  'image/gif': 'GIF',
+  'image/bmp': 'BMP',
+  'image/webp': 'WEBP',
+  'image/avif': 'AVIF',
+  'image/svg+xml': 'SVG',
 }
 
 /** Answered as "no logo" rather than as an error — a letterhead survives without one. */
@@ -64,12 +85,12 @@ async function handleGET() {
     if (!head.size || head.size > MAX_BYTES) return jsonOk(NO_LOGO)
 
     const bytes = await getObject(key)
-    const format = rasterFormat(bytes)
-    if (!format) return jsonOk(NO_LOGO)
+    const mime = imageMime(bytes)
+    if (!mime) return jsonOk(NO_LOGO)
 
     const response = NextResponse.json({
-      dataUrl: `data:${format === 'PNG' ? 'image/png' : 'image/jpeg'};base64,${bytes.toString('base64')}`,
-      format,
+      dataUrl: `data:${mime};base64,${bytes.toString('base64')}`,
+      format: FORMAT_BY_MIME[mime],
     })
     // Private to this browser and short-lived: a logo changes rarely, and a
     // stale one for ten minutes is better than re-streaming it per document.
