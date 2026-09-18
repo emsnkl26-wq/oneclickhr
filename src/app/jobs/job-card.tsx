@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { CompanyMark } from './company-mark'
 import { MapPin, Clock, Wallet, Building2 } from 'lucide-react'
 import { JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS, experienceLabel } from '@/lib/jobs'
 import { formatInstantLabel } from '@/lib/time'
@@ -94,42 +95,4 @@ export function JobCard({ job, showCompany = true }: { job: PublicJob; showCompa
   )
 }
 
-/**
- * The company's logo, or its initial.
- *
- * `next/image` is deliberately not used: the src is `/api/jobs/logo`, which 302s
- * to a signed R2 URL on a host the optimizer is not configured to fetch from,
- * and the signature expires — so an optimized, cached variant would break in a
- * way nothing on the page could explain. A plain `<img>` follows the redirect
- * and re-requests when it needs to.
- */
-export function CompanyMark({
-  company,
-  size = 'sm',
-}: {
-  company: PublicJob['company']
-  size?: 'sm' | 'lg'
-}) {
-  const box = size === 'lg' ? 'size-14 text-lg' : 'size-11 text-sm'
-
-  if (company.logoUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={company.logoUrl}
-        alt=""
-        className={`${box} shrink-0 rounded-xl border border-line bg-card object-contain p-1.5`}
-        loading="lazy"
-      />
-    )
-  }
-
-  return (
-    <span
-      className={`${box} grid shrink-0 place-items-center rounded-xl bg-page font-bold text-ink-muted ring-1 ring-inset ring-line`}
-      aria-hidden
-    >
-      {company.name.charAt(0).toUpperCase()}
-    </span>
-  )
-}
+export { CompanyMark }

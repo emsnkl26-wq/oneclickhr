@@ -2,11 +2,11 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, Download, Mail, Phone, Linkedin, Globe, Building2 } from 'lucide-react'
+import { Users, Download, Mail, Phone, Linkedin, Globe, Building2, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Select, Textarea } from '@/components/ui/input'
+import { Input, Select, Textarea } from '@/components/ui/input'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatInstantLabel } from '@/lib/time'
 import { APPLICATION_STATUSES } from '@/lib/schemas'
@@ -79,8 +79,16 @@ export function ApplicantList({
   const [busyId, setBusyId] = React.useState<string | null>(null)
   const [notes, setNotes] = React.useState<Record<string, string>>({})
 
-  const visible =
-    filter === 'all' ? applications : applications.filter((row) => row.status === filter)
+  const [query, setQuery] = React.useState('')
+  const term = query.trim().toLowerCase()
+  const visible = applications.filter(
+    (row) =>
+      (filter === 'all' || row.status === filter) &&
+      (!term ||
+        [row.fullName, row.email, row.phone, row.location, row.currentCompany]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(term)))
+  )
 
   async function save(row: ApplicantRow, patch: { status?: ApplicationStatus; notes?: string }) {
     setBusyId(row.id)
@@ -109,6 +117,16 @@ export function ApplicantList({
 
   return (
     <div className="space-y-4">
+      <div className="relative sm:max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" aria-hidden />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search applicants by name, email, company…"
+          aria-label="Search applicants"
+          className="pl-9"
+        />
+      </div>
       {/*
         * A LOCAL tab strip, not LinkTabs.
         *

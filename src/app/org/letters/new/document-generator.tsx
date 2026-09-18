@@ -30,6 +30,7 @@ import {
   type LetterheadOrg, type LogoAsset,
 } from '@/lib/document-pdf'
 import type { CompanyDetails, GeneratedDocumentType } from '@/types/db'
+import { SignaturePad } from './signature-pad'
 
 export interface GeneratorEmployee {
   id: string
@@ -126,6 +127,8 @@ export function DocumentGenerator({
   const [signatoryName, setSignatoryName] = React.useState(company.signatoryName ?? '')
   const [signatoryTitle, setSignatoryTitle] = React.useState(company.signatoryTitle ?? '')
   const [signatoryPhone, setSignatoryPhone] = React.useState(company.signatoryPhone ?? '')
+  // Per-letter only: drawn, uploaded or typed, never stored outside the PDF.
+  const [signatureImage, setSignatureImage] = React.useState<LogoAsset | null>(null)
 
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<'preview' | 'generate' | null>(null)
@@ -312,8 +315,14 @@ export function DocumentGenerator({
       .map((line) => line.replace(/^[-•*]\s*/, '').trim())
       .filter(Boolean)
 
-    const signatory = { name: signatoryName, title: signatoryTitle, phone: signatoryPhone }
     const dateLabel = formatDateLabel(letterDate)
+    const signatory = {
+      name: signatoryName,
+      title: signatoryTitle,
+      phone: signatoryPhone,
+      image: signatureImage,
+      signedDate: signatureImage ? formatDateLabel(today) : undefined,
+    }
 
     if (docType === 'employment_agreement') {
       return renderDocument({
@@ -423,6 +432,7 @@ export function DocumentGenerator({
           workLocation, hoursPerWeek, acceptanceDeadline, honorific, governingState, visaType,
           intro, startDateText, compensationText, responsibilities, eVerifyText, contingencyText,
           closing, signatoryName, signatoryTitle, signatoryPhone,
+          signed: !!signatureImage,
         },
       })
 
@@ -809,6 +819,19 @@ export function DocumentGenerator({
                 placeholder="+1 (484) 803-2090"
               />
             </FormField>
+          </div>
+
+          <div className="mt-5 space-y-2">
+            <p className="text-sm font-medium text-ink">Signature</p>
+            <p className="text-[13px] text-ink-muted">
+              Optional. Printed above the signatory&apos;s name with today&apos;s date. Leave it
+              empty to keep a blank line for a wet signature.
+            </p>
+            <SignaturePad
+              value={signatureImage}
+              onChange={setSignatureImage}
+              defaultName={signatoryName}
+            />
           </div>
         </CardContent>
       </Card>

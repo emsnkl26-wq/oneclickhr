@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { formatDateLabel, formatPeriod } from '@/lib/time'
 import { initials, formatHours } from '@/lib/utils'
-import type { ProjectStatus, TimesheetStatus } from '@/types/db'
+import { ProjectManagerCard, MANAGER_EMBED } from '../project-manager-card'
+import { WeeklyHoursChart } from './weekly-hours-chart-loader'
+import type { ProjectStatus, TimesheetStatus, ProjectManagerContact } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Project' }
 export const dynamic = 'force-dynamic'
@@ -34,6 +36,7 @@ interface EntryRow {
     week_start: string
     week_end: string
     status: TimesheetStatus
+    weekly_learnings: string | null
     employee: { id: string; full_name: string | null; email: string | null } | null
   } | null
 }
@@ -63,7 +66,7 @@ export default async function ProjectDetailPage({
   const { data: project, error: projectError } = await supabase
     .from('projects')
     .select(
-      'id, code, name, client_name, end_client_name, description, start_date, end_date, status, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))'
+      `id, code, name, client_name, end_client_name, description, start_date, end_date, status, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))`
     )
     .eq('id', id)
     .maybeSingle()
@@ -82,11 +85,11 @@ export default async function ProjectDetailPage({
     supabase
       .from('timesheet_entries')
       .select(
-        'id, task_name, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat, timesheet:timesheets!inner(id, code, week_start, week_end, status, employee:profiles!timesheets_employee_id_fkey(id, full_name, email))'
+        'id, task_name, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat, timesheet:timesheets!inner(id, code, week_start, week_end, status, weekly_learnings, employee:profiles!timesheets_employee_id_fkey(id, full_name, email))'
       )
       .eq('project_id', id)
       .order('created_at', { ascending: false })
-      .limit(200),
+      .limit(500),
     projectHourTotals(supabase, id),
   ])
 
@@ -95,6 +98,49 @@ export default async function ProjectDetailPage({
   const pendingHours = rows
     .filter((row) => row.timesheet?.status === 'submitted')
     .reduce((sum, row) => sum + entryHours(row), 0)
+
+  const manager = (project as unknown as { manager: ProjectManagerContact | null }).manager
+
+  // Weekly progress: every line folded into (week -> employee), so one person's
+  // three task lines on the project read as one row with their week's notes.
+  type WeekPerson = {
+    timesheetId: string
+    name: string
+    status: TimesheetStatus
+    notes: string | null
+    hours: number
+  }
+  const weekMap = new Map<string, { weekStart: string; weekEnd: string; total: number; people: Map<string, WeekPerson> }>()
+  for (const entry of rows) {
+    const sheet = entry.timesheet
+    if (!sheet) continue
+    let week = weekMap.get(sheet.week_start)
+    if (!week) {
+      week = { weekStart: sheet.week_start, weekEnd: sheet.week_end, total: 0, people: new Map() }
+      weekMap.set(sheet.week_start, week)
+    }
+    const hours = entryHours(entry)
+    week.total += hours
+    const person = week.people.get(sheet.id)
+    if (person) person.hours += hours
+    else
+      week.people.set(sheet.id, {
+        timesheetId: sheet.id,
+        name: sheet.employee?.full_name || sheet.employee?.email || 'Employee',
+        status: sheet.status,
+        notes: sheet.weekly_learnings,
+        hours,
+      })
+  }
+  const weeks = Array.from(weekMap.values()).sort((a, b) => b.weekStart.localeCompare(a.weekStart))
+  const chartData = weeks
+    .slice(0, 12)
+    .reverse()
+    .map((week) => ({
+      label: formatDateLabel(week.weekStart),
+      fullLabel: formatPeriod(week.weekStart, week.weekEnd),
+      hours: Math.round(week.total * 100) / 100,
+    }))
 
   const members = (
     project.assignments as unknown as Array<{
@@ -152,6 +198,8 @@ export default async function ProjectDetailPage({
         </div>
       </div>
 
+      <ProjectManagerCard manager={manager} />
+
       {project.description ? (
         <Card>
           <CardContent className="text-sm leading-relaxed text-ink-muted">
@@ -176,6 +224,56 @@ export default async function ProjectDetailPage({
         />
         <StatCard label="Assigned employees" value={members.length} icon={Users} tone="indigo" />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Weekly progress</CardTitle>
+        </CardHeader>
+        {weeks.length === 0 ? (
+          <EmptyState
+            icon={CalendarRange}
+            title="No weekly updates yet"
+            description="Each week's hours and progress notes from the team will appear here."
+          />
+        ) : (
+          <CardContent className="space-y-5">
+            {chartData.length > 1 ? <WeeklyHoursChart data={chartData} /> : null}
+            <div className="space-y-4">
+              {weeks.map((week) => (
+                <section key={week.weekStart} className="rounded-xl border border-line">
+                  <header className="flex items-center justify-between gap-3 border-b border-line bg-page/60 px-4 py-2.5">
+                    <p className="text-sm font-semibold">{formatPeriod(week.weekStart, week.weekEnd)}</p>
+                    <p className="tabular text-sm font-medium text-ink-muted">
+                      {formatHours(week.total)} total
+                    </p>
+                  </header>
+                  <ul className="divide-y divide-line">
+                    {Array.from(week.people.values()).map((person) => (
+                      <li key={person.timesheetId} className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <Link
+                            href={`/org/timesheets/${person.timesheetId}`}
+                            className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                          >
+                            {person.name}
+                          </Link>
+                          <StatusChip status={person.status} />
+                          <span className="tabular w-16 shrink-0 text-right text-sm font-medium">
+                            {formatHours(person.hours)}
+                          </span>
+                        </div>
+                        <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-ink-muted">
+                          {person.notes?.trim() || 'No progress notes for this week.'}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </CardContent>
+        )}
+      </Card>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card>

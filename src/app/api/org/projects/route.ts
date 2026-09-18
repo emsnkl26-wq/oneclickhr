@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { projectSchema } from '@/lib/schemas'
 import { resolveProjectMembers } from '@/lib/projects'
 import { audit } from '@/lib/audit'
+import { readManagerId, resolveProjectManager } from './manager'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,8 +27,14 @@ async function handlePOST(request: NextRequest) {
   if (!gate.ok) return gate.response
   const { ctx } = gate
 
+  const managerInput = await readManagerId(request)
   const input = await parseBody(request, projectSchema)
   const supabase = await createSupabaseServerClient()
+
+  const managerId = await resolveProjectManager(supabase, ctx.tenantId, managerInput)
+  if (managerId === false) {
+    return jsonError('The project manager must be an active person in this workspace.', 400)
+  }
 
   const memberIds = await resolveProjectMembers(supabase, input.employeeIds)
   if (memberIds === null) {
@@ -45,6 +52,7 @@ async function handlePOST(request: NextRequest) {
       start_date: input.startDate ?? null,
       end_date: input.endDate ?? null,
       status: input.status,
+      ...(managerId !== undefined ? { manager_id: managerId } : {}),
       created_by: ctx.userId,
     })
     .select('id, code')

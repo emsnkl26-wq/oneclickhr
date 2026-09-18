@@ -151,10 +151,8 @@ export function OnboardingWizard({
         body[key] = current[key] === '' ? null : current[key]
       }
       body.additionalDocs = current.additionalDocs
-      // A number still awaiting its confirmation is held back rather than
-      // stored: everything else on the step saves normally, and the number
-      // goes with the next save once the two boxes agree.
-      if (current.accountNumber && !mismatchRef.current) body.accountNumber = current.accountNumber
+      // Always sent: the field shows the stored number, so blank means cleared.
+      body.accountNumber = current.accountNumber || null
       if (nextStep) body.currentStep = nextStep
       if (nextCompleted) body.completedSteps = nextCompleted
 
@@ -172,10 +170,7 @@ export function OnboardingWizard({
           // link or a closed tab all come back to this same draft.
           window.history.replaceState(null, '', `/org/employees/onboard/${id}`)
         }
-        if (body.accountNumber) {
-          setAccountLast4(current.accountNumber.slice(-4))
-          setDraft((prev) => ({ ...prev, accountNumber: '' }))
-        }
+        setAccountLast4(current.accountNumber ? current.accountNumber.slice(-4) : null)
         dirty.current = false
         setSavedAt(new Date())
         return id

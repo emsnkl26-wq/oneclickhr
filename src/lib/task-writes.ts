@@ -38,6 +38,8 @@ export async function resolveMembers(
 interface SyncResult {
   added: string[]
   removed: string[]
+  /** Why part of the change was refused, or null when all of it landed. */
+  error: string | null
 }
 
 /**
@@ -63,29 +65,50 @@ export async function syncAssignees(
   const added = valid.filter((id) => !before.has(id))
   const removed = Array.from(before).filter((id) => !after.has(id))
 
+  // Every write is checked and REPORTED. This used to log and carry on, which
+  // is how an assignment the policy refused came back as a 200: the dialog kept
+  // its optimistic avatar, and the next refresh quietly took it away.
+  // Deletes use `.select()` because a policy-refused delete is not an error in
+  // PostgREST, just zero rows.
+  let error: string | null = null
+
+  let removedOk: string[] = []
   if (removed.length) {
-    await supabase
+    const res = await supabase
       .from('task_assignees')
       .delete()
       .eq('task_id', args.taskId)
       .in('profile_id', removed)
+      .select('profile_id')
+    if (res.error) error = res.error.message
+    removedOk = (res.data ?? []).map((r) => r.profile_id)
+    if (!res.error && removedOk.length < removed.length) {
+      error = 'You can only remove yourself from a task.'
+    }
   }
 
+  let addedOk: string[] = []
   if (added.length) {
-    const { error } = await supabase.from('task_assignees').insert(
-      added.map((profile_id) => ({
-        task_id: args.taskId,
-        profile_id,
-        tenant_id: args.tenantId,
-      }))
-    )
-    // A refused assignment must not fail the save that carried it: the task
-    // itself is already written, and reporting a 500 here would send the user
-    // back to a form whose work has in fact been saved.
-    if (error) console.error('[tasks] assignment failed', error.message)
+    const res = await supabase
+      .from('task_assignees')
+      .insert(
+        added.map((profile_id) => ({
+          task_id: args.taskId,
+          profile_id,
+          tenant_id: args.tenantId,
+        }))
+      )
+      .select('profile_id')
+    if (res.error) {
+      console.error('[tasks] assignment failed', res.error.message)
+      error = res.error.code === '42501'
+        ? 'Only the organisation can assign other people. You can assign yourself to tasks you raised.'
+        : res.error.message
+    }
+    addedOk = (res.data ?? []).map((r) => r.profile_id)
   }
 
-  return { added, removed }
+  return { added: addedOk, removed: removedOk, error }
 }
 
 /** Same contract as `syncAssignees`, for the label links. */

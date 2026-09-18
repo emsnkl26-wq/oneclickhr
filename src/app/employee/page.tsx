@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatLocal, todayIn } from '@/lib/time'
 import { formatHours, cn } from '@/lib/utils'
 import { ShiftToggle } from './shift-toggle'
+import { MyPlacementsCard } from '@/app/org/placements/my-placements-card'
 
 export const metadata: Metadata = { title: 'Dashboard' }
 export const dynamic = 'force-dynamic'
@@ -109,7 +110,9 @@ export default async function EmployeeDashboard() {
         been handed a login has exactly one thing to do here, and burying it
         under seven stat cards is how it goes undone for a fortnight.
       */}
-      {onboarding ? (
+      {/* An approved onboarding still loads (so its owner can correct details from
+          their profile), but there is nothing left to ask of them here. */}
+      {onboarding && onboarding.status !== 'completed' ? (
         <div
           className={cn(
             'flex flex-col gap-4 rounded-2xl border p-5 sm:flex-row sm:items-center sm:p-6',
@@ -244,6 +247,9 @@ export default async function EmployeeDashboard() {
           hint={rejectedCount.count ? 'Needs your attention' : 'Nothing returned'}
         />
       </div>
+
+      {/* Read-only, from `my_assignments` — pay rate only, never the bill rate. */}
+      <MyPlacementsCard supabase={supabase} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

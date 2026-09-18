@@ -104,17 +104,15 @@ export function EmployeeOnboardingForm({
         body[key] = current[key] === '' ? null : current[key]
       }
       body.additionalDocs = current.additionalDocs
-      if (current.accountNumber && !mismatchRef.current) body.accountNumber = current.accountNumber
+      // Always sent: the field now shows the stored number, so blank means cleared.
+      body.accountNumber = current.accountNumber || null
       if (nextStep) body.employeeStep = nextStep
       if (nextCompleted) body.employeeCompletedSteps = nextCompleted
 
       setSaving(true)
       try {
         await apiPatch('/api/employee/onboarding', body)
-        if (body.accountNumber) {
-          setAccountLast4(current.accountNumber.slice(-4))
-          setDraft((prev) => ({ ...prev, accountNumber: '' }))
-        }
+        setAccountLast4(current.accountNumber ? current.accountNumber.slice(-4) : null)
         dirty.current = false
         setSavedAt(new Date())
         return true
@@ -255,8 +253,12 @@ export function EmployeeOnboardingForm({
     currencySymbol,
     accountLast4,
     onDepartmentCreated: () => {},
-    onBusyChange: (key, busy) =>
-      setUploads((prev) => (busy ? [...prev, key] : prev.filter((k) => k !== key))),
+    onBusyChange: (key, busy) => {
+      setUploads((prev) => (busy ? [...prev, key] : prev.filter((k) => k !== key)))
+      // Persist an upload straight away rather than on the 30s autosave, so the
+      // file is attached to the draft (and viewable) before they move on.
+      if (!busy) window.setTimeout(() => void save(), 50)
+    },
     onAccountMismatch: setAccountMismatch,
   }
 

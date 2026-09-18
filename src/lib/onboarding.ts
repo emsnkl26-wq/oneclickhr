@@ -14,7 +14,7 @@
 import {
   ACCOUNT_TYPES, EMPLOYMENT_STATUSES, EMPLOYMENT_TYPES, GENDERS, ID_PROOF_TYPES,
   NON_VISA_STATUSES, PAY_FREQUENCIES, PAY_TYPES, PRONOUNS, WORK_AUTH_STATUSES,
-  ONBOARDING_STEP_SCHEMAS, type AdditionalDoc,
+  ONBOARDING_STEP_SCHEMAS, ID_PROOF_BY_COUNTRY, workAuthOptions, type AdditionalDoc,
 } from '@/lib/schemas'
 import { COUNTRY_CODES, countryName } from '@/lib/geo'
 
@@ -296,7 +296,7 @@ export const ONBOARDING_STEPS: StepDef[] = [
         title: 'Visa details',
         visaOnly: true,
         banner:
-          'Visa expiry is tracked automatically. Admins receive reminders at 90, 30, 7 and 0 days before expiry.',
+          'Visa / permit expiry is tracked automatically. Admins receive reminders at 90, 30, 7 and 0 days before expiry.',
         fields: [
           { key: 'visaType', label: 'Visa type', type: 'text', half: true, placeholder: 'H-1B' },
           { key: 'visaNumber', label: 'Visa number', type: 'text', half: true },
@@ -372,7 +372,7 @@ export const ONBOARDING_STEPS: StepDef[] = [
       },
       {
         title: 'Bank details',
-        banner: 'Bank details are encrypted and stored securely. Only admins can view them.',
+        banner: 'Bank details are encrypted and stored securely. Only you and your admins can view them.',
         fields: [
           { key: 'bankName', label: 'Bank name', type: 'text', half: true },
           { key: 'accountHolderName', label: 'Account holder name', type: 'text', half: true },
@@ -460,7 +460,22 @@ export function visibleSections(step: StepDef, draft: OnboardingDraft): SectionD
  */
 export function localizeField(field: FieldDef, country: string): FieldDef {
   const overrides = FIELD_WORDING[field.key]?.[country]
-  return overrides ? { ...field, ...overrides } : field
+  const localized = overrides ? { ...field, ...overrides } : field
+  // Option lists that depend on where the person lives, not just their wording.
+  if (field.key === 'workAuthStatus') {
+    return {
+      ...localized,
+      options: workAuthOptions(country),
+      hint: country ? undefined : 'Choose your country in step 1 to see the options for it.',
+    }
+  }
+  if (field.key === 'idProofType' && ID_PROOF_BY_COUNTRY[country]) {
+    return { ...localized, options: ID_PROOF_BY_COUNTRY[country] }
+  }
+  if (field.key === 'visaType' && country && country !== 'US') {
+    return { ...localized, label: 'Visa / permit type', placeholder: 'Employment visa' }
+  }
+  return localized
 }
 
 type FieldWording = Partial<Pick<FieldDef, 'label' | 'hint' | 'placeholder'>>

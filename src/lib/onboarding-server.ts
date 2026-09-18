@@ -95,6 +95,23 @@ export function accountLast4(ciphertext: string | null | undefined): string | nu
 }
 
 /**
+ * The full stored account number, or null.
+ *
+ * Only ever called for the two people entitled to see it: the org admin
+ * resuming the draft, and the employee filling in their own. Both pages are
+ * server-rendered behind their role guard; the column itself stays revoked
+ * from browser sessions.
+ */
+export function accountNumberPlain(ciphertext: string | null | undefined): string | null {
+  if (!ciphertext) return null
+  try {
+    return decryptToken(ciphertext)
+  } catch {
+    return null
+  }
+}
+
+/**
  * A unique employee code for this tenant, e.g. `NKL-0007`.
  *
  * Called only when the org left the field blank. The uniqueness index on

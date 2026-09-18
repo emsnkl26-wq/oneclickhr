@@ -232,6 +232,8 @@ export function TaskDetailDialog({
             task={task}
             board={board}
             canEdit={canEdit}
+            canAssignOthers={canModerate}
+            currentUserId={currentUserId}
             watching={watching}
             watchKnown={!!detail}
             watchBusy={watchBusy}
@@ -915,11 +917,14 @@ function describe(entry: TaskActivityRow, columnNames: Map<string, string>): str
 /* ---------------------------------------------------------------- sidebar */
 
 function TaskSidebar({
-  task, board, canEdit, watching, watchKnown, watchBusy, onPatch, onToggleWatch, onArchive, onDelete,
+  task, board, canEdit, canAssignOthers, currentUserId, watching, watchKnown, watchBusy, onPatch, onToggleWatch, onArchive, onDelete,
 }: {
   task: BoardTask
   board: BoardData
   canEdit: boolean
+  /** Org only. Mirrors `task_assignees_insert` / `_delete`. */
+  canAssignOthers: boolean
+  currentUserId: string
   watching: boolean
   /** False until the detail has loaded — before that, "watching" is a guess. */
   watchKnown: boolean
@@ -1028,6 +1033,14 @@ function TaskSidebar({
         members={board.members}
         selected={task.assignees.map((a) => a.id)}
         canEdit={canEdit}
+        // An employee may add only themselves (to a card they raised) and remove
+        // only themselves — the policy's rule, offered here so the picker never
+        // shows a tick the server is going to refuse.
+        isEditable={(id) =>
+          canAssignOthers ||
+          (id === currentUserId &&
+            (task.created_by === currentUserId || task.assignees.some((a) => a.id === id)))
+        }
         onChange={(ids) => {
           const chosen = board.members.filter((m) => ids.includes(m.id))
           void onPatch(task.id, { assigneeIds: ids }, { assignees: chosen })
@@ -1121,12 +1134,13 @@ function TaskSidebar({
 }
 
 function PeoplePicker({
-  label, members, selected, canEdit, onChange,
+  label, members, selected, canEdit, isEditable, onChange,
 }: {
   label: string
   members: BoardMember[]
   selected: string[]
   canEdit: boolean
+  isEditable?: (id: string) => boolean
   onChange: (ids: string[]) => void
 }) {
   if (!canEdit) {
@@ -1172,6 +1186,7 @@ function PeoplePicker({
               >
                 <Checkbox
                   checked={checked}
+                  disabled={isEditable ? !isEditable(member.id) : false}
                   onChange={(e) =>
                     onChange(
                       e.target.checked

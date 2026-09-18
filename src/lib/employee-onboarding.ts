@@ -30,7 +30,7 @@ import {
   draftFromRow, emptyDraft, EMPLOYEE_EDITABLE_KEYS, EMPLOYEE_REVIEW_STEP,
   type OnboardingDraft,
 } from '@/lib/onboarding'
-import { accountLast4 } from '@/lib/onboarding-server'
+import { accountLast4, accountNumberPlain } from '@/lib/onboarding-server'
 import type { OnboardingStatus } from '@/types/db'
 
 /**
@@ -137,7 +137,11 @@ export async function loadEmployeeOnboarding(ctx: {
     completedSteps: Array.isArray(row.employee_completed_steps)
       ? (row.employee_completed_steps as number[])
       : [],
-    draft: employeeVisibleDraft(draftFromRow(row)),
+    draft: {
+      ...employeeVisibleDraft(draftFromRow(row)),
+      // Their own number, shown back to them in full so they can check it.
+      accountNumber: accountNumberPlain(row.account_number_enc) ?? '',
+    },
     // The last four digits only, decrypted here and nowhere nearer the browser
     // — the same hint the org's wizard gets, for the same reason.
     accountLast4: accountLast4(row.account_number_enc),

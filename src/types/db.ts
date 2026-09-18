@@ -16,7 +16,8 @@ export type NotificationTarget = 'all' | 'department' | 'employee'
 export type NotificationImportance = 'normal' | 'important'
 export type NotificationChannel = 'push' | 'email'
 export type NotificationDeliveryStatus = 'sent' | 'failed' | 'skipped'
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
+export type InvoiceStatus =
+  | 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
 export type CalendarStatus = 'connected' | 'needs_reauth' | 'revoked'
 export type MeetingSource = 'app' | 'google'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
@@ -267,6 +268,8 @@ export interface Invoice {
   amount_paid: number
   balance_due: number
   status: InvoiceStatus
+  /** When the (last) payment arrived (039). Null until something is paid. */
+  paid_at: string | null
   issue_date: string
   due_date: string | null
   notes: string | null
@@ -419,11 +422,22 @@ export interface Board {
   tenant_id: string
   name: string
   description: string | null
+  /** Theme colour (#RRGGBB) for the board card and page header. 038. */
+  color: string
   /** Running counter behind `Task.reference`. Bumped by the insert trigger. */
   task_seq: number
   created_by: string | null
   created_at: string
   updated_at: string
+}
+
+/** A row of `board_members` (038): who is on a board. Employees see only these boards. */
+export interface BoardMemberRow {
+  board_id: string
+  profile_id: string
+  tenant_id: string
+  added_by: string | null
+  created_at: string
 }
 
 export interface BoardColumn {
@@ -596,9 +610,22 @@ export interface Project {
   start_date: string | null
   end_date: string | null
   status: ProjectStatus
+  /** Project manager — a profile in the same tenant (040). */
+  manager_id: string | null
   created_by: string | null
   created_at: string
   updated_at: string
+}
+
+/** The project manager's contact card, as the project pages show it. */
+export interface ProjectManagerContact {
+  id: string
+  full_name: string | null
+  email: string | null
+  phone: string | null
+  work_phone: string | null
+  photo_url: string | null
+  designation: string | null
 }
 
 /** A person on a project, as the assignment picker and avatar stack need them. */

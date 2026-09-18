@@ -35,7 +35,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   const { data: existing } = await supabase
     .from('job_applications')
     .select('id, job_id, status, full_name')
-    .eq('id', id)
+    .eq('id', id).eq('tenant_id', ctx.tenantId)
     .maybeSingle()
 
   if (!existing) return jsonError('That application was not found.', 404)
@@ -52,7 +52,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
 
   if (!Object.keys(patch).length) return jsonOk({ ok: true })
 
-  const { error } = await supabase.from('job_applications').update(patch).eq('id', id)
+  const { error } = await supabase.from('job_applications').update(patch).eq('id', id).eq('tenant_id', ctx.tenantId)
   if (error) return jsonError(friendlyDbError(error), 400)
 
   await audit({

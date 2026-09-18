@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { CurrencySelect } from '@/components/ui/currency-select'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input, Textarea, Select, DateField, Checkbox } from '@/components/ui/input'
@@ -390,11 +391,9 @@ export function JobDialog({
                   />
                 </FormField>
                 <FormField label="Currency" error={fields.salaryCurrency}>
-                  <Input
+                  <CurrencySelect
                     value={values.salaryCurrency}
-                    maxLength={3}
-                    onChange={(e) => set('salaryCurrency', e.target.value.toUpperCase())}
-                    placeholder="INR"
+                    onChange={(code) => set('salaryCurrency', code)}
                   />
                 </FormField>
                 <FormField label="Per">

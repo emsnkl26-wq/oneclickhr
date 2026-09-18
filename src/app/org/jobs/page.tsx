@@ -4,7 +4,7 @@ import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { JOB_COLUMNS } from '@/lib/jobs'
+import { JOB_COLUMNS, JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS } from '@/lib/jobs'
 import { JobWorkspace, type JobRow } from './job-workspace'
 import { toFormValues } from '@/lib/job-form'
 import type { Job } from '@/types/db'
@@ -27,9 +27,9 @@ type Filter = (typeof FILTERS)[number]
 export default async function OrgJobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string; page?: string }>
+  searchParams: Promise<{ status?: string; q?: string; page?: string; type?: string; workplace?: string }>
 }) {
-  await requireOrg()
+  const ctx = await requireOrg()
   const supabase = await createSupabaseServerClient()
   const params = await searchParams
 
@@ -43,10 +43,16 @@ export default async function OrgJobsPage({
   let query = supabase
     .from('jobs')
     .select(JOB_COLUMNS, { count: 'exact' })
+    // Explicit, on top of `jobs_select`: an org never lists another tenant's roles.
+    .eq('tenant_id', ctx.tenantId)
     .order('created_at', { ascending: false })
     .range(offset, offset + PER_PAGE - 1)
 
   if (filter !== 'all') query = query.eq('status', filter)
+  if (params.type && params.type in JOB_TYPE_LABELS) query = query.eq('employment_type', params.type)
+  if (params.workplace && params.workplace in JOB_WORKPLACE_LABELS) {
+    query = query.eq('workplace', params.workplace)
+  }
   if (search) {
     const term = search.replace(/[,()*\\]/g, ' ').trim()
     if (term) query = query.or(`title.ilike.%${term}%,location.ilike.%${term}%`)
@@ -93,7 +99,7 @@ export default async function OrgJobsPage({
         page={page}
         perPage={PER_PAGE}
         filter={filter}
-        searching={!!search}
+        searching={!!search || !!params.type || !!params.workplace}
       />
     </div>
   )

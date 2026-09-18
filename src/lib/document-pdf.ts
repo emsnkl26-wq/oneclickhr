@@ -54,6 +54,14 @@ export interface SignatureBlock {
   name: string
   title: string
   phone: string
+  /**
+   * The signatory's signature — drawn, uploaded or typed, always delivered as a
+   * PNG data URL (typed names are rasterized in the browser, so the PDF never
+   * needs a script font embedded). Null prints the ruled blank for a wet one.
+   */
+  image?: LogoAsset | null
+  /** "September 18, 2026" — printed under the signature when one is applied. */
+  signedDate?: string
 }
 
 export interface OfferLetterInput {
@@ -175,8 +183,8 @@ export async function loadOrgLogo(logoKey: string | null): Promise<LogoAsset | n
     })
     if (!image) return null
 
-    // Natural dimensions, so the logo keeps its aspect ratio in the header and
-    // in the watermark instead of being squashed into a square. An SVG without
+    // Natural dimensions, so the logo keeps its aspect ratio in the header
+    // instead of being squashed into a square. An SVG without
     // explicit width/height can report 0, so fall back to a square box.
     const width = image.naturalWidth || 512
     const height = image.naturalHeight || 512
@@ -329,44 +337,72 @@ class DocWriter {
   /* ----------------------------------------------------------- Watermark */
 
   /**
-   * The faded mark behind the text.
+   * The faded organization name behind the text, set diagonally across the
+   * centre of the page.
    *
-   * Drawn through a graphics state with a low alpha. `setGState` is guarded
-   * because it is the one call here that a future jsPDF build could move; if it
-   * is unavailable the mark is simply skipped, and a document without a
-   * watermark is still a correct document.
+   * Text only — the logo already sits in the letterhead, and a blown-up raster
+   * behind the body read as a smudge rather than a watermark. Drawn through a
+   * graphics state with a low alpha. `setGState` is guarded because it is the
+   * one call here that a future jsPDF build could move; if it is unavailable the
+   * mark is simply skipped, and a document without a watermark is still a
+   * correct document.
    */
   private drawWatermark(): void {
     const { doc } = this
-    const org = this.options.org
+    const name = this.options.org.name.trim()
+    if (!name) return
 
     try {
-      doc.setGState(new doc.GState({ opacity: 0.05 }))
+      doc.setGState(new doc.GState({ opacity: 0.07 }))
+      doc.setFont(this.options.family, 'bold')
+      doc.setTextColor(110, 110, 110)
 
-      if (org.logo) {
-        const width = this.pageWidth * 0.62
-        const height = width * (org.logo.height / org.logo.width)
-        doc.addImage(
-          org.logo.dataUrl,
-          org.logo.format,
-          (this.pageWidth - width) / 2,
-          (this.pageHeight - height) / 2,
-          width,
-          height
-        )
-      } else {
-        doc.setFont(this.options.family, 'bold')
-        doc.setFontSize(58)
-        doc.setTextColor(...INK)
-        doc.text(org.name, this.pageWidth / 2, this.pageHeight / 2, { align: 'center' })
-      }
+      // Fit the name to ~70% of the page diagonal, capped so a short name does
+      // not become a billboard.
+      const angle = (Math.atan2(this.pageHeight, this.pageWidth) * 180) / Math.PI
+      const diagonal = Math.hypot(this.pageWidth, this.pageHeight)
+      doc.setFontSize(100)
+      const widthAt100 = doc.getTextWidth(name)
+      const size = Math.max(24, Math.min(72, (diagonal * 0.7 * 100) / Math.max(widthAt100, 1)))
+      doc.setFontSize(size)
+
+      // jsPDF rotates about the text's start point, so work back from the page
+      // centre along the rotated baseline (and half a cap height across it) to
+      // find where that start point must be for the name to sit centred.
+      const width = doc.getTextWidth(name)
+      const rad = (angle * Math.PI) / 180
+      const cos = Math.cos(rad)
+      const sin = Math.sin(rad)
+      const half = size * 0.35
+      const x = this.pageWidth / 2 - (width / 2) * cos + half * sin
+      const y = this.pageHeight / 2 + (width / 2) * sin + half * cos
+      doc.text(name, x, y, { angle })
 
       doc.setGState(new doc.GState({ opacity: 1 }))
     } catch {
       // No transparency support: leave the page clean rather than stamping an
-      // opaque logo across the text.
+      // opaque name across the text.
     }
     doc.setTextColor(...INK)
+  }
+
+  /* ----------------------------------------------------------- Signature */
+
+  /**
+   * Draw the signatory's signature image with its baseline resting on `lineY`,
+   * fitted inside a `maxWidth` x `maxHeight` box. No-op without an image.
+   */
+  signatureImage(signatory: SignatureBlock, x: number, lineY: number, maxWidth: number, maxHeight = 40): void {
+    const image = signatory.image
+    if (!image) return
+    const ratio = image.width / Math.max(image.height, 1)
+    let h = maxHeight
+    let w = h * ratio
+    if (w > maxWidth) {
+      w = maxWidth
+      h = w / ratio
+    }
+    this.doc.addImage(image.dataUrl, image.format, x, lineY - h - 2, w, h, undefined, 'FAST')
   }
 
   /* --------------------------------------------------------------- Text */
@@ -599,6 +635,7 @@ class DocWriter {
     this.doc.text('Accepted and signed by,', rightX, this.y)
 
     this.y += 44
+    this.signatureImage(signatory, leftX, this.y, colWidth * 0.85)
     this.doc.setDrawColor(...INK)
     this.doc.setLineWidth(0.5)
     this.doc.line(leftX, this.y, leftX + colWidth, this.y)
@@ -621,6 +658,13 @@ class DocWriter {
 
     this.doc.text(org.name, leftX, this.y)
     this.y += this.lineHeight()
+
+    if (signatory.image && signatory.signedDate) {
+      this.doc.setTextColor(...MUTED)
+      this.doc.text(`Signed: ${signatory.signedDate}`, leftX, this.y)
+      this.doc.setTextColor(...INK)
+      this.y += this.lineHeight()
+    }
   }
 
   /* -------------------------------------------------------------- Footer */
@@ -800,13 +844,21 @@ export async function renderEmploymentAgreement(input: AgreementInput): Promise<
   })
 
   // Employer signature block.
-  w.ensure(120)
+  w.ensure(input.signatory.image ? 170 : 120)
   w.space(24)
+  if (input.signatory.image) {
+    w.space(44)
+    w.signatureImage(input.signatory, w.margin, w.cursor - 12, 200, 44)
+  }
   w.paragraph(input.signatory.name, { bold: true })
   w.cursor -= 10
   w.paragraph(input.signatory.title)
   w.cursor -= 12
   w.paragraph(input.org.name)
+  if (input.signatory.image && input.signatory.signedDate) {
+    w.cursor -= 12
+    w.paragraph(`Signed: ${input.signatory.signedDate}`)
+  }
 
   // Employee acceptance.
   w.ensure(150)

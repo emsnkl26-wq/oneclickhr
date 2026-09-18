@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { currencyOptions } from '@/lib/currencies'
 import { useRouter } from 'next/navigation'
 import { Building2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -23,10 +24,6 @@ const OTHER = '__other'
  * the same reason src/lib/geo.ts keeps one: the alternative is a service to
  * key, rate limit, and be down while somebody is fixing their settings.
  */
-const CURRENCY_CODES = [
-  'USD', 'EUR', 'GBP', 'INR', 'CAD', 'AUD', 'NZD', 'AED', 'SGD', 'ZAR',
-  'JPY', 'CHF', 'SEK', 'MXN', 'BRL', 'PHP',
-] as const
 
 /**
  * The company details a generated document prints on its letterhead.
@@ -247,7 +244,7 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
                 <Select
                   value={values.defaultCurrency}
                   onChange={set('defaultCurrency')}
-                  options={CURRENCY_CODES.map((code) => ({ value: code, label: code }))}
+                  options={currencyOptions(values.defaultCurrency)}
                 />
               </FormField>
               <FormField

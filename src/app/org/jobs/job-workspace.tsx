@@ -9,6 +9,7 @@ import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/
 import { Button } from '@/components/ui/button'
 import { LinkTabs } from '@/components/ui/link-tabs'
 import { SearchField } from '@/components/ui/search-field'
+import { JobFilters } from './job-filters'
 import { Pagination } from '@/components/ui/pagination'
 import { JobDialog, type JobFormValues, type DepartmentOption } from './job-dialog'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
@@ -219,7 +220,8 @@ export function JobWorkspace({
           ]}
         />
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <JobFilters />
           <SearchField
             param="q"
             placeholder="Search roles"

@@ -13,6 +13,7 @@
  */
 
 import * as React from 'react'
+import { CurrencySelect } from '@/components/ui/currency-select'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, Clock, Download, FileUp, Loader2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -318,12 +319,7 @@ function UploadDialog({
                 />
               </FormField>
               <FormField label="Currency">
-                <Input
-                  value={currency}
-                  onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-                  maxLength={3}
-                  placeholder="USD"
-                />
+                <CurrencySelect value={currency} onChange={setCurrency} allowEmpty />
               </FormField>
               <FormField label="Received on">
                 <DateField value={paidOn} onChange={(event) => setPaidOn(event.target.value)} />

@@ -12,6 +12,9 @@
  */
 
 import * as React from 'react'
+import { CurrencySelect } from '@/components/ui/currency-select'
+import { formatMoney } from '@/lib/utils'
+import { allCountryNames } from '@/lib/geo'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Building2, Pencil, Plus, Trash2, Users } from 'lucide-react'
@@ -180,11 +183,11 @@ export function PlacementsWorkspace({
                     </p>
                     <p className="tabular mt-0.5 text-[13px] text-ink-muted">
                       {row.bill_rate != null
-                        ? `Bill ${row.bill_currency} ${Number(row.bill_rate)}`
+                        ? `Bill ${formatMoney(row.bill_rate, row.bill_currency)}`
                         : 'No bill rate'}
                       {' · '}
                       {row.pay_rate != null
-                        ? `pay ${row.pay_currency} ${Number(row.pay_rate)}`
+                        ? `pay ${formatMoney(row.pay_rate, row.pay_currency)}`
                         : 'no pay rate'}
                       {` / ${row.rate_unit}`}
                     </p>
@@ -508,7 +511,20 @@ function PartyDialog({
                 <Input value={city} onChange={(e) => setCity(e.target.value)} />
               </FormField>
               <FormField label="Country">
-                <Input value={country} onChange={(e) => setCountry(e.target.value)} />
+                <Select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  placeholder="Select a country"
+                  searchable
+                  options={[
+                    { value: '', label: 'Select a country' },
+                    // Keep a value typed before this was a dropdown selectable.
+                    ...(country && !allCountryNames().includes(country)
+                      ? [{ value: country, label: country }]
+                      : []),
+                    ...allCountryNames().map((name) => ({ value: name, label: name })),
+                  ]}
+                />
               </FormField>
             </div>
 
@@ -731,12 +747,7 @@ function PlacementDialog({
 
             <div className="grid gap-4 sm:grid-cols-3">
               <FormField label="Currency" error={fields.billCurrency}>
-                <Input
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-                  maxLength={3}
-                  placeholder="USD"
-                />
+                <CurrencySelect value={currency} onChange={setCurrency} />
               </FormField>
               <FormField label="Start date" error={fields.startDate}>
                 <DateField value={startDate} onChange={(e) => setStartDate(e.target.value)} />

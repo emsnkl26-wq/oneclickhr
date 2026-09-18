@@ -4,7 +4,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { projectHourTotals } from '@/lib/projects'
 import { PageHeader } from '@/components/ui/patterns'
 import { ProjectWorkspace, type ProjectRow } from './project-workspace'
-import type { ProjectStatus } from '@/types/db'
+import { MANAGER_EMBED } from './project-manager-card'
+import type { ProjectStatus, ProjectManagerContact } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Projects' }
 export const dynamic = 'force-dynamic'
@@ -20,10 +21,12 @@ interface ProjectWithAssignments {
   name: string
   client_name: string | null
   end_client_name: string | null
+  description: string | null
   start_date: string | null
   end_date: string | null
   status: ProjectStatus
   created_at: string
+  manager: ProjectManagerContact | null
   assignments: Array<{
     employee: {
       id: string
@@ -64,7 +67,7 @@ export default async function ProjectsPage({
   let query = supabase
     .from('projects')
     .select(
-      'id, code, name, client_name, end_client_name, start_date, end_date, status, created_at, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))',
+      `id, code, name, client_name, end_client_name, description, start_date, end_date, status, created_at, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))`,
       { count: 'exact' }
     )
     .order('created_at', { ascending: false })
@@ -77,7 +80,7 @@ export default async function ProjectsPage({
     )
   }
 
-  const [{ data, count }, { data: employees }, totals] = await Promise.all([
+  const [{ data, count }, { data: employees }, totals, { data: managers }] = await Promise.all([
     query,
     supabase
       .from('profiles')
@@ -86,6 +89,13 @@ export default async function ProjectsPage({
       .eq('is_active', true)
       .order('full_name'),
     projectHourTotals(supabase),
+    // Anyone in the workspace can manage a project — admins included.
+    supabase
+      .from('profiles')
+      .select('id, full_name, email, photo_url, designation')
+      .in('role', ['org', 'employee'])
+      .eq('is_active', true)
+      .order('full_name'),
   ])
 
   const rows: ProjectRow[] = ((data ?? []) as unknown as ProjectWithAssignments[]).map(
@@ -95,10 +105,12 @@ export default async function ProjectsPage({
       name: project.name,
       clientName: project.client_name,
       endClientName: project.end_client_name,
+      description: project.description ?? null,
       startDate: project.start_date,
       endDate: project.end_date,
       status: project.status,
       totalHours: totals.get(project.id) ?? 0,
+      manager: project.manager,
       members: project.assignments
         .map((assignment) => assignment.employee)
         .filter(Boolean) as ProjectRow['members'],
@@ -114,6 +126,7 @@ export default async function ProjectsPage({
       <ProjectWorkspace
         projects={rows}
         employees={employees ?? []}
+        managers={managers ?? []}
         total={count ?? rows.length}
         page={page}
         perPage={PER_PAGE}

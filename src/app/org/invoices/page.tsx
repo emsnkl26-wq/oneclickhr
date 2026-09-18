@@ -4,13 +4,15 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
 import { suggestInvoiceNumber } from '@/lib/invoice'
 import { InvoiceWorkspace } from './invoice-workspace'
+import { todayIn } from '@/lib/time'
+import { INVOICE_STATUSES } from '@/components/invoice/invoice-status'
 import type { Invoice, InvoiceStatus } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Invoices' }
 export const dynamic = 'force-dynamic'
 
 const PER_PAGE = 50
-const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid', 'overdue', 'cancelled']
+const STATUSES: InvoiceStatus[] = INVOICE_STATUSES
 
 /**
  * Invoices, filtered and paged by the database.
@@ -42,7 +44,19 @@ export default async function InvoicesPage({
     .order('issue_date', { ascending: false })
     .range(offset, offset + PER_PAGE - 1)
 
-  if (status) query = query.eq('status', status)
+  const today = todayIn(ctx.tenant.timezone)
+
+  // OVERDUE IS DERIVED (see invoice-status.tsx): the filter has to match the
+  // chip, so it takes the stored `overdue` rows AND every open invoice whose due
+  // date has passed. Sent / partially paid then EXCLUDE those, so no row shows
+  // under two filters.
+  if (status === 'overdue') {
+    query = query.or(`status.eq.overdue,and(status.in.(sent,partially_paid),due_date.lt.${today})`)
+  } else if (status === 'sent' || status === 'partially_paid') {
+    query = query.eq('status', status).or(`due_date.is.null,due_date.gte.${today}`)
+  } else if (status) {
+    query = query.eq('status', status)
+  }
   // `bill_to->>name` reaches into the jsonb client record, which is where the
   // name someone would search for actually lives.
   if (search) {
@@ -102,6 +116,7 @@ export default async function InvoicesPage({
         orgEmail={company?.company_email ?? null}
         orgPhone={company?.company_phone ?? null}
         timezone={ctx.tenant.timezone}
+        today={today}
       />
     </div>
   )

@@ -35,13 +35,13 @@ export default async function OrgJobDetailPage({
   params: Promise<{ id: string }>
   searchParams: Promise<{ application?: string }>
 }) {
-  await requireOrg()
+  const ctx = await requireOrg()
   const { id } = await params
   const { application: openId } = await searchParams
   const supabase = await createSupabaseServerClient()
 
   const [{ data: jobData }, { data: applicationData }] = await Promise.all([
-    supabase.from('jobs').select(JOB_COLUMNS).eq('id', id).maybeSingle(),
+    supabase.from('jobs').select(JOB_COLUMNS).eq('id', id).eq('tenant_id', ctx.tenantId).maybeSingle(),
     supabase
       .from('job_applications')
       .select(
@@ -50,6 +50,7 @@ export default async function OrgJobDetailPage({
           'org_notes, created_at'
       )
       .eq('job_id', id)
+      .eq('tenant_id', ctx.tenantId)
       .order('created_at', { ascending: false }),
   ])
 

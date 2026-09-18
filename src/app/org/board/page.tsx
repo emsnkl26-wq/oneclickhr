@@ -1,23 +1,26 @@
 import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { loadBoard } from '@/lib/board-data'
-import { BoardWorkspace } from '@/components/board/board-workspace'
+import { listBoards } from '@/lib/board-data'
+import { BoardList } from '@/components/board/board-list'
 
-export const metadata: Metadata = { title: 'Task board' }
+export const metadata: Metadata = { title: 'Task boards' }
 export const dynamic = 'force-dynamic'
 
-export default async function OrgBoardPage() {
-  const ctx = await requireOrg()
+export default async function OrgBoardsPage() {
+  await requireOrg()
   const supabase = await createSupabaseServerClient()
-  const board = await loadBoard(supabase)
+  const { boards, people, error } = await listBoards(supabase)
 
   return (
-    <BoardWorkspace
-      board={board}
-      tenantId={ctx.tenantId}
-      currentUserId={ctx.userId}
+    <BoardList
+      boards={boards}
+      people={people}
+      loadFailed={error}
       canManage
+      basePath="/org/board"
+      title="Task boards"
+      description="One board per team or project. Employees see only the boards they are on."
     />
   )
 }

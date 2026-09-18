@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { projectSchema } from '@/lib/schemas'
 import { resolveProjectMembers } from '@/lib/projects'
 import { audit } from '@/lib/audit'
+import { readManagerId, resolveProjectManager } from '../manager'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,8 +27,14 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   const { ctx } = gate
 
   const id = uuidSchema.parse((await params).id)
+  const managerInput = await readManagerId(request)
   const input = await parseBody(request, projectSchema)
   const supabase = await createSupabaseServerClient()
+
+  const managerId = await resolveProjectManager(supabase, ctx.tenantId, managerInput)
+  if (managerId === false) {
+    return jsonError('The project manager must be an active person in this workspace.', 400)
+  }
 
   // RLS scopes this to the tenant, so a foreign id is simply a 404.
   const { data: existing } = await supabase
@@ -53,6 +60,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       start_date: input.startDate ?? null,
       end_date: input.endDate ?? null,
       status: input.status,
+      ...(managerId !== undefined ? { manager_id: managerId } : {}),
     })
     .eq('id', id)
 

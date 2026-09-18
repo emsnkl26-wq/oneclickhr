@@ -14,7 +14,8 @@ import { Pagination } from '@/components/ui/pagination'
 import { ProjectDialog } from './project-dialog'
 import { formatDateLabel } from '@/lib/time'
 import { formatHours } from '@/lib/utils'
-import type { ProjectStatus } from '@/types/db'
+import { ManagerActions, ManagerAvatar } from './project-manager-card'
+import type { ProjectStatus, ProjectManagerContact } from '@/types/db'
 
 export interface ProjectRow {
   id: string
@@ -22,10 +23,12 @@ export interface ProjectRow {
   name: string
   clientName: string | null
   endClientName: string | null
+  description: string | null
   startDate: string | null
   endDate: string | null
   status: ProjectStatus
   totalHours: number
+  manager: ProjectManagerContact | null
   members: StackedPerson[]
 }
 
@@ -43,10 +46,11 @@ export interface EmployeeOption {
  * answers, which is the same contract every other list in the app follows.
  */
 export function ProjectWorkspace({
-  projects, employees, total, page, perPage, filter, searching,
+  projects, employees, managers, total, page, perPage, filter, searching,
 }: {
   projects: ProjectRow[]
   employees: EmployeeOption[]
+  managers: EmployeeOption[]
   total: number
   page: number
   perPage: number
@@ -90,6 +94,24 @@ export function ProjectWorkspace({
       key: 'client',
       header: 'Client',
       cell: (row) => <span className="text-ink-muted">{row.clientName || '—'}</span>,
+    },
+    {
+      key: 'manager',
+      header: 'Project manager',
+      cell: (row) =>
+        row.manager ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <ManagerAvatar manager={row.manager} className="size-7" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {row.manager.full_name || row.manager.email}
+              </p>
+              <ManagerActions manager={row.manager} compact />
+            </div>
+          </div>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
     },
     {
       key: 'team',
@@ -190,6 +212,7 @@ export function ProjectWorkspace({
       <ProjectDialog
         open={creating}
         employees={employees}
+        managers={managers}
         onClose={() => setCreating(false)}
         onSaved={() => {
           setCreating(false)
@@ -201,6 +224,7 @@ export function ProjectWorkspace({
       <ProjectDialog
         open={!!editing}
         employees={employees}
+        managers={managers}
         project={
           editing
             ? {
@@ -208,11 +232,13 @@ export function ProjectWorkspace({
                 name: editing.name,
                 clientName: editing.clientName ?? '',
                 endClientName: editing.endClientName ?? '',
-                description: '',
+                // Loaded with the list, so editing from here starts from the saved notes.
+                description: editing.description ?? '',
                 startDate: editing.startDate ?? '',
                 endDate: editing.endDate ?? '',
                 status: editing.status,
                 employeeIds: editing.members.map((member) => member.id),
+                managerId: editing.manager?.id ?? '',
               }
             : undefined
         }

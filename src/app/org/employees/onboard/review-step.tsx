@@ -157,9 +157,8 @@ function displayValue(
     case 'payRate':
       return draft.payRate ? `${ctx.currencySymbol}${draft.payRate}` : ''
     case 'accountNumber':
-      // Never the number itself, even to the admin who typed it minutes ago.
       return draft.accountNumber
-        ? `•••• ${draft.accountNumber.slice(-4)}`
+        ? draft.accountNumber
         : ctx.accountLast4
           ? `•••• ${ctx.accountLast4}`
           : ''

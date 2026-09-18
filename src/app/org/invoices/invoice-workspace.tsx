@@ -1,10 +1,11 @@
 'use client'
 
 import * as React from 'react'
+import { CurrencySelect } from '@/components/ui/currency-select'
 import { useRouter } from 'next/navigation'
-import { Plus, Receipt, Trash2, Pencil, Printer } from 'lucide-react'
+import { Plus, Receipt, Trash2, Pencil, Printer, CircleCheck } from 'lucide-react'
 import { toast } from 'sonner'
-import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
+import { DataTable, EmptyState, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
 import { Input, Select, Textarea, DateField } from '@/components/ui/input'
 import { SearchField } from '@/components/ui/search-field'
@@ -19,6 +20,9 @@ import { computeTotals, lineAmount } from '@/lib/invoice'
 import { InvoicePreview, type PreviewOrg } from '@/components/invoice/invoice-preview'
 import { formatMoney } from '@/lib/utils'
 import { downloadInvoicePdf } from '@/lib/invoice-pdf'
+import {
+  INVOICE_STATUSES, INVOICE_STATUS_LABELS, InvoiceStatusChip,
+} from '@/components/invoice/invoice-status'
 import type { Invoice, InvoiceStatus } from '@/types/db'
 
 interface DraftItem {
@@ -33,7 +37,7 @@ const EMPTY_ITEM: DraftItem = { description: '', quantity: '1', rate: '0' }
 export function InvoiceWorkspace({
   invoices, total, page, perPage, filtered, suggestedNumber, orgName, orgLogoUrl, orgPrimaryColor,
   orgAddressLines, orgEmail, orgPhone,
-  timezone,
+  timezone, today,
 }: {
   invoices: Invoice[]
   total: number
@@ -48,11 +52,14 @@ export function InvoiceWorkspace({
   orgEmail: string | null
   orgPhone: string | null
   timezone: string
+  /** The tenant's today, so the chip and the server agree on what is overdue. */
+  today: string
 }) {
   const router = useRouter()
   const [editing, setEditing] = React.useState<Invoice | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [deleting, setDeleting] = React.useState<Invoice | null>(null)
+  const [marking, setMarking] = React.useState<Invoice | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   async function onDelete() {
@@ -122,14 +129,30 @@ export function InvoiceWorkspace({
     {
       key: 'status',
       header: 'Status',
-      cell: (row) => <StatusChip status={row.status} />,
+      cell: (row) => (
+        <div className="flex flex-col items-start gap-0.5">
+          <InvoiceStatusChip invoice={row} today={today} />
+          {row.paid_at ? (
+            <span className="tabular text-[11px] text-ink-muted">Paid {row.paid_at}</span>
+          ) : null}
+        </div>
+      ),
     },
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
-      className: 'w-[120px]',
+      className: 'w-[160px]',
       cell: (row) => (
         <div className="flex justify-end gap-0.5">
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={`Update status of ${row.invoice_number}`}
+            title="Update status"
+            onClick={() => setMarking(row)}
+          >
+            <CircleCheck />
+          </Button>
           <Button
             size="icon"
             variant="ghost"
@@ -175,11 +198,7 @@ export function InvoiceWorkspace({
           className="sm:w-44"
           options={[
             { value: '', label: 'All statuses' },
-            { value: 'draft', label: 'Draft' },
-            { value: 'sent', label: 'Sent' },
-            { value: 'paid', label: 'Paid' },
-            { value: 'overdue', label: 'Overdue' },
-            { value: 'cancelled', label: 'Cancelled' },
+            ...INVOICE_STATUSES.map((value) => ({ value, label: INVOICE_STATUS_LABELS[value] })),
           ]}
         />
         <Button onClick={() => setCreating(true)}>
@@ -216,6 +235,7 @@ export function InvoiceWorkspace({
         open={creating || !!editing}
         invoice={editing}
         suggestedNumber={suggestedNumber}
+        today={today}
         org={{
           name: orgName,
           logoKey: orgLogoUrl,
@@ -231,6 +251,16 @@ export function InvoiceWorkspace({
         onSaved={() => {
           setCreating(false)
           setEditing(null)
+          router.refresh()
+        }}
+      />
+
+      <StatusDialog
+        invoice={marking}
+        today={today}
+        onClose={() => setMarking(null)}
+        onSaved={() => {
+          setMarking(null)
           router.refresh()
         }}
       />
@@ -260,12 +290,13 @@ export function InvoiceWorkspace({
 }
 
 function InvoiceDialog({
-  open, invoice, suggestedNumber, org, onClose, onSaved,
+  open, invoice, suggestedNumber, org, today, onClose, onSaved,
 }: {
   open: boolean
   invoice: Invoice | null
   org: PreviewOrg
   suggestedNumber: string
+  today: string
   onClose: () => void
   onSaved: () => void
 }) {
@@ -280,6 +311,7 @@ function InvoiceDialog({
   const [status, setStatus] = React.useState<InvoiceStatus>('draft')
   const [issueDate, setIssueDate] = React.useState('')
   const [dueDate, setDueDate] = React.useState('')
+  const [paidAt, setPaidAt] = React.useState('')
   const [notes, setNotes] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
@@ -308,6 +340,7 @@ function InvoiceDialog({
       setStatus(invoice.status)
       setIssueDate(invoice.issue_date)
       setDueDate(invoice.due_date ?? '')
+      setPaidAt(invoice.paid_at ?? '')
       setNotes(invoice.notes ?? '')
     } else {
       setInvoiceNumber(suggestedNumber)
@@ -321,6 +354,7 @@ function InvoiceDialog({
       setStatus('draft')
       setIssueDate(new Date().toISOString().slice(0, 10))
       setDueDate('')
+      setPaidAt('')
       setNotes('')
     }
   }, [open, invoice, suggestedNumber])
@@ -358,6 +392,7 @@ function InvoiceDialog({
       taxPercent: Number(taxPercent) || 0,
       amountPaid: Number(amountPaid) || 0,
       status,
+      paidAt: status === 'paid' || status === 'partially_paid' ? paidAt || today : null,
       issueDate,
       dueDate: dueDate || null,
       notes: notes || undefined,
@@ -520,12 +555,7 @@ function InvoiceDialog({
 
             <div className="grid gap-4 sm:grid-cols-4">
               <FormField label="Currency">
-                <Input
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
-                  maxLength={3}
-                  className="tabular uppercase"
-                />
+                <CurrencySelect value={currency} onChange={setCurrency} />
               </FormField>
               <FormField label="Tax %">
                 <Input
@@ -553,14 +583,20 @@ function InvoiceDialog({
                   value={status}
                   onChange={(e) => setStatus(e.target.value as InvoiceStatus)}
                 >
-                  <option value="draft">Draft</option>
-                  <option value="sent">Sent</option>
-                  <option value="paid">Paid</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="cancelled">Cancelled</option>
+                  {INVOICE_STATUSES.map((value) => (
+                    <option key={value} value={value}>{INVOICE_STATUS_LABELS[value]}</option>
+                  ))}
                 </Select>
               </FormField>
             </div>
+
+            {status === 'paid' || status === 'partially_paid' ? (
+              <div className="grid gap-4 sm:grid-cols-3">
+                <FormField label="Paid on" error={fields.paidAt}>
+                  <DateField value={paidAt || today} onChange={(e) => setPaidAt(e.target.value)} />
+                </FormField>
+              </div>
+            ) : null}
 
             <FormField label="Notes">
               <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -603,6 +639,117 @@ function InvoiceDialog({
             </Button>
             <Button type="submit" loading={submitting}>
               {invoice ? 'Save changes' : 'Create invoice'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * The quick "mark as …" action: status, the date the money arrived, and for a
+ * part payment how much of it — without reopening the whole document.
+ */
+function StatusDialog({
+  invoice, today, onClose, onSaved,
+}: {
+  invoice: Invoice | null
+  today: string
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [status, setStatus] = React.useState<InvoiceStatus>('paid')
+  const [paidAt, setPaidAt] = React.useState('')
+  const [amountPaid, setAmountPaid] = React.useState('')
+  const [error, setError] = React.useState<string | null>(null)
+  const [submitting, setSubmitting] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!invoice) return
+    setError(null)
+    // Opens on "Paid" for anything not yet paid — that is what someone clicking
+    // this nearly always wants — and on the current status otherwise.
+    setStatus(invoice.status === 'paid' || invoice.status === 'cancelled' ? invoice.status : 'paid')
+    setPaidAt(invoice.paid_at ?? today)
+    setAmountPaid(String(invoice.amount_paid ?? 0))
+  }, [invoice, today])
+
+  const needsDate = status === 'paid' || status === 'partially_paid'
+
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!invoice) return
+    setError(null)
+    setSubmitting(true)
+    try {
+      await apiPost(`/api/org/invoices/${invoice.id}/status`, {
+        status,
+        paidAt: needsDate ? paidAt || today : null,
+        amountPaid: status === 'partially_paid' ? Number(amountPaid) || 0 : undefined,
+      })
+      toast.success(`Marked ${INVOICE_STATUS_LABELS[status].toLowerCase()}`)
+      onSaved()
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!invoice} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent size="sm">
+        <form onSubmit={onSubmit}>
+          <DialogHeader>
+            <DialogTitle>Update {invoice?.invoice_number}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-4 pb-4">
+            <FormError message={error} />
+            {invoice ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+                <span>
+                  Total{' '}
+                  <span className="tabular font-medium text-ink">
+                    {formatMoney(invoice.total, invoice.currency)}
+                  </span>
+                </span>
+                <span aria-hidden>·</span>
+                <InvoiceStatusChip invoice={invoice} today={today} />
+              </div>
+            ) : null}
+            <FormField label="Status">
+              <Select value={status} onChange={(e) => setStatus(e.target.value as InvoiceStatus)}>
+                {INVOICE_STATUSES.map((value) => (
+                  <option key={value} value={value}>{INVOICE_STATUS_LABELS[value]}</option>
+                ))}
+              </Select>
+            </FormField>
+            {status === 'partially_paid' ? (
+              <FormField label="Amount received so far" required>
+                <Input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={amountPaid}
+                  onChange={(e) => setAmountPaid(e.target.value)}
+                  className="tabular"
+                  required
+                />
+              </FormField>
+            ) : null}
+            {needsDate ? (
+              <FormField label="Paid on" required>
+                <DateField value={paidAt} onChange={(e) => setPaidAt(e.target.value)} required />
+              </FormField>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={submitting}>
+              Save
             </Button>
           </DialogFooter>
         </form>

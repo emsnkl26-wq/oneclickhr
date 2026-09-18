@@ -75,7 +75,8 @@ function toCompany(row: TenantRow | undefined | null): PublicCompany {
      * bucket, and handing one to a browser would be both useless and a small
      * information leak. `/api/jobs/logo` is the public, tenant-checked redirect.
      */
-    logoUrl: `/api/jobs/logo?tenant=${encodeURIComponent(row.id)}`,
+    // Only when there IS a logo — otherwise every card rendered a broken image.
+    logoUrl: row.logo_url ? `/api/jobs/logo?tenant=${encodeURIComponent(row.id)}` : null,
     website: row.website,
     location: place || null,
   }

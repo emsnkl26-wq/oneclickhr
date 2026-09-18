@@ -35,9 +35,14 @@ const SWATCHES = [
 /* ------------------------------------------------------------- new task */
 
 export function TaskCreateDialog({
-  board, columnId, onClose, onCreated,
+  board, columnId, onClose, onCreated, assignOnlyId,
 }: {
   board: BoardData
+  /**
+   * Set for an employee: the only person they may assign (themselves), as
+   * `task_assignees_insert` allows. Omitted for the org.
+   */
+  assignOnlyId?: string
   /** Non-null opens the dialog, pre-filled with the column that was clicked. */
   columnId: string | null
   onClose: () => void
@@ -84,7 +89,7 @@ export function TaskCreateDialog({
     setError(null)
     setSubmitting(true)
     try {
-      await apiPost('/api/tasks', {
+      const created = await apiPost<{ assignError?: string | null }>('/api/tasks', {
         boardId: board.boardId,
         columnId: selectedColumn,
         title,
@@ -101,6 +106,9 @@ export function TaskCreateDialog({
         checklist,
       })
       toast.success('Task created')
+      // The card exists; only the assignment was refused. Say so rather than
+      // letting the missing avatar be discovered later.
+      if (created?.assignError) toast.error(created.assignError)
       onCreated()
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -204,7 +212,9 @@ export function TaskCreateDialog({
                 {board.members.length === 0 ? (
                   <p className="p-2 text-xs text-ink-muted">No teammates yet.</p>
                 ) : (
-                  board.members.map((member) => (
+                  board.members
+                    .filter((member) => !assignOnlyId || member.id === assignOnlyId)
+                    .map((member) => (
                     <label
                       key={member.id}
                       className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-page"

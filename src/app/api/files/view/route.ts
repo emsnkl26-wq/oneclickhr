@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withErrorHandler, jsonError } from '@/lib/api'
 import { apiRequireUser } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { keyBelongsToTenant, presignGet } from '@/lib/r2'
 
 export const dynamic = 'force-dynamic'
@@ -74,7 +75,9 @@ async function handleGET(request: NextRequest) {
   // that are theirs, so ask the database — under RLS — whether any row they can
   // see actually references this key.
   if (ctx.role !== 'org') {
-    const allowed = await employeeMayRead(key, ctx.userId)
+    const allowed =
+      (await employeeMayRead(key, ctx.userId)) ||
+      (await inOwnOnboarding(key, ctx.userId, ctx.tenantId))
     if (!allowed) return jsonError('Not found', 404)
   }
 
@@ -145,6 +148,33 @@ async function employeeMayRead(key: string, userId: string): Promise<boolean> {
     !!tenant.data ||
     !!payment.data
   )
+}
+
+/**
+ * Is this key one the employee uploaded into their OWN onboarding draft?
+ *
+ * Draft files (photo, CV, ID proof…) are referenced by nothing else until the
+ * org approves the draft, so without this an employee's freshly uploaded photo
+ * rendered as a broken image and "View" on their own CV was a 404. The draft
+ * table is not readable by employee sessions, so this asks with the admin
+ * client — pinned to the caller's own profile id and tenant.
+ */
+async function inOwnOnboarding(key: string, userId: string, tenantId: string): Promise<boolean> {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('employee_onboarding')
+    .select('photo_url, resume_url, offer_letter_url, id_proof_url, auth_document_url, additional_docs')
+    .eq('employee_profile_id', userId)
+    .eq('tenant_id', tenantId)
+
+  return (data ?? []).some((row) => {
+    const r = row as Record<string, unknown>
+    if ([r.photo_url, r.resume_url, r.offer_letter_url, r.id_proof_url, r.auth_document_url].includes(key)) {
+      return true
+    }
+    return Array.isArray(r.additional_docs) &&
+      (r.additional_docs as Array<{ key?: string }>).some((d) => d?.key === key)
+  })
 }
 
 export const GET = withErrorHandler(handleGET)

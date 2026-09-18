@@ -10,6 +10,7 @@ import 'server-only'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { OrgContext } from '@/lib/auth/guards'
 import type { Person } from './step-fields'
+import { currencySymbol } from '@/lib/currencies'
 
 export interface WizardBootstrap {
   departments: { id: string; name: string }[]
@@ -27,20 +28,26 @@ const DEFAULT_CURRENCY_SYMBOL = '$'
 export async function loadWizardData(ctx: OrgContext): Promise<WizardBootstrap> {
   const supabase = await createSupabaseServerClient()
 
-  const [{ data: departments }, { data: managers }] = await Promise.all([
+  const [{ data: departments }, { data: managers }, { data: tenant }] = await Promise.all([
     supabase.from('departments').select('id, name').order('name'),
-    // Anyone already in the workspace can be a manager — RLS keeps this to the
-    // caller's own tenant, so no extra filter is needed here.
+    // Anyone already in THIS workspace (admins and employees) can be a manager.
+    // RLS scopes it too; the explicit tenant filter is belt and braces.
     supabase
       .from('profiles')
-      .select('id, full_name, email')
+      .select('id, full_name, email, role, designation')
+      .eq('tenant_id', ctx.tenantId)
+      .in('role', ['org', 'employee'])
       .eq('is_active', true)
       .order('full_name'),
+    supabase.from('tenants').select('default_currency').eq('id', ctx.tenantId).maybeSingle(),
   ])
 
   return {
     departments: departments ?? [],
     managers: managers ?? [],
-    currencySymbol: DEFAULT_CURRENCY_SYMBOL,
+    // The workspace's own currency (Settings → Company), `$` until one is set.
+    currencySymbol: tenant?.default_currency
+      ? currencySymbol(tenant.default_currency as string)
+      : DEFAULT_CURRENCY_SYMBOL,
   }
 }

@@ -26,6 +26,8 @@ export interface ProjectFormValues {
   endDate: string
   status: ProjectStatus
   employeeIds: string[]
+  /** '' for none. */
+  managerId: string
 }
 
 const EMPTY: ProjectFormValues = {
@@ -37,6 +39,7 @@ const EMPTY: ProjectFormValues = {
   endDate: '',
   status: 'active',
   employeeIds: [],
+  managerId: '',
 }
 
 /**
@@ -48,10 +51,11 @@ const EMPTY: ProjectFormValues = {
  * into does that better than a dropdown you have to scroll.
  */
 export function ProjectDialog({
-  open, employees, project, onClose, onSaved,
+  open, employees, managers, project, onClose, onSaved,
 }: {
   open: boolean
   employees: EmployeeOption[]
+  managers: EmployeeOption[]
   project?: ProjectFormValues
   onClose: () => void
   onSaved: () => void
@@ -107,6 +111,7 @@ export function ProjectDialog({
       endDate: values.endDate || null,
       status: values.status,
       employeeIds: values.employeeIds,
+      managerId: values.managerId || null,
     }
 
     try {
@@ -198,6 +203,22 @@ export function ProjectDialog({
                 </Select>
               </FormField>
             </div>
+
+            <FormField
+              label="Project manager"
+              error={fields.managerId}
+              hint="The team's point of contact. Admins and employees can both manage a project."
+            >
+              <Select value={values.managerId} onChange={(e) => set('managerId', e.target.value)}>
+                <option value="">No project manager</option>
+                {managers.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {(person.full_name || person.email) +
+                      (person.designation ? ` · ${person.designation}` : '')}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
 
             <FormField label="Notes" error={fields.description}>
               <Textarea

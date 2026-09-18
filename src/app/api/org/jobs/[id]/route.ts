@@ -33,7 +33,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   const { data: existing } = await supabase
     .from('jobs')
     .select('id, title, status')
-    .eq('id', id)
+    .eq('id', id).eq('tenant_id', ctx.tenantId)
     .maybeSingle()
 
   if (!existing) return jsonError('That job was not found.', 404)
@@ -50,7 +50,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
      * and reopens it a week later keeps its original posting date instead of
      * jumping back to the top of the public feed. See tg_jobs_published_at.
      */
-    const { error } = await supabase.from('jobs').update({ status }).eq('id', id)
+    const { error } = await supabase.from('jobs').update({ status }).eq('id', id).eq('tenant_id', ctx.tenantId)
     if (error) return jsonError(friendlyDbError(error), 400)
 
     await audit({
@@ -97,7 +97,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       skills: input.skills,
       closes_at: input.closesAt ?? null,
     })
-    .eq('id', id)
+    .eq('id', id).eq('tenant_id', ctx.tenantId)
 
   if (error) return jsonError(friendlyDbError(error), 400)
 
@@ -134,7 +134,7 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
   const { data: existing } = await supabase
     .from('jobs')
     .select('id, title, application_count')
-    .eq('id', id)
+    .eq('id', id).eq('tenant_id', ctx.tenantId)
     .maybeSingle()
 
   if (!existing) return jsonError('That job was not found.', 404)
@@ -146,7 +146,7 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
     )
   }
 
-  const { error } = await supabase.from('jobs').delete().eq('id', id)
+  const { error } = await supabase.from('jobs').delete().eq('id', id).eq('tenant_id', ctx.tenantId)
   if (error) return jsonError(friendlyDbError(error), 400)
 
   await audit({

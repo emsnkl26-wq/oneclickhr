@@ -49,3 +49,6 @@ async function handlePUT(request: NextRequest) {
 }
 
 export const PUT = withErrorHandler(handlePUT)
+// The tag editor calls this with PATCH (apiPatch); without this export every
+// add/remove was a 405 surfaced as "Something went wrong".
+export const PATCH = withErrorHandler(handlePUT)

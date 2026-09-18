@@ -3,7 +3,7 @@ import {
   Building2, ShieldCheck, Activity, Settings, KanbanSquare, CalendarDays,
   BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
   LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send, Network,
-  CalendarRange, MessageSquare, TrendingDown,
+  CalendarRange, MessageSquare, TrendingDown, ChartLine,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { UserRole, TrackingMode } from '@/types/db'
@@ -76,6 +76,7 @@ const ORG_NAV: NavSection[] = [
   {
     label: 'Finance',
     items: [
+      { href: '/org/finance', label: 'Finance overview', icon: ChartLine },
       { href: '/org/payroll', label: 'Payroll', icon: Wallet },
       { href: '/org/invoices', label: 'Invoices', icon: Receipt, prefix: true },
       { href: '/org/expenses', label: 'Expenses', icon: TrendingDown },
@@ -84,7 +85,7 @@ const ORG_NAV: NavSection[] = [
   {
     label: 'Workspace',
     items: [
-      { href: '/org/board', label: 'Task board', icon: KanbanSquare },
+      { href: '/org/board', label: 'Task boards', icon: KanbanSquare },
       { href: '/org/calendar', label: 'Calendar', icon: CalendarRange },
       { href: '/org/meetings', label: 'Meetings', icon: CalendarDays },
       { href: '/org/helpdesk', label: 'Help desk', icon: LifeBuoy, prefix: true },

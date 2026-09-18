@@ -10,7 +10,7 @@
  */
 
 import * as React from 'react'
-import { Eye, EyeOff, FileUp, Loader2, Lock, Plus, Trash2, UserRound, X } from 'lucide-react'
+import { FileUp, Loader2, Lock, Plus, Trash2, UserRound, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input, Select, Textarea, DateField } from '@/components/ui/input'
@@ -30,6 +30,8 @@ export interface Person {
   id: string
   full_name: string | null
   email: string | null
+  role?: string | null
+  designation?: string | null
 }
 
 export interface FieldContext {
@@ -352,6 +354,7 @@ function ManagerField(props: FieldProps) {
         {ctx.managers.map((m) => (
           <option key={m.id} value={m.id}>
             {m.full_name || m.email}
+            {m.role === 'org' ? ' — Admin' : m.designation ? ` — ${m.designation}` : ''}
           </option>
         ))}
       </Select>
@@ -362,75 +365,24 @@ function ManagerField(props: FieldProps) {
 /* ---------------------------------------------------------------- Bank field */
 
 /**
- * The account number, masked by default.
+ * The account number — a plain, visible field like every other one.
  *
- * Once saved, the server will only ever tell us the last four digits — so a
- * returning draft shows `•••• 4821` and an empty input. Typing a new number
- * replaces it; leaving it blank keeps what is stored.
+ * It is still encrypted at rest; the two pages allowed to render this form (the
+ * org admin's wizard and the employee's own) decrypt it server-side so the
+ * person can actually read back what was saved.
  */
 function AccountField(props: FieldProps) {
-  const { draft, error, set, ctx } = props
-  const [shown, setShown] = React.useState(false)
-  const [confirm, setConfirm] = React.useState('')
-
-  // An unconfirmed number counts as a mismatch: a save must never persist a
-  // number nobody typed twice. An EMPTY account number is fine — it just means
-  // "no bank details", or "keep what is already stored".
-  const unconfirmed = draft.accountNumber.length > 0 && confirm !== draft.accountNumber
-  const showError = unconfirmed && confirm.length > 0
-
-  const { onAccountMismatch } = ctx
-  React.useEffect(() => {
-    onAccountMismatch(unconfirmed)
-    return () => onAccountMismatch(false)
-  }, [unconfirmed, onAccountMismatch])
-
+  const { draft, set } = props
   return (
-    <div className="space-y-4">
-      <FormField
-        label="Account number"
-        error={error}
-        hint={
-          ctx.accountLast4 && !draft.accountNumber
-            ? `Saved — ending •••• ${ctx.accountLast4}. Type a new number to replace it.`
-            : undefined
-        }
-      >
-        <div className="relative">
-          <Input
-            type={shown ? 'text' : 'password'}
-            value={draft.accountNumber}
-            onChange={(e) => set('accountNumber', e.target.value)}
-            className="pr-10"
-            autoComplete="off"
-            placeholder={ctx.accountLast4 ? '•••••••••••' : ''}
-          />
-          <button
-            type="button"
-            onClick={() => setShown((v) => !v)}
-            aria-label={shown ? 'Hide account number' : 'Show account number'}
-            className="focus-ring absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-ink-muted hover:text-ink"
-          >
-            {shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
-        </div>
-      </FormField>
-
-      {draft.accountNumber ? (
-        <FormField
-          label="Confirm account number"
-          error={showError ? 'The account numbers do not match' : undefined}
-          hint={confirm ? undefined : 'Type it once more to confirm.'}
-        >
-          <Input
-            type={shown ? 'text' : 'password'}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            autoComplete="off"
-          />
-        </FormField>
-      ) : null}
-    </div>
+    <Wrap {...props} field={{ ...props.field, label: 'Account number' }}>
+      <Input
+        type="text"
+        inputMode="text"
+        value={draft.accountNumber}
+        onChange={(e) => set('accountNumber', e.target.value)}
+        autoComplete="off"
+      />
+    </Wrap>
   )
 }
 
@@ -444,6 +396,13 @@ function humanSize(bytes: number): string {
 function PhotoField(props: FieldProps) {
   const { draft, set, ctx } = props
   const [busy, setBusy] = React.useState(false)
+  // A local preview of the file just picked. The stored key is only readable
+  // once the draft has been saved, so showing the bytes we already have avoids
+  // a broken image in the meantime.
+  const [preview, setPreview] = React.useState<string | null>(null)
+  React.useEffect(() => () => {
+    if (preview) URL.revokeObjectURL(preview)
+  }, [preview])
 
   async function onChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -453,6 +412,7 @@ function PhotoField(props: FieldProps) {
     ctx.onBusyChange('photoUrl', true)
     try {
       const result = await uploadFile(file, 'photo')
+      setPreview(URL.createObjectURL(file))
       set('photoUrl', result.key)
       toast.success('Photo uploaded')
     } catch (err) {
@@ -471,7 +431,7 @@ function PhotoField(props: FieldProps) {
         ) : draft.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={`/api/files/view?key=${encodeURIComponent(draft.photoUrl)}`}
+            src={preview ?? `/api/files/view?key=${encodeURIComponent(draft.photoUrl)}`}
             alt=""
             className="size-full object-cover"
           />
@@ -493,7 +453,15 @@ function PhotoField(props: FieldProps) {
             />
           </label>
           {draft.photoUrl ? (
-            <Button type="button" variant="ghost" size="sm" onClick={() => set('photoUrl', '')}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setPreview(null)
+                set('photoUrl', '')
+              }}
+            >
               <X />
               Remove
             </Button>

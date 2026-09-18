@@ -17,7 +17,8 @@
  */
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, KanbanSquare, Tags, LayoutGrid, List } from 'lucide-react'
+import Link from 'next/link'
+import { Plus, KanbanSquare, Tags, LayoutGrid, List, ArrowLeft } from 'lucide-react'
 import { KanbanBoard, NoMatches } from './kanban-board'
 import { BoardToolbar, EMPTY_FILTERS, matchesFilters, filterCount, type BoardFilterState } from './board-filters'
 import { TaskDetailDialog } from './task-detail-dialog'
@@ -32,7 +33,7 @@ import type { BoardData, BoardColumnData } from '@/lib/board-data'
 type View = 'board' | 'list'
 
 export function BoardWorkspace({
-  board, tenantId, currentUserId, canManage, title, description,
+  board, tenantId, currentUserId, canManage, title, description, backHref,
 }: {
   board: BoardData
   tenantId: string
@@ -40,6 +41,8 @@ export function BoardWorkspace({
   canManage: boolean
   title?: string
   description?: string
+  /** The board list this board was opened from. */
+  backHref?: string
 }) {
   const router = useRouter()
   const controller = useBoard({ board, tenantId })
@@ -109,43 +112,65 @@ export function BoardWorkspace({
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title={title ?? board.boardName}
-        description={
-          description ??
-          'Drag cards between stages. Everyone in the workspace sees changes as they happen.'
-        }
-        actions={
-          <>
-            {canManage ? (
-              <>
-                <Button variant="secondary" onClick={() => setLabelsOpen(true)}>
-                  <Tags />
-                  Labels
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => setColumnDialog({ open: true, column: null })}
-                >
-                  <Plus />
-                  Column
-                </Button>
-              </>
-            ) : null}
-            <Button
-              onClick={() =>
-                setCreateIn(
-                  board.columns.find((c) => c.is_backlog)?.id ?? board.columns[0]?.id ?? null
-                )
-              }
-              disabled={!board.columns.length}
-            >
-              <Plus />
-              Task
-            </Button>
-          </>
-        }
-      />
+      {backHref ? (
+        <Link
+          href={backHref}
+          className="focus-ring inline-flex items-center gap-1.5 rounded-md text-[13px] font-medium text-ink-muted hover:text-ink"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          All boards
+        </Link>
+      ) : null}
+      {/*
+        The board's colour is its identity across the app: the same swatch as
+        its card on the board list, as a stripe and a soft wash behind the title.
+      */}
+      <div
+        className="rounded-xl border border-line bg-card px-5 py-4"
+        style={{
+          borderTop: `4px solid ${board.boardColor}`,
+          backgroundImage: `linear-gradient(135deg, ${board.boardColor}14, transparent 60%)`,
+        }}
+      >
+        <PageHeader
+          title={title ?? board.boardName}
+          description={
+            description ??
+            board.boardDescription ??
+            'Drag cards between stages. Everyone on this board sees changes as they happen.'
+          }
+          actions={
+            <>
+              {canManage ? (
+                <>
+                  <Button variant="secondary" onClick={() => setLabelsOpen(true)}>
+                    <Tags />
+                    Labels
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setColumnDialog({ open: true, column: null })}
+                  >
+                    <Plus />
+                    Column
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                onClick={() =>
+                  setCreateIn(
+                    board.columns.find((c) => c.is_backlog)?.id ?? board.columns[0]?.id ?? null
+                  )
+                }
+                disabled={!board.columns.length}
+              >
+                <Plus />
+                Task
+              </Button>
+            </>
+          }
+        />
+      </div>
 
       <BoardToolbar
         filters={filters}
@@ -179,6 +204,7 @@ export function BoardWorkspace({
       <TaskCreateDialog
         board={board}
         columnId={createIn}
+        assignOnlyId={canManage ? undefined : currentUserId}
         onClose={() => setCreateIn(null)}
         onCreated={() => {
           setCreateIn(null)

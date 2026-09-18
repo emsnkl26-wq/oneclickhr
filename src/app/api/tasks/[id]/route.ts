@@ -108,7 +108,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   // rather than as part of it: a caller allowed to move a card but not to
   // reassign it gets the move, and the reassignment is simply refused.
   if (input.assigneeIds !== undefined) {
-    const { added } = await syncAssignees(supabase, {
+    const { added, error: assignError } = await syncAssignees(supabase, {
       taskId: id,
       tenantId: ctx.tenantId,
       desired: input.assigneeIds,
@@ -120,6 +120,10 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       taskTitle: updated.title,
       reference: updated.reference,
     })
+    // A refused (re)assignment is a failed save, and must say so: the client
+    // rolls back its optimistic assignee list on a non-2xx. Returning 200 here
+    // is exactly what made an assignee appear, then vanish on refresh.
+    if (assignError) return jsonError(assignError, 403)
   }
 
   if (input.labelIds !== undefined) {

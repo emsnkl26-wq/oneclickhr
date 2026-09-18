@@ -131,10 +131,10 @@ export function useBoard(args: {
     const channel = supabase
       .channel(`board:${args.board.boardId}`)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks', filter: `tenant_id=eq.${args.tenantId}` },
+        { event: '*', schema: 'public', table: 'tasks', filter: `board_id=eq.${args.board.boardId}` },
         onChange)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'board_columns', filter: `tenant_id=eq.${args.tenantId}` },
+        { event: '*', schema: 'public', table: 'board_columns', filter: `board_id=eq.${args.board.boardId}` },
         onChange)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'task_assignees', filter: `tenant_id=eq.${args.tenantId}` },

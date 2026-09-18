@@ -4,7 +4,7 @@ import { requireOrg } from '@/lib/auth/guards'
 import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { PageHeader } from '@/components/ui/patterns'
 import { draftFromRow, draftDisplayName, REVIEW_STEP } from '@/lib/onboarding'
-import { accountLast4 } from '@/lib/onboarding-server'
+import { accountLast4, accountNumberPlain } from '@/lib/onboarding-server'
 import { OnboardingWizard } from '../onboarding-wizard'
 import { loadWizardData } from '../wizard-data'
 import type { OnboardingStatus } from '@/types/db'
@@ -70,6 +70,8 @@ export default async function ResumeOnboardingPage({
   const { departments, managers, currencySymbol } = await loadWizardData(ctx)
 
   const draft = draftFromRow(row)
+  // Shown in full to the admin, like every other field on the form.
+  draft.accountNumber = accountNumberPlain(row.account_number_enc) ?? ''
   const completedSteps: number[] = Array.isArray(row.completed_steps)
     ? (row.completed_steps as number[])
     : []

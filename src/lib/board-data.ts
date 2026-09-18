@@ -75,6 +75,9 @@ export interface BoardColumnData {
 export interface BoardData {
   boardId: string | null
   boardName: string
+  boardDescription: string | null
+  /** The board's theme colour: its card accent and page header. */
+  boardColor: string
   columns: BoardColumnData[]
   tasks: BoardTask[]
   members: BoardMember[]
@@ -84,6 +87,8 @@ export interface BoardData {
 const EMPTY: BoardData = {
   boardId: null,
   boardName: 'Team Board',
+  boardDescription: null,
+  boardColor: '#2563EB',
   columns: [],
   tasks: [],
   members: [],
@@ -92,14 +97,17 @@ const EMPTY: BoardData = {
 
 export async function loadBoard(
   supabase: SupabaseClient,
-  options: { includeArchived?: boolean } = {}
+  options: { boardId?: string; includeArchived?: boolean } = {}
 ): Promise<BoardData> {
-  const { data: board } = await supabase
+  // With an id: that board, or nothing when RLS says the caller is not on it.
+  // Without: the oldest board the caller can see.
+  let boardQuery = supabase
     .from('boards')
-    .select('id, name')
+    .select('id, name, description, color')
     .order('created_at')
     .limit(1)
-    .maybeSingle()
+  if (options.boardId) boardQuery = boardQuery.eq('id', options.boardId)
+  const { data: board } = await boardQuery.maybeSingle()
 
   if (!board) return EMPTY
 
@@ -178,6 +186,8 @@ export async function loadBoard(
   return {
     boardId: board.id,
     boardName: board.name,
+    boardDescription: board.description ?? null,
+    boardColor: board.color ?? EMPTY.boardColor,
     columns: (columns ?? []).map((c) => ({
       ...c,
       position: Number(c.position),
@@ -198,5 +208,77 @@ export async function loadBoard(
     }) as BoardTask[],
     members: (members ?? []) as BoardMember[],
     labels: (labels ?? []) as BoardLabel[],
+  }
+}
+
+/* ------------------------------------------------------------- board list */
+
+export interface BoardSummary {
+  id: string
+  name: string
+  description: string | null
+  color: string
+  created_at: string
+  members: BoardMember[]
+  open_tasks: number
+  done_tasks: number
+}
+
+/**
+ * Every board the caller can see, with its roster and a task tally.
+ *
+ * RLS does the scoping (038): the org gets every board in its tenant, an
+ * employee only boards they are a member of. Four queries, none per board.
+ */
+export async function listBoards(supabase: SupabaseClient): Promise<{
+  boards: BoardSummary[]
+  people: BoardMember[]
+  error: boolean
+}> {
+  const [{ data: boards, error }, { data: people }] = await Promise.all([
+    supabase.from('boards').select('id, name, description, color, created_at').order('created_at'),
+    supabase
+      .from('profiles')
+      .select('id, full_name, email, photo_url, role')
+      .eq('is_active', true)
+      .order('full_name'),
+  ])
+
+  const ids = (boards ?? []).map((b) => b.id)
+  let members: Array<{ board_id: string; profile_id: string }> = []
+  let tasks: Array<{ board_id: string; status: string }> = []
+  if (ids.length) {
+    const [m, t] = await Promise.all([
+      supabase.from('board_members').select('board_id, profile_id').in('board_id', ids),
+      supabase.from('tasks').select('board_id, status').in('board_id', ids).is('archived_at', null),
+    ])
+    members = m.data ?? []
+    tasks = t.data ?? []
+  }
+
+  const personById = new Map((people ?? []).map((p) => [p.id, p as BoardMember]))
+
+  return {
+    error: !!error,
+    // Rosters are for employees; the org sees every board regardless.
+    people: (people ?? [])
+      .filter((p) => p.role === 'employee')
+      .map((p) => ({ id: p.id, full_name: p.full_name, email: p.email, photo_url: p.photo_url })),
+    boards: (boards ?? []).map((b) => {
+      const onBoard = tasks.filter((t) => t.board_id === b.id)
+      return {
+        id: b.id,
+        name: b.name,
+        description: b.description ?? null,
+        color: b.color ?? EMPTY.boardColor,
+        created_at: b.created_at,
+        members: members
+          .filter((m) => m.board_id === b.id)
+          .map((m) => personById.get(m.profile_id))
+          .filter((p): p is BoardMember => !!p),
+        open_tasks: onBoard.filter((t) => t.status !== 'done' && t.status !== 'cancelled').length,
+        done_tasks: onBoard.filter((t) => t.status === 'done').length,
+      }
+    }),
   }
 }

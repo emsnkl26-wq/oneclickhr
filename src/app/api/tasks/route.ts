@@ -68,7 +68,9 @@ async function handlePOST(request: NextRequest) {
 
   if (error) return jsonError(friendlyDbError(error), 400)
 
-  const { added } = await syncAssignees(supabase, {
+  // The card exists at this point, so a refused assignment does not fail the
+  // create; it is reported back instead (`assignError`) rather than dropped.
+  const { added, error: assignError } = await syncAssignees(supabase, {
     taskId: task.id,
     tenantId: ctx.tenantId,
     desired: input.assigneeIds,
@@ -116,7 +118,7 @@ async function handlePOST(request: NextRequest) {
     request,
   })
 
-  return jsonOk({ id: task.id, reference: task.reference }, 201)
+  return jsonOk({ id: task.id, reference: task.reference, assignError }, 201)
 }
 
 export const POST = withErrorHandler(handlePOST)

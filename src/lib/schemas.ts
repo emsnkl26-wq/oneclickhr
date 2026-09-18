@@ -261,23 +261,52 @@ const draftDate = z
 /** The same undefined-preserving rule for an id that may be cleared. */
 const draftUuid = uuid.nullish().transform((v) => (v === undefined ? undefined : (v ?? null)))
 
-export const WORK_AUTH_STATUSES = [
-  'US Citizen',
-  'Permanent Resident',
-  'H-1B',
-  'L-1',
-  'EAD',
-  'OPT',
-  'Other Visa',
-  'Not Applicable',
-] as const
+/**
+ * Work-authorization choices, per country of residence (step 1's `country`).
+ *
+ * An employee in India being offered H-1B / OPT / EAD reads as a broken form, so
+ * the list follows where the person actually works. Unlisted countries get the
+ * generic set. The column is plain text, so adding a country is one entry here.
+ */
+export const WORK_AUTH_BY_COUNTRY: Record<string, readonly string[]> = {
+  US: ['US Citizen', 'Permanent Resident', 'H-1B', 'L-1', 'EAD', 'OPT', 'Other Visa', 'Not Applicable'],
+  IN: ['Indian Citizen', 'OCI Card Holder', 'Employment Visa', 'Other Visa', 'Not Applicable'],
+  GB: ['British Citizen', 'Settled / Pre-settled Status', 'Indefinite Leave to Remain', 'Skilled Worker Visa', 'Graduate Visa', 'Other Visa', 'Not Applicable'],
+  CA: ['Canadian Citizen', 'Permanent Resident', 'Work Permit', 'Post-Graduation Work Permit', 'Other Visa', 'Not Applicable'],
+  AU: ['Australian Citizen', 'Permanent Resident', 'Temporary Skill Shortage Visa', 'Temporary Graduate Visa', 'Other Visa', 'Not Applicable'],
+  AE: ['UAE National', 'Employment Residence Visa', 'Golden Visa', 'Other Visa', 'Not Applicable'],
+  SG: ['Singapore Citizen', 'Permanent Resident', 'Employment Pass', 'S Pass', 'Work Permit', 'Other Visa', 'Not Applicable'],
+  DE: ['German / EU Citizen', 'Permanent Settlement Permit', 'EU Blue Card', 'Work Residence Permit', 'Other Visa', 'Not Applicable'],
+}
+
+export const GENERIC_WORK_AUTH: readonly string[] = [
+  'Citizen', 'Permanent Resident', 'Work Visa / Permit', 'Other Visa', 'Not Applicable',
+]
+
+/** The choices to offer someone living in `country` (ISO code). */
+export function workAuthOptions(country: string | null | undefined): readonly string[] {
+  return (country && WORK_AUTH_BY_COUNTRY[country]) || GENERIC_WORK_AUTH
+}
+
+/** Every status any country offers — what validation accepts. */
+export const WORK_AUTH_STATUSES: readonly string[] = Array.from(
+  new Set([...Object.values(WORK_AUTH_BY_COUNTRY).flat(), ...GENERIC_WORK_AUTH])
+)
 
 /** The statuses that carry no visa paperwork — step 2 hides its detail fields. */
 export const NON_VISA_STATUSES: readonly string[] = [
-  'US Citizen',
-  'Permanent Resident',
-  'Not Applicable',
+  'US Citizen', 'Indian Citizen', 'OCI Card Holder', 'British Citizen',
+  'Settled / Pre-settled Status', 'Indefinite Leave to Remain', 'Canadian Citizen',
+  'Australian Citizen', 'UAE National', 'Singapore Citizen', 'German / EU Citizen',
+  'Permanent Settlement Permit', 'Citizen', 'Permanent Resident', 'Not Applicable',
 ]
+
+/** ID documents people actually hold, per country. */
+export const ID_PROOF_BY_COUNTRY: Record<string, readonly string[]> = {
+  IN: ['Aadhaar Card', 'PAN Card', 'Passport', 'Voter ID', 'Driving Licence', 'Other'],
+  US: ['Passport', "Driver's License", 'State ID', 'Social Security Card', 'Other'],
+  GB: ['Passport', 'Driving Licence', 'Biometric Residence Permit', 'Other'],
+}
 
 export const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'] as const
 export const PRONOUNS = ['He/Him', 'She/Her', 'They/Them', 'Other'] as const
@@ -422,9 +451,9 @@ export const onboardingStep1Schema = z.object({
 
 /** Step 2 — status is required; the visa detail behind it is not. */
 export const onboardingStep2Schema = z.object({
-  workAuthStatus: z.enum(WORK_AUTH_STATUSES, {
-    errorMap: () => ({ message: 'Choose a work authorization status' }),
-  }),
+  workAuthStatus: z
+    .string({ required_error: 'Choose a work authorization status' })
+    .refine((v) => WORK_AUTH_STATUSES.includes(v), 'Choose a work authorization status'),
 })
 
 /** Step 3 — the employment facts the rest of the app keys off. */

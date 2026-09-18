@@ -10,7 +10,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatDateLabel, formatPeriod } from '@/lib/time'
 import { formatHours } from '@/lib/utils'
-import type { ProjectStatus, TimesheetStatus } from '@/types/db'
+import { ProjectManagerCard, MANAGER_EMBED } from '@/app/org/projects/project-manager-card'
+import type { ProjectStatus, TimesheetStatus, ProjectManagerContact } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Project' }
 export const dynamic = 'force-dynamic'
@@ -61,7 +62,9 @@ export default async function EmployeeProjectDetailPage({
   // project this person is not on is a 404 rather than a permission error.
   const { data: project, error: projectError } = await supabase
     .from('projects')
-    .select('id, code, name, client_name, end_client_name, description, start_date, end_date, status')
+    .select(
+      `id, code, name, client_name, end_client_name, description, start_date, end_date, status, ${MANAGER_EMBED}`
+    )
     .eq('id', id)
     .maybeSingle()
 
@@ -91,6 +94,9 @@ export default async function EmployeeProjectDetailPage({
       .eq('project_id', id),
   ])
 
+  // Readable through `profiles_select` (the staff directory), so the employee
+  // sees their manager's contact card without any extra grant.
+  const manager = (project as unknown as { manager: ProjectManagerContact | null }).manager
   const rows = (entries ?? []) as unknown as EntryRow[]
   const approvedHours = totals.get(id) ?? 0
   const pendingHours = rows
@@ -132,6 +138,8 @@ export default async function EmployeeProjectDetailPage({
           </div>
         </div>
       </div>
+
+      <ProjectManagerCard manager={manager} />
 
       {project.description ? (
         <Card>

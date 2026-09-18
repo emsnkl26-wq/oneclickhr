@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { invoiceSchema } from '@/lib/schemas'
+import { todayIn } from '@/lib/time'
+import { invoiceWriteSchema, resolvePaidAt } from '../status-fields'
 import { computeTotals, normalizeItems } from '@/lib/invoice'
 import { audit } from '@/lib/audit'
 
@@ -16,10 +17,21 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   const { ctx } = gate
 
   const id = uuidSchema.parse((await params).id)
-  const input = await parseBody(request, invoiceSchema)
-  const totals = computeTotals(input.items, input.taxPercent, input.amountPaid)
+  const input = await parseBody(request, invoiceWriteSchema)
+  // "Paid" means fully collected: the amount received follows the total rather
+  // than leaving a paid invoice with a balance still showing.
+  const draftTotals = computeTotals(input.items, input.taxPercent, 0)
+  const amountPaid = input.status === 'paid' ? draftTotals.total : input.amountPaid
+  const totals = computeTotals(input.items, input.taxPercent, amountPaid)
+  const today = todayIn(ctx.tenant.timezone)
 
   const supabase = await createSupabaseServerClient()
+
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('paid_at')
+    .eq('id', id)
+    .maybeSingle()
 
   const { data, error } = await supabase
     .from('invoices')
@@ -31,9 +43,10 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       subtotal: totals.subtotal,
       tax_percent: input.taxPercent,
       total: totals.total,
-      amount_paid: input.amountPaid,
+      amount_paid: amountPaid,
       balance_due: totals.balanceDue,
       status: input.status,
+      paid_at: resolvePaidAt(input.status, input.paidAt, existing?.paid_at, today),
       issue_date: input.issueDate,
       due_date: input.dueDate ?? null,
       notes: input.notes,
