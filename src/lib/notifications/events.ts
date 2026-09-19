@@ -187,3 +187,34 @@ export function tagFor(
   const spec = eventSpec(event)
   return spec.tag ? spec.tag(targetId) : undefined
 }
+
+/**
+ * Where an in-app notification CARD links — the detail page where there is one.
+ *
+ * `pathFor` deliberately stops at the list page, because that is all a push
+ * payload can safely promise: it is built at send time and followed possibly
+ * days later, by which point the subject may be gone, and a push that opens a
+ * 404 is worse than one that opens the queue.
+ *
+ * A card in the list is a different bargain. The reader is already in the app,
+ * the row is in front of them, and landing on the specific timesheet or ticket
+ * is the whole reason they clicked. So where a `[id]` route exists for BOTH
+ * portals and the subject is recorded (041), this appends it; everything else
+ * falls back to the list page rather than guessing a URL shape.
+ */
+export function cardPathFor(
+  event: NotificationEvent | undefined,
+  role: UserRole,
+  subjectId: string | null | undefined
+): string {
+  const base = pathFor(event, role)
+  if (!subjectId) return base
+
+  const DEEP_LINKABLE: NotificationEvent[] = [
+    'timesheet.decided',
+    'ticket.replied',
+    'ticket.status',
+  ]
+  if (event && DEEP_LINKABLE.includes(event)) return `${base}/${subjectId}`
+  return base
+}

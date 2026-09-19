@@ -17,6 +17,12 @@ type Filter = (typeof FILTERS)[number]
 
 /** Weeks the sheet view covers when no range is set. Twelve is a quarter. */
 const DEFAULT_WEEKS = 12
+/**
+ * ...plus weeks AHEAD of the current one. Timesheets are routinely filled for
+ * the running week or the next, and a window that stopped at this Saturday hid
+ * exactly those newest lines — the sheet read as empty until a range was typed.
+ */
+const DEFAULT_WEEKS_AHEAD = 4
 const MAX_SHEET_ROWS = 500
 
 interface TimesheetWithEmployee {
@@ -115,7 +121,7 @@ export default async function OrgTimesheetsPage({
   if (view === 'sheet') {
     const thisWeek = weekStartSunday(todayIn(ctx.tenant.timezone))
     const rangeFrom = from || addDays(thisWeek, -7 * (DEFAULT_WEEKS - 1))
-    const rangeTo = to || addDays(thisWeek, 6)
+    const rangeTo = to || addDays(thisWeek, 7 * DEFAULT_WEEKS_AHEAD + 6)
 
     const { data, error: sheetError } = await supabase
       .from('timesheet_entries')

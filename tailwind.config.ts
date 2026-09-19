@@ -18,6 +18,11 @@ const config: Config = {
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+    // Class names also live in shared lookup tables here — the calendar's
+    // EVENT_STYLES above all. Unscanned, any colour used ONLY in such a table
+    // is never generated, and the element renders unstyled: task due dates
+    // showed on the calendar as bare text with no chip and no legend dot.
+    './src/lib/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     container: {

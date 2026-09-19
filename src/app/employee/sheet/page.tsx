@@ -11,6 +11,14 @@ export const dynamic = 'force-dynamic'
 
 /** Weeks shown when no range is set. Twelve is a quarter — the usual question. */
 const DEFAULT_WEEKS = 12
+/**
+ * ...and weeks AHEAD of the current one. Timesheets are routinely filled for the
+ * week that is still running or the one after it, and a default window that
+ * stopped at this Saturday hid exactly those — the newest lines, which is what
+ * someone opening this page is most likely looking for. The page then read as
+ * empty until a range was typed by hand.
+ */
+const DEFAULT_WEEKS_AHEAD = 4
 const MAX_ROWS = 500
 
 interface FlatEntry {
@@ -59,7 +67,7 @@ export default async function EmployeeSheetPage({
   const thisWeek = weekStartSunday(todayIn(ctx.tenant.timezone))
 
   const from = isDate(params.from) ? params.from! : addDays(thisWeek, -7 * (DEFAULT_WEEKS - 1))
-  const to = isDate(params.to) ? params.to! : addDays(thisWeek, 6)
+  const to = isDate(params.to) ? params.to! : addDays(thisWeek, 7 * DEFAULT_WEEKS_AHEAD + 6)
 
   const { data, error: loadError } = await supabase
     .from('timesheet_entries')

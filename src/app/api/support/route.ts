@@ -39,7 +39,12 @@ async function handlePOST(request: NextRequest) {
   const input = await parseBody(request, supportRequestSchema)
   const supabase = await createSupabaseServerClient()
 
-  const { data, error } = await supabase
+  // NO `.select()` AFTER THIS INSERT. Reading `support_requests` back is super
+  // admin only (028), so a RETURNING clause here fails with 42501 — "You do not
+  // have permission to do that" — for every ordinary user, AFTER the row has
+  // already been written. The insert is the point; the id is of no use to the
+  // sender, who is answered by email.
+  const { error } = await supabase
     .from('support_requests')
     .insert({
       tenant_id: ctx.tenantId,
@@ -56,12 +61,10 @@ async function handlePOST(request: NextRequest) {
       user_agent: (request.headers.get('user-agent') ?? '').slice(0, 500) || null,
       status: 'new',
     })
-    .select('id')
-    .single()
 
   if (error) return jsonError(friendlyDbError(error), 400)
 
-  return jsonOk({ id: data.id }, 201)
+  return jsonOk({ ok: true }, 201)
 }
 
 export const POST = withErrorHandler(handlePOST)

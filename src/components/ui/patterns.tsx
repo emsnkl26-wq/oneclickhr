@@ -163,7 +163,12 @@ const TONES: Record<Tone, string> = {
   success: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   warning: 'bg-amber-50 text-amber-700 ring-amber-200',
   info: 'bg-blue-50 text-blue-700 ring-blue-200',
-  danger: 'bg-brand-50 text-brand-700 ring-brand-200',
+  // NOT brand. The brand colour is tenant-configurable and is green by
+  // default, so a rejection rendered in it read as a success — "Not
+  // progressing" in the same green as "Approved". A status must mean the same
+  // thing in every workspace, so the semantic tones are fixed palette colours
+  // and only `brand` below may follow the theme.
+  danger: 'bg-red-50 text-red-700 ring-red-200',
   brand: 'bg-brand-50 text-brand-700 ring-brand-200',
 }
 
@@ -177,6 +182,11 @@ const STATUS_TONES: Record<string, Tone> = {
   rejected: 'danger', suspended: 'danger', cancelled: 'danger', revoked: 'danger', inactive: 'danger', absent: 'danger',
   closed: 'neutral',
   low: 'neutral', medium: 'info', high: 'warning', urgent: 'danger',
+  // Job applications. 'new' in particular had no entry and fell through to
+  // neutral grey, which read as "nothing is happening with this".
+  new: 'info', reviewing: 'warning', shortlisted: 'info',
+  interviewing: 'warning', offered: 'success', hired: 'success',
+  withdrawn: 'neutral', expired: 'neutral',
 }
 
 export function StatusChip({

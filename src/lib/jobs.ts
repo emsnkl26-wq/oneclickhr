@@ -216,6 +216,35 @@ export function experienceLabel(min: number | null, max: number | null): string 
   return `Up to ${max} years`
 }
 
+/**
+ * The portal's experience filter, as bands of years. `max: null` is open-ended.
+ *
+ * A band matches a posting whose own range OVERLAPS it, not one that sits
+ * inside it: a "2–6 years" role is a real option for someone with 5, and
+ * hiding it from the "5–10" band because it starts at 2 would hide most jobs
+ * from most people. A posting that states no experience at all is open to
+ * everyone, so it matches every band.
+ */
+export const EXPERIENCE_BANDS = {
+  '0-1': { label: 'Entry level (0–1 yr)', min: 0, max: 1 },
+  '1-3': { label: '1–3 years', min: 1, max: 3 },
+  '3-5': { label: '3–5 years', min: 3, max: 5 },
+  '5-10': { label: '5–10 years', min: 5, max: 10 },
+  '10+': { label: '10+ years', min: 10, max: null },
+} as const satisfies Record<string, { label: string; min: number; max: number | null }>
+
+export type ExperienceBand = keyof typeof EXPERIENCE_BANDS
+
+/** "Posted within" windows for the portal feed, in hours. */
+export const POSTED_WITHIN = {
+  '24h': { label: 'Last 24 hours', hours: 24 },
+  '3d': { label: 'Last 3 days', hours: 72 },
+  '7d': { label: 'Last week', hours: 24 * 7 },
+  '30d': { label: 'Last month', hours: 24 * 30 },
+} as const
+
+export type PostedWithin = keyof typeof POSTED_WITHIN
+
 /** Whether a posting has passed its own closing date. */
 export function isExpired(closesAt: string | null): boolean {
   if (!closesAt) return false

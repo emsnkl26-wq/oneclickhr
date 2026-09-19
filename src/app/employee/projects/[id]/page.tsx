@@ -157,10 +157,15 @@ export default async function EmployeeProjectDetailPage({
           accent
         />
         <StatCard
-          label="Awaiting approval"
-          value={pendingHours ? formatHours(pendingHours) : '—'}
+          // HOURS awaiting approval, not the project or the assignment. A bare
+          // "Awaiting approval" over an em dash read as though the person just
+          // assigned were still pending sign-off, so it names what it counts and
+          // shows a real zero.
+          label="Hours awaiting approval"
+          value={pendingHours ? formatHours(pendingHours) : '0h'}
           icon={CalendarRange}
           tone="orange"
+          hint="Your submitted timesheets not yet reviewed"
         />
         <StatCard label="People on this project" value={teamSize ?? 0} icon={Users} tone="indigo" />
       </div>

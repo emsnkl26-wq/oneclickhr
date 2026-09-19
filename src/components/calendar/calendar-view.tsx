@@ -23,7 +23,18 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  Award,
+  Cake,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  PartyPopper,
+  Plane,
+  SquareCheck,
+  Video,
+  type LucideIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { EVENT_STYLES, type CalendarEvent, type CalendarEventKind } from '@/lib/calendar-kinds'
@@ -280,8 +291,25 @@ export function CalendarView({
   )
 }
 
+/**
+ * A glyph per kind, so a chip says what it is without the legend — colour alone
+ * is not enough in a dense month, and not at all for anyone who cannot tell sky
+ * from violet. Kept here rather than in EVENT_STYLES because that table is
+ * shared with server code and should stay plain strings.
+ */
+const EVENT_ICONS: Record<CalendarEventKind, LucideIcon> = {
+  meeting: Video,
+  leave: Plane,
+  holiday: PartyPopper,
+  birthday: Cake,
+  anniversary: Award,
+  task: SquareCheck,
+  timesheet: Clock,
+}
+
 function EventChip({ event, timezone }: { event: CalendarEvent; timezone: string }) {
   const style = EVENT_STYLES[event.kind]
+  const Icon = EVENT_ICONS[event.kind]
 
   const time = event.allDay
     ? null
@@ -294,13 +322,16 @@ function EventChip({ event, timezone }: { event: CalendarEvent; timezone: string
   const body = (
     <span
       className={cn(
-        'block truncate rounded px-1.5 py-0.5 text-[11px] leading-tight',
+        'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium leading-tight',
         style.chip
       )}
       title={`${time ? `${time} ` : ''}${event.title}`}
     >
-      {time ? <span className="tabular mr-1 opacity-70">{time}</span> : null}
-      {event.title}
+      <Icon className="size-3 shrink-0" aria-hidden />
+      <span className="min-w-0 truncate">
+        {time ? <span className="tabular mr-1 opacity-70">{time}</span> : null}
+        {event.title}
+      </span>
     </span>
   )
 

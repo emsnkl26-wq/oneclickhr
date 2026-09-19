@@ -35,7 +35,14 @@ import 'server-only'
  * `createSupabaseServerClient()` and let `jobs_select` do its job.
  */
 import { createAdminClient } from '@/lib/supabase/admin'
-import { JOB_COLUMNS, toPublicJob } from '@/lib/jobs'
+import {
+  EXPERIENCE_BANDS,
+  JOB_COLUMNS,
+  POSTED_WITHIN,
+  toPublicJob,
+  type ExperienceBand,
+  type PostedWithin,
+} from '@/lib/jobs'
 import type { Job, PublicCompany, PublicJob } from '@/types/db'
 
 /** The columns the portal needs from `tenants`, and not the domain token. */
@@ -86,6 +93,10 @@ export interface JobFeedFilters {
   q?: string
   type?: string
   workplace?: string
+  /** A key of EXPERIENCE_BANDS. Unknown values are ignored by the caller. */
+  experience?: ExperienceBand
+  /** A key of POSTED_WITHIN — only postings published inside that window. */
+  posted?: PostedWithin
   /** A tenant slug. A listing convenience — see rule 3 in the header. */
   company?: string
   page?: number
@@ -138,6 +149,21 @@ export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobF
   if (tenantId) query = query.eq('tenant_id', tenantId)
   if (filters.type) query = query.eq('employment_type', filters.type)
   if (filters.workplace) query = query.eq('workplace', filters.workplace)
+
+  if (filters.experience) {
+    // Range OVERLAP, with an unstated bound treated as open — see the note on
+    // EXPERIENCE_BANDS. Two `or` calls are ANDed by PostgREST.
+    const band = EXPERIENCE_BANDS[filters.experience]
+    if (band.max !== null) {
+      query = query.or(`experience_min.is.null,experience_min.lte.${band.max}`)
+    }
+    query = query.or(`experience_max.is.null,experience_max.gte.${band.min}`)
+  }
+
+  if (filters.posted) {
+    const cutoff = new Date(Date.now() - POSTED_WITHIN[filters.posted].hours * 3600_000)
+    query = query.gte('published_at', cutoff.toISOString())
+  }
 
   if (filters.q) {
     /*

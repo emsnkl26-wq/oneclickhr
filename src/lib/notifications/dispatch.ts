@@ -504,6 +504,11 @@ export async function raiseNotification(
       image_url: args.imageUrl ?? null,
       importance: importanceFor(args.event, args.importance),
       created_by: args.createdBy ?? null,
+      // Persisted (041) so the in-app card can link where the push already
+      // does. Without these the notifications page has the words but not the
+      // thing they are about.
+      event: args.event ?? null,
+      subject_id: args.subjectId ?? null,
     }
 
     let { data, error } = await supabase.from('notifications').insert(row).select('id').single()

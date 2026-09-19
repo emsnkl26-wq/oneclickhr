@@ -107,6 +107,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     // Their hours, and therefore their pay — and a returned sheet has to be
     // corrected before the payroll cut-off. The catalog emails this one.
     event: 'timesheet.decided',
+    // So the in-app card opens THIS timesheet rather than the list (041).
+    subjectId: id,
     title:
       input.status === 'approved'
         ? `Timesheet ${sheet.code} approved`
