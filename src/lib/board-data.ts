@@ -122,7 +122,7 @@ export async function loadBoard(
 
   if (!options.includeArchived) taskQuery = taskQuery.is('archived_at', null)
 
-  const [{ data: columns }, { data: tasks }, { data: members }, { data: labels }] =
+  const [{ data: columns }, { data: tasks }, { data: members }, { data: labels }, { data: roster }] =
     await Promise.all([
       supabase
         .from('board_columns')
@@ -140,7 +140,12 @@ export async function loadBoard(
         .select('id, name, color')
         .eq('board_id', board.id)
         .order('name'),
+      supabase.from('board_members').select('profile_id').eq('board_id', board.id),
     ])
+
+  // Every active profile still renders existing assignees (a card keeps its
+  // history after a roster change), but only the board's roster is offered.
+  const onBoard = new Set((roster ?? []).map((r) => r.profile_id))
 
   const taskIds = (tasks ?? []).map((t) => t.id)
 
@@ -206,7 +211,7 @@ export async function loadBoard(
         checklist_done: tally?.done ?? 0,
       }
     }) as BoardTask[],
-    members: (members ?? []) as BoardMember[],
+    members: (members ?? []).filter((m) => onBoard.has(m.id)) as BoardMember[],
     labels: (labels ?? []) as BoardLabel[],
   }
 }
