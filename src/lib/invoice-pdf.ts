@@ -8,28 +8,43 @@
  * PDF toolchain in a lambda, and means no invoice data is posted anywhere to be
  * turned into a document.
  *
+ * THE LAYOUT is the classic US staffing invoice the orgs already send by hand:
+ * logo top-left and a grey INVOICE title top-right with number and dates under
+ * it; the org's address; TO: on the left and FOR: beside it; one boxed table of
+ * DESCRIPTION / HOURS / RATE / AMOUNT with a tall body; a boxed TOTAL AMOUNT
+ * under the amount column; then the bank details and a thank-you. The on-screen
+ * preview (src/components/invoice/invoice-preview.tsx) draws the same page, and
+ * both read their wording from the helpers in src/lib/invoice.ts.
+ *
  * jsPDF is imported dynamically so its ~350KB never lands in the initial bundle
  * for the many people who look at the invoice list and never export one.
  */
-import { formatMoney } from '@/lib/utils'
+import {
+  invoiceDate, invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading,
+} from '@/lib/invoice'
 import { loadOrgLogo, ONECLICKHR_URL } from '@/lib/document-pdf'
 import type { Invoice } from '@/types/db'
-
-/** `#C41E33` → `[196, 30, 51]`. Falls back to the platform default on a bad value. */
-function hexToRgb(hex: string | null | undefined): [number, number, number] {
-  const match = /^#?([0-9a-f]{6})$/i.exec((hex ?? '').trim())
-  if (!match) return [196, 30, 51]
-  const value = match[1]
-  return [
-    parseInt(value.slice(0, 2), 16),
-    parseInt(value.slice(2, 4), 16),
-    parseInt(value.slice(4, 6), 16),
-  ]
-}
 
 export interface InvoiceOrgBranding {
   logoUrl: string | null
   primaryColor: string | null
+  /** The letterhead address, one printed line each. */
+  addressLines?: string[]
+  /** Printed when the invoice has no payment details of its own (pre-042 rows). */
+  paymentDetails?: string | null
+}
+
+type RGB = [number, number, number]
+const INK: RGB = [0, 0, 0]
+const GREY: RGB = [128, 128, 128]
+const MUTED: RGB = [120, 120, 120]
+
+/** Split stored text into printed lines: newlines are kept, blanks dropped. */
+function linesOf(text: string | null | undefined): string[] {
+  return (text ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
 }
 
 export async function downloadInvoicePdf(
@@ -38,194 +53,217 @@ export async function downloadInvoicePdf(
   org?: InvoiceOrgBranding
 ): Promise<void> {
   const { default: jsPDF } = await import('jspdf')
-  const autoTableModule = await import('jspdf-autotable')
-  const autoTable = (autoTableModule.default ??
-    autoTableModule) as unknown as (doc: unknown, options: Record<string, unknown>) => void
   const logo = await loadOrgLogo(org?.logoUrl ?? null)
 
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const pageWidth = doc.internal.pageSize.getWidth()
-  const margin = 48
-  const brand = hexToRgb(org?.primaryColor) // the org's own color, not ours
-  const muted: [number, number, number] = [107, 114, 128]
-
-  // --- Header --------------------------------------------------------------
-  doc.setFillColor(22, 24, 31)
-  doc.rect(0, 0, pageWidth, 96, 'F')
-
-  // The org's own logo, never ours — this document is theirs, on their letterhead.
-  let titleX = margin
-  if (logo) {
-    const size = 40
-    const ratio = logo.width / logo.height
-    const w = ratio >= 1 ? size : size * ratio
-    const h = ratio >= 1 ? size / ratio : size
-    doc.addImage(logo.dataUrl, logo.format, margin, 28, w, h)
-    titleX = margin + size + 14
-  }
-
-  doc.setTextColor(255, 255, 255)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(18)
-  doc.text(orgName, titleX, 46)
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  doc.setTextColor(200, 202, 210)
-  doc.text('INVOICE', titleX, 66)
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(16)
-  doc.setTextColor(255, 255, 255)
-  doc.text(invoice.invoice_number, pageWidth - margin, 52, { align: 'right' })
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(200, 202, 210)
-  doc.text(invoice.status.toUpperCase(), pageWidth - margin, 68, { align: 'right' })
-
-  // --- Parties -------------------------------------------------------------
-  let y = 140
-
-  doc.setTextColor(...muted)
-  doc.setFontSize(8)
-  doc.text('BILL TO', margin, y)
-  doc.text('DETAILS', pageWidth / 2 + 20, y)
-
-  y += 16
-  doc.setTextColor(26, 28, 35)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.text(invoice.bill_to?.name || '—', margin, y)
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(...muted)
-
-  let leftY = y + 14
-  if (invoice.bill_to?.email) {
-    doc.text(invoice.bill_to.email, margin, leftY)
-    leftY += 12
-  }
-  if (invoice.bill_to?.address) {
-    for (const line of doc.splitTextToSize(invoice.bill_to.address, 220) as string[]) {
-      doc.text(line, margin, leftY)
-      leftY += 12
-    }
-  }
-
-  const detailX = pageWidth / 2 + 20
-  let rightY = y
-  for (const [label, value] of [
-    ['Issue date', invoice.issue_date],
-    ['Due date', invoice.due_date || '—'],
-    ['Currency', invoice.currency],
-  ] as const) {
-    doc.setTextColor(...muted)
-    doc.text(label, detailX, rightY)
-    doc.setTextColor(26, 28, 35)
-    doc.text(String(value), pageWidth - margin, rightY, { align: 'right' })
-    rightY += 14
-  }
-
-  // --- Line items ----------------------------------------------------------
-  autoTable(doc, {
-    startY: Math.max(leftY, rightY) + 24,
-    margin: { left: margin, right: margin },
-    head: [['Description', 'Qty', 'Rate', 'Amount']],
-    body: (invoice.items ?? []).map((item) => [
-      item.description,
-      String(item.quantity),
-      formatMoney(item.rate, invoice.currency),
-      formatMoney(item.amount, invoice.currency),
-    ]),
-    theme: 'plain',
-    styles: { fontSize: 9, cellPadding: 8, textColor: [26, 28, 35] },
-    headStyles: {
-      fillColor: [246, 247, 249],
-      textColor: muted,
-      fontStyle: 'bold',
-      fontSize: 8,
-    },
-    columnStyles: {
-      1: { halign: 'right', cellWidth: 50 },
-      2: { halign: 'right', cellWidth: 80 },
-      3: { halign: 'right', cellWidth: 90 },
-    },
-    // A 1px rule under each row, matching the app's table treatment.
-    didDrawCell: (data: { row: { index: number }; cursor?: { y: number }; section: string }) => {
-      if (data.section !== 'body') return
-      doc.setDrawColor(231, 233, 238)
-      doc.setLineWidth(0.5)
-    },
-  })
-
-  // `lastAutoTable` is attached to the doc by the plugin.
-  const afterTable =
-    (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 400
-
-  // --- Totals --------------------------------------------------------------
-  const totalsX = pageWidth - margin - 200
-  let ty = afterTable + 24
-
-  const rows: Array<[string, string, boolean]> = [
-    ['Subtotal', formatMoney(invoice.subtotal, invoice.currency), false],
-    [`Tax (${invoice.tax_percent}%)`, formatMoney(
-      Number(invoice.total) - Number(invoice.subtotal),
-      invoice.currency
-    ), false],
-    ['Total', formatMoney(invoice.total, invoice.currency), true],
-    ['Amount paid', formatMoney(invoice.amount_paid, invoice.currency), false],
-  ]
-
-  doc.setFontSize(9)
-  for (const [label, value, bold] of rows) {
-    doc.setFont('helvetica', bold ? 'bold' : 'normal')
-    doc.setTextColor(...(bold ? ([26, 28, 35] as [number, number, number]) : muted))
-    doc.text(label, totalsX, ty)
-    doc.setTextColor(26, 28, 35)
-    doc.text(value, pageWidth - margin, ty, { align: 'right' })
-    ty += 16
-  }
-
-  doc.setDrawColor(231, 233, 238)
-  doc.line(totalsX, ty - 8, pageWidth - margin, ty - 8)
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.setTextColor(...brand)
-  doc.text('Balance due', totalsX, ty + 8)
-  doc.text(formatMoney(invoice.balance_due, invoice.currency), pageWidth - margin, ty + 8, {
-    align: 'right',
-  })
-
-  // --- Notes ---------------------------------------------------------------
-  if (invoice.notes) {
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.setTextColor(...muted)
-    doc.text('NOTES', margin, ty + 44)
-    doc.setFontSize(9)
-    doc.setTextColor(26, 28, 35)
-    let ny = ty + 58
-    for (const line of doc.splitTextToSize(invoice.notes, pageWidth - margin * 2) as string[]) {
-      doc.text(line, margin, ny)
-      ny += 12
-    }
-  }
-
-  // --- Footer ----------------------------------------------------------------
   const pageHeight = doc.internal.pageSize.getHeight()
-  const footerY = pageHeight - margin + 6
-  doc.setDrawColor(231, 233, 238)
-  doc.setLineWidth(0.5)
-  doc.line(margin, footerY - 12, pageWidth - margin, footerY - 12)
+  const left = 44
+  const right = pageWidth - 44
+  const currency = invoice.currency || 'USD'
 
+  const text = (
+    value: string | string[],
+    x: number,
+    y: number,
+    opts: { bold?: boolean; size?: number; color?: RGB; align?: 'left' | 'center' | 'right' } = {}
+  ) => {
+    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal')
+    doc.setFontSize(opts.size ?? 8.5)
+    doc.setTextColor(...(opts.color ?? INK))
+    doc.text(value, x, y, opts.align ? { align: opts.align } : undefined)
+  }
+
+  // --- Header: logo left, INVOICE right ------------------------------------
+  const top = 44
+  if (logo) {
+    const box = 60
+    const ratio = logo.width / logo.height
+    const w = ratio >= 1 ? box : box * ratio
+    const h = ratio >= 1 ? box / ratio : box
+    doc.addImage(logo.dataUrl, logo.format, left, top, w, h)
+  }
+
+  text('INVOICE', right, top + 22, { bold: true, size: 22, color: GREY, align: 'right' })
+
+  const metaX = pageWidth - 196
+  text(`INVOICE : ${invoice.invoice_number}`, metaX, top + 50, { bold: true })
+  text(`DATE: ${invoiceDate(invoice.issue_date) || '—'}`, metaX + 4, top + 61)
+  if (invoice.due_date) {
+    text(`DUE DATE: ${invoiceDate(invoice.due_date)}`, metaX + 8, top + 72)
+  }
+
+  // --- From ---------------------------------------------------------------
+  let y = top + (logo ? 84 : 50)
+  text(orgName, left, y, { bold: true })
+  for (const line of org?.addressLines ?? []) {
+    y += 11
+    text(line, left, y)
+  }
+
+  // --- To / For -----------------------------------------------------------
+  // With a logo the address sits under it and TO: lines up below both; without
+  // one there is nothing to clear, so it simply follows the address.
+  const partiesY = logo ? Math.max(y + 40, top + 150) : y + 44
+  text('TO:', left, partiesY, { bold: true })
+  let toY = partiesY + 11
+  if (invoice.bill_to?.name) text(invoice.bill_to.name, left, toY, { bold: true })
+  for (const line of linesOf(invoice.bill_to?.address)) {
+    for (const wrapped of doc.splitTextToSize(line, 230) as string[]) {
+      toY += 11
+      text(wrapped, left, toY)
+    }
+  }
+  if (invoice.bill_to?.email) {
+    toY += 11
+    text(invoice.bill_to.email, left, toY)
+  }
+
+  const forX = pageWidth / 2 - 6
+  let forY = partiesY
+  if (invoice.subject) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8.5)
+    const wrapped = doc.splitTextToSize(`FOR: ${invoice.subject.toUpperCase()}`, right - forX)
+    text(wrapped, forX, forY, { bold: true })
+    forY += 11 * (wrapped.length - 1)
+  }
+
+  // --- The table ------------------------------------------------------------
+  const tableLeft = left + 12
+  const tableRight = right - 10
+  const cols = [tableLeft, tableLeft + 273, tableLeft + 352, tableLeft + 415, tableRight]
+  const headerHeight = 16
+  const minBody = 172
+  const lineHeight = 10.5
+  const pageBottom = pageHeight - 56
+  const items = invoice.items ?? []
+  const qtyHeading = quantityHeading(items)
+
+  /** Header row; returns where the body starts. */
+  const drawHeader = (at: number) => {
+    doc.setDrawColor(...INK)
+    doc.setLineWidth(1.4)
+    doc.line(cols[0], at, cols[4], at)
+    doc.setLineWidth(0.7)
+    doc.line(cols[0], at + headerHeight, cols[4], at + headerHeight)
+    const labels = ['DESCRIPTION', qtyHeading, 'RATE', 'AMOUNT']
+    labels.forEach((label, i) => {
+      text(label, (cols[i] + cols[i + 1]) / 2, at + 11, { bold: true, align: 'center' })
+    })
+    return at + headerHeight
+  }
+
+  /** Close a table segment: outer box and column rules from `from` to `to`. */
+  const drawFrame = (from: number, to: number) => {
+    doc.setDrawColor(...INK)
+    doc.setLineWidth(0.7)
+    for (const x of cols) doc.line(x, from, x, to)
+    doc.line(cols[0], to, cols[4], to)
+  }
+
+  let segmentTop = Math.max(toY, forY) + 64
+  let rowY = drawHeader(segmentTop) + 34
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8.5)
+  for (const item of items) {
+    const description = doc.splitTextToSize(item.description || '', cols[1] - cols[0] - 16) as string[]
+    const height = Math.max(1, description.length) * lineHeight
+
+    if (rowY + height > pageBottom) {
+      drawFrame(segmentTop, pageBottom)
+      doc.addPage()
+      segmentTop = 56
+      rowY = drawHeader(segmentTop) + 24
+    }
+
+    text(description, cols[0] + 10, rowY, { bold: true })
+    text(invoiceQuantity(Number(item.quantity) || 0, item.unit), (cols[1] + cols[2]) / 2, rowY, {
+      bold: true, align: 'center',
+    })
+    text(invoiceRate(Number(item.rate) || 0, currency, item.unit), (cols[2] + cols[3]) / 2, rowY, {
+      bold: true, align: 'center',
+    })
+    text(invoiceMoney(Number(item.amount) || 0, currency), (cols[3] + cols[4]) / 2, rowY, {
+      bold: true, align: 'center',
+    })
+    rowY += height + 14
+  }
+
+  const bodyBottom = Math.min(
+    Math.max(rowY + 10, segmentTop + headerHeight + minBody),
+    pageBottom
+  )
+  drawFrame(segmentTop, bodyBottom)
+
+  // --- Totals, boxed under the amount column --------------------------------
+  const total = Number(invoice.total) || 0
+  const subtotal = Number(invoice.subtotal) || 0
+  const paid = Number(invoice.amount_paid) || 0
+  const rows: Array<[string, number]> = []
+  if (Number(invoice.tax_percent) > 0) {
+    rows.push(['SUBTOTAL', subtotal])
+    rows.push([`TAX (${invoice.tax_percent}%)`, total - subtotal])
+  }
+  rows.push(['TOTAL AMOUNT', total])
+  if (paid > 0) {
+    rows.push(['AMOUNT PAID', paid])
+    rows.push(['BALANCE DUE', Number(invoice.balance_due) || 0])
+  }
+
+  const boxHeight = 18
+  const needed = rows.length * boxHeight + 200
+  let ty = bodyBottom
+  if (ty + needed > pageHeight - 40) {
+    doc.addPage()
+    ty = 56
+  }
+  doc.setLineWidth(0.7)
+  for (const [label, value] of rows) {
+    text(label, cols[3] - 16, ty + 12.5, { bold: true, align: 'right' })
+    doc.rect(cols[3], ty, cols[4] - cols[3], boxHeight)
+    text(invoiceMoney(value, currency), (cols[3] + cols[4]) / 2, ty + 12.5, {
+      bold: true, size: 9, align: 'center',
+    })
+    ty += boxHeight
+  }
+
+  // --- Notes ----------------------------------------------------------------
+  let fy = ty + 50
+  if (invoice.notes) {
+    text('NOTES', left, fy)
+    for (const line of doc.splitTextToSize(invoice.notes, right - left) as string[]) {
+      fy += 11
+      text(line, left, fy)
+    }
+    fy += 24
+  }
+
+  // --- Payment details and sign-off ------------------------------------------
+  const payment = linesOf(invoice.payment_details ?? org?.paymentDetails)
+  if (payment.length) {
+    if (fy + payment.length * 11.5 + 60 > pageHeight - 40) {
+      doc.addPage()
+      fy = 56
+    }
+    text('PAYMENT DETAILS', left, fy)
+    for (const line of payment) {
+      fy += 11.5
+      text(line, left, fy)
+    }
+    fy += 34
+  }
+
+  text('Thank you for your business !', left, fy, { bold: true })
+  text(orgName, left, fy + 11.5, { bold: true })
+
+  // --- Footer ------------------------------------------------------------------
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.5)
-  doc.setTextColor(...muted)
+  doc.setFontSize(6.5)
+  doc.setTextColor(...MUTED)
   // Clickable — this is the only branding on an invoice that isn't the org's own.
-  doc.textWithLink('Powered by OneClickHR', margin, footerY, { url: ONECLICKHR_URL })
+  doc.textWithLink('Powered by OneClickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
 
   doc.save(`${invoice.invoice_number}.pdf`)
 }

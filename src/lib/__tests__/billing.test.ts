@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { billLines, payForWeek, unitsFor, lineDescription } from '@/lib/billing'
+import {
+  billLines, payForWeek, unitsFor, lineDescription, serviceLines, servicePeriodLabel,
+} from '@/lib/billing'
 import { computeTotals } from '@/lib/invoice'
 import { assignmentSchema } from '@/lib/schemas'
 
@@ -144,5 +146,50 @@ describe('lineDescription', () => {
     expect(lineDescription(week(), 'hour')).toContain('hours')
     expect(lineDescription(week(), 'day')).toContain('days')
     expect(lineDescription(week(), 'month')).toContain('month')
+  })
+})
+
+describe('serviceLines', () => {
+  const august = [
+    week({ id: 'a', weekStart: '2026-08-03', weekEnd: '2026-08-09', billableHours: 40 }),
+    week({ id: 'b', weekStart: '2026-08-10', weekEnd: '2026-08-16', billableHours: 40 }),
+    week({ id: 'c', weekStart: '2026-08-17', weekEnd: '2026-08-23', billableHours: 48 }),
+    week({ id: 'd', weekStart: '2026-08-24', weekEnd: '2026-08-30', billableHours: 40 }),
+  ]
+
+  it('consolidates a month of hourly weeks into one line, the way the invoice reads', () => {
+    const lines = serviceLines(august, 44, 'hour', { role: 'AI/ML Engineer', withName: false })
+    expect(lines).toHaveLength(1)
+    expect(lines[0].quantity).toBe(168)
+    expect(lines[0].rate).toBe(44)
+    expect(lines[0].unit).toBe('hour')
+    expect(lines[0].description).toBe(
+      'AI/ML Engineer Services rendered for the month of August-2026.\n\n' +
+        'Service Period : ( August 3, 2026 - August 30, 2026 )'
+    )
+  })
+
+  it('names the person when the invoice covers more than one', () => {
+    const [line] = serviceLines(august, 44, 'hour', { role: null, withName: true })
+    expect(line.description.startsWith('Alice Nguyen — Consulting Services')).toBe(true)
+  })
+
+  it('bills nothing for weeks with no billable hours', () => {
+    expect(serviceLines([week({ billableHours: 0 })], 44, 'hour', { role: null, withName: false }))
+      .toEqual([])
+  })
+
+  it('keeps per-week lines for flat-period placements', () => {
+    expect(serviceLines(august, 9000, 'month', { role: null, withName: false })).toHaveLength(4)
+  })
+})
+
+describe('servicePeriodLabel', () => {
+  it('names the month a straddling period mostly falls in', () => {
+    expect(servicePeriodLabel('2026-07-27', '2026-08-30')).toBe('the month of August-2026')
+  })
+
+  it('falls back to the period for a long span', () => {
+    expect(servicePeriodLabel('2026-06-01', '2026-08-31')).toBe('the service period below')
   })
 })

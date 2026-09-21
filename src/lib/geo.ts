@@ -186,3 +186,37 @@ export function allCountryNames(): string[] {
   allCountryNamesCache = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b))
   return allCountryNamesCache
 }
+
+/** USPS codes, in the same order as `DIVISIONS.US`. */
+const US_STATE_CODES = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+  'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM',
+  'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA',
+  'WV', 'WI', 'WY', 'PR',
+] as const
+
+/**
+ * A mailing-label address block: `8795 Stonehouse Dr` / `Ellicott City, MD 21043`.
+ *
+ * US states print as their two-letter code and the country is left off for a
+ * US address, the way an American invoice or envelope reads. Anything else
+ * prints as stored, with its country.
+ */
+export function mailingAddressLines(parts: {
+  line1?: string | null
+  line2?: string | null
+  city?: string | null
+  state?: string | null
+  postalCode?: string | null
+  country?: string | null
+}): string[] {
+  const isUs = !parts.country || countryCodeOf(parts.country) === 'US'
+  const stateIndex = isUs && parts.state ? DIVISIONS.US.indexOf(parts.state) : -1
+  const state = stateIndex >= 0 ? US_STATE_CODES[stateIndex] : parts.state
+  const locality = [parts.city, [state, parts.postalCode].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(', ')
+  return [parts.line1, parts.line2, locality, isUs ? null : parts.country]
+    .map((line) => line?.trim() ?? '')
+    .filter(Boolean)
+}

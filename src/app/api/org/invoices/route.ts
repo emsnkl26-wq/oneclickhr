@@ -37,6 +37,8 @@ async function handlePOST(request: NextRequest) {
       tenant_id: ctx.tenantId,
       invoice_number: input.invoiceNumber,
       bill_to: input.billTo,
+      subject: input.subject,
+      payment_details: input.paymentDetails,
       items: normalizeItems(input.items),
       currency: input.currency,
       subtotal: totals.subtotal,

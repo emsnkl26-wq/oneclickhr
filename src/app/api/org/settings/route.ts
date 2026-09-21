@@ -50,6 +50,7 @@ const COMPANY_COLUMNS = {
   signatoryName: 'signatory_name',
   signatoryTitle: 'signatory_title',
   signatoryPhone: 'signatory_phone',
+  invoicePaymentDetails: 'invoice_payment_details',
 } as const
 
 /** Update workspace settings: name, branding, timezone, shift start, letterhead. */

@@ -24,7 +24,7 @@ export default async function SettingsPage() {
     // only what every page needs, and these are read on this one screen.
     supabase
       .from('tenants')
-      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone')
+      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details')
       .eq('id', ctx.tenantId)
       .single(),
   ])
@@ -47,6 +47,7 @@ export default async function SettingsPage() {
     signatoryName: tenant?.signatory_name ?? null,
     signatoryTitle: tenant?.signatory_title ?? null,
     signatoryPhone: tenant?.signatory_phone ?? null,
+    invoicePaymentDetails: tenant?.invoice_payment_details ?? null,
   }
 
   return (

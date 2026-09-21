@@ -583,9 +583,10 @@ export const payslipSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const invoiceItemSchema = z.object({
-  description: z.string().trim().min(1, 'Describe the line item').max(300),
+  description: z.string().trim().min(1, 'Describe the line item').max(500),
   quantity: z.coerce.number().min(0).max(1_000_000),
   rate: z.coerce.number().min(0).max(100_000_000),
+  unit: z.enum(['hour', 'day', 'month', 'year', 'item']).optional(),
 })
 
 export const invoiceSchema = z.object({
@@ -595,6 +596,8 @@ export const invoiceSchema = z.object({
     email: z.string().trim().max(254).optional().or(z.literal('')),
     address: z.string().trim().max(500).optional().or(z.literal('')),
   }),
+  subject: optionalText(200),
+  paymentDetails: optionalText(1000),
   items: z.array(invoiceItemSchema).min(1, 'Add at least one line item').max(100),
   currency: z.string().trim().length(3).toUpperCase().default('USD'),
   taxPercent: z.coerce.number().min(0).max(100).default(0),
@@ -1198,6 +1201,7 @@ export const companyDetailsSchema = z.object({
   signatoryName: optionalText(120),
   signatoryTitle: optionalText(120),
   signatoryPhone: optionalText(40),
+  invoicePaymentDetails: optionalText(1000),
 })
 
 // ---------------------------------------------------------------------------

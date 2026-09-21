@@ -177,10 +177,14 @@ describe('buildAgreementSections', () => {
 
   it('produces every clause with the org and role interpolated', () => {
     const sections = buildAgreementSections(vars)
-    expect(sections.length).toBe(17)
+    expect(sections.length).toBe(18)
     const services = sections.find((section) => section.key === 'services')
     expect(services?.body).toContain('Northwind Talent LLC')
     expect(services?.body).toContain('Data Engineer')
+    // The role's own summary and duties, not generic boilerplate.
+    expect(services?.body).toContain('data pipelines')
+    const duties = sections.find((section) => section.key === 'duties')
+    expect(duties?.body).toContain('(a) Design, build and maintain batch and streaming data pipelines')
   })
 
   it('leaves the visa clause OFF by default — most hires do not need it', () => {

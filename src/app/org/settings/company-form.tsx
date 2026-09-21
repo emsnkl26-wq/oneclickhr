@@ -7,7 +7,7 @@ import { Building2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Input, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
@@ -54,6 +54,7 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
     signatoryName: company.signatoryName ?? '',
     signatoryTitle: company.signatoryTitle ?? '',
     signatoryPhone: company.signatoryPhone ?? '',
+    invoicePaymentDetails: company.invoicePaymentDetails ?? '',
   })
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
@@ -315,6 +316,26 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
                 />
               </FormField>
             </div>
+          </div>
+
+          <div className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+              Invoice payment details
+            </p>
+            <p className="-mt-2 text-xs text-ink-muted">
+              Printed under &ldquo;PAYMENT DETAILS&rdquo; at the foot of every new invoice, one line
+              each. Invoices already created keep the details they were issued with.
+            </p>
+            <FormField label="Payment details" error={fields.invoicePaymentDetails}>
+              <Textarea
+                rows={6}
+                value={values.invoicePaymentDetails}
+                onChange={set('invoicePaymentDetails')}
+                placeholder={
+                  'Account Name: Your Company LLC\nBank Name: Wells Fargo Bank\nAccount Number: 0000000000\nACH Routing Number: 000000000\nWire Routing Number: 000000000\nSWIFT Code: XXXXXXXX'
+                }
+              />
+            </FormField>
           </div>
 
           <Button type="submit" loading={submitting}>

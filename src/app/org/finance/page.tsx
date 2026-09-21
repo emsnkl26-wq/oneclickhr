@@ -1,11 +1,12 @@
 import type { Metadata } from 'next'
-import { TrendingUp, TrendingDown, Scale, Percent } from 'lucide-react'
+import { TrendingUp, TrendingDown, Scale, Percent, CircleCheck, Clock } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader, StatCard } from '@/components/ui/patterns'
 import { categoryLabel } from '@/lib/expenses'
 import { formatMoney } from '@/lib/utils'
 import { todayIn } from '@/lib/time'
+import { invoiceSummary } from '@/lib/invoice-summary'
 import type { ExpenseCategory } from '@/types/db'
 import {
   RANGE_LABELS, buildSeries, byCategory, percentChange, resolveRange, totalsFor,
@@ -64,7 +65,7 @@ export default async function FinancePage({
   const startYear = Number(range.prevFrom.slice(0, 4))
   const endYear = Number(range.to.slice(0, 4))
 
-  const [invoices, expenses, confirmations] = await Promise.all([
+  const [invoices, expenses, confirmations, receivables] = await Promise.all([
     fetchAll<{ total: number; amount_paid: number; currency: string; status: string; paid_at: string }>(
       (a, b) =>
         supabase
@@ -101,6 +102,8 @@ export default async function FinancePage({
           .order('month')
           .range(a, b)
     ),
+    // All-time, whatever the window: what has come in, and what is still owed.
+    invoiceSummary(supabase, ctx.tenantId, currency, today),
   ])
 
   const rows: MoneyRow[] = [
@@ -179,6 +182,28 @@ export default async function FinancePage({
           value={margin === null ? '—' : `${margin.toFixed(1)}%`}
           hint={`Expenses ${money(current.expenses)} · Payroll ${money(current.payroll)}`}
           icon={Percent}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <StatCard
+          label="Total earned (all time)"
+          value={money(receivables.earned)}
+          hint={`Every invoice marked paid — ${receivables.paidCount} so far`}
+          icon={CircleCheck}
+          tone="emerald"
+          href="/org/invoices?status=paid"
+        />
+        <StatCard
+          label="Pending"
+          value={money(receivables.pending)}
+          hint={
+            `${receivables.pendingCount} invoice${receivables.pendingCount === 1 ? '' : 's'} not yet paid` +
+            (receivables.overdue > 0 ? ` · ${money(receivables.overdue)} overdue` : '')
+          }
+          icon={Clock}
+          tone="orange"
+          href="/org/invoices"
         />
       </div>
 

@@ -243,11 +243,15 @@ export interface Payslip {
   created_at: string
 }
 
+/** What a line's quantity counts. Absent on lines written before 042 — read as 'item'. */
+export type InvoiceUnit = 'hour' | 'day' | 'month' | 'year' | 'item'
+
 export interface InvoiceItem {
   description: string
   quantity: number
   rate: number
   amount: number
+  unit?: InvoiceUnit
 }
 
 export interface Invoice {
@@ -260,6 +264,10 @@ export interface Invoice {
   period_end: string | null
   invoice_number: string
   bill_to: { name?: string; email?: string; address?: string }
+  /** The "FOR:" line on the printed invoice (042). */
+  subject: string | null
+  /** The bank block printed at the foot, snapshotted per invoice (042). */
+  payment_details: string | null
   items: InvoiceItem[]
   currency: string
   subtotal: number
@@ -827,6 +835,8 @@ export interface CompanyDetails {
   website: string | null
   signatoryName: string | null
   signatoryTitle: string | null
+  /** Default bank / remittance block a new invoice prints (042). Settings only. */
+  invoicePaymentDetails?: string | null
   signatoryPhone: string | null
 }
 

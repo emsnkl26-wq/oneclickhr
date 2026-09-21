@@ -38,6 +38,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     .update({
       invoice_number: input.invoiceNumber,
       bill_to: input.billTo,
+      subject: input.subject,
+      payment_details: input.paymentDetails,
       items: normalizeItems(input.items),
       currency: input.currency,
       subtotal: totals.subtotal,

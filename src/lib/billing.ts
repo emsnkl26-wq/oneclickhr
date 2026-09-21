@@ -99,6 +99,82 @@ export function billLines(
     }))
 }
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+const DAY_MS = 86_400_000
+const dayMs = (iso: string) => Date.parse(`${iso}T00:00:00Z`)
+
+/** `2026-08-01` → `August 1, 2026`. */
+export function longDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return `${MONTH_NAMES[m - 1]} ${d}, ${y}`
+}
+
+/**
+ * "the month of August-2026" when the weeks amount to one month's work, and a
+ * plain "the period below" otherwise. Weekly timesheets straddle month ends
+ * (Jul 27 – Aug 30 is August's billing), so the month is the one the period's
+ * MIDPOINT falls in rather than the one it starts in.
+ */
+export function servicePeriodLabel(start: string, end: string): string {
+  const span = (dayMs(end) - dayMs(start)) / DAY_MS
+  if (span > 45) return 'the service period below'
+  const mid = new Date(dayMs(start) + (span / 2) * DAY_MS)
+  return `the month of ${MONTH_NAMES[mid.getUTCMonth()]}-${mid.getUTCFullYear()}`
+}
+
+export interface ServiceLine extends RatedLine {
+  unit: RateUnit
+}
+
+/**
+ * ONE invoice line for a placement's weeks, the way a staffing invoice states it:
+ *
+ *   AI/ML Engineer Services rendered for the month of August-2026.
+ *
+ *   Service Period : ( August 1, 2026 - August 31, 2026 )        168 hrs  $44/hr
+ *
+ * Hourly and daily placements sum their units into the one line. Monthly and
+ * yearly placements have no meaningful sum of weeks, so they keep one line per
+ * week from `billLines` — see `unitsFor`.
+ *
+ * `withName` prefixes the employee's name, for an invoice that covers more than
+ * one person and would otherwise print two identical descriptions.
+ */
+export function serviceLines(
+  weeks: BillableWeek[],
+  billRate: number,
+  unit: RateUnit,
+  opts: { role: string | null; withName: boolean }
+): ServiceLine[] {
+  const billable = weeks.filter((week) => week.billableHours > 0)
+  if (!billable.length) return []
+
+  if (unit !== 'hour' && unit !== 'day') {
+    return billLines(billable, billRate, unit).map((line) => ({ ...line, unit }))
+  }
+
+  const start = billable.reduce((min, w) => (w.weekStart < min ? w.weekStart : min), billable[0].weekStart)
+  const end = billable.reduce((max, w) => (w.weekEnd > max ? w.weekEnd : max), billable[0].weekEnd)
+  const quantity = round2(billable.reduce((sum, w) => sum + unitsFor(w.billableHours, unit), 0))
+  const role = opts.role?.trim() || 'Consulting'
+  const prefix = opts.withName ? `${billable[0].employeeName} — ` : ''
+
+  return [
+    {
+      description:
+        `${prefix}${role} Services rendered for ${servicePeriodLabel(start, end)}.\n\n` +
+        `Service Period : ( ${longDate(start)} - ${longDate(end)} )`,
+      quantity,
+      rate: billRate,
+      unit,
+    },
+  ]
+}
+
 /**
  * What the EMPLOYEE earns from one approved week.
  *

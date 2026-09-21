@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { computeTotals, lineAmount, normalizeItems, suggestInvoiceNumber } from '@/lib/invoice'
+import {
+  computeTotals, lineAmount, normalizeItems, suggestInvoiceNumber,
+  invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading, invoiceDate,
+} from '@/lib/invoice'
 
 /**
  * Money arithmetic. The reason this is done in cents is that summing floats
@@ -82,5 +85,36 @@ describe('suggestInvoiceNumber', () => {
 
   it('ignores entries with no number', () => {
     expect(suggestInvoiceNumber(['DRAFT', 'INV-0002'])).toBe('INV-0003')
+  })
+})
+
+describe('invoice presentation', () => {
+  it('prints whole amounts without cents, and keeps cents when there are any', () => {
+    expect(invoiceMoney(7392)).toBe('$7,392')
+    expect(invoiceMoney(7392.5)).toBe('$7,392.50')
+  })
+
+  it('states the quantity and the rate in the line’s unit', () => {
+    expect(invoiceQuantity(168, 'hour')).toBe('168 hrs')
+    expect(invoiceQuantity(1, 'hour')).toBe('1 hr')
+    expect(invoiceQuantity(3)).toBe('3')
+    expect(invoiceRate(44, 'USD', 'hour')).toBe('$44/hr')
+    expect(invoiceRate(500, 'USD')).toBe('$500')
+  })
+
+  it('heads the quantity column HOURS only when every line is hourly', () => {
+    expect(quantityHeading([{ unit: 'hour' }, { unit: 'hour' }])).toBe('HOURS')
+    expect(quantityHeading([{ unit: 'day' }])).toBe('DAYS')
+    expect(quantityHeading([{ unit: 'hour' }, {}])).toBe('QTY')
+  })
+
+  it('prints dates the US way', () => {
+    expect(invoiceDate('2026-09-11')).toBe('09/11/2026')
+    expect(invoiceDate(null)).toBe('')
+  })
+
+  it('keeps a line’s unit when normalising', () => {
+    expect(normalizeItems([{ description: 'x', quantity: 2, rate: 3, unit: 'hour' }])[0].unit)
+      .toBe('hour')
   })
 })

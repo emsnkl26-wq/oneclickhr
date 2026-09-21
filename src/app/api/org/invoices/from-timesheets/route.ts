@@ -4,7 +4,7 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { invoiceFromTimesheetsSchema } from '@/lib/schemas'
 import { computeTotals, normalizeItems, suggestInvoiceNumber } from '@/lib/invoice'
-import { billLines, type BillableWeek } from '@/lib/billing'
+import { serviceLines, type BillableWeek } from '@/lib/billing'
 import { addDays } from '@/lib/time'
 import { audit } from '@/lib/audit'
 import type { RateUnit } from '@/types/db'
@@ -56,7 +56,7 @@ async function handlePOST(request: NextRequest) {
   const { data: sheets, error: loadError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, week_start, week_end, status, billable_hours, invoice_id, vendor_id, client_id, assignment_id, employee:profiles!timesheets_employee_id_fkey(full_name, email)'
+      'id, code, week_start, week_end, status, billable_hours, invoice_id, vendor_id, client_id, assignment_id, employee_id, employee:profiles!timesheets_employee_id_fkey(full_name, email, designation)'
     )
     .in('id', ids)
     .eq('tenant_id', ctx.tenantId)
@@ -74,7 +74,8 @@ async function handlePOST(request: NextRequest) {
     vendor_id: string | null
     client_id: string | null
     assignment_id: string | null
-    employee: { full_name: string | null; email: string | null } | null
+    employee_id: string
+    employee: { full_name: string | null; email: string | null; designation: string | null } | null
   }>
 
   if (rows.length !== ids.length) {
@@ -166,23 +167,37 @@ async function handlePOST(request: NextRequest) {
   const currency = rateById.get(assignmentIds[0])!.currency
 
   /*
-   * Lines, grouped by assignment so each group is billed at its own rate. A
-   * week with no billable hours produces no line at all — see `billLines`.
+   * Lines, grouped by assignment so each group is billed at its own rate, and
+   * CONSOLIDATED — one "Services rendered for the month of …" line per
+   * placement rather than one per week, which is how the invoice reads on paper.
+   * The weeks themselves stay linked through `timesheets.invoice_id`. A week
+   * with no billable hours contributes nothing — see `serviceLines`.
    */
+  const employeeIds = new Set(rows.map((row) => row.employee_id))
   const items = assignmentIds.flatMap((assignmentId) => {
     const rate = rateById.get(assignmentId)!
-    const weeks: BillableWeek[] = rows
-      .filter((row) => row.assignment_id === assignmentId)
-      .map((row) => ({
-        id: row.id,
-        code: row.code,
-        weekStart: row.week_start,
-        weekEnd: row.week_end,
-        billableHours: Number(row.billable_hours),
-        employeeName: row.employee?.full_name || row.employee?.email || 'Employee',
-      }))
-    return billLines(weeks, rate.billRate!, rate.unit)
+    const group = rows.filter((row) => row.assignment_id === assignmentId)
+    const weeks: BillableWeek[] = group.map((row) => ({
+      id: row.id,
+      code: row.code,
+      weekStart: row.week_start,
+      weekEnd: row.week_end,
+      billableHours: Number(row.billable_hours),
+      employeeName: row.employee?.full_name || row.employee?.email || 'Employee',
+    }))
+    return serviceLines(weeks, rate.billRate!, rate.unit, {
+      role: group[0].employee?.designation ?? null,
+      withName: employeeIds.size > 1,
+    })
   })
+
+  // "FOR: AI/ML ENGINEER - TEJASWINI GARIKIPATI" — only when the invoice is for
+  // one person; an invoice covering several names each line instead.
+  const person = rows[0].employee
+  const subject =
+    employeeIds.size === 1 && person
+      ? [person.designation, person.full_name || person.email].filter(Boolean).join(' - ') || null
+      : null
 
   if (!items.length) {
     return jsonError('Those weeks have no billable hours, so there is nothing to invoice.', 400)
@@ -203,25 +218,41 @@ async function handlePOST(request: NextRequest) {
   const dueDate =
     input.dueDate ?? addDays(issueDate, Number(vendor.payment_terms_days ?? 30))
 
+  // Printed one line each, the way an address block reads on the page:
+  //   11180 State Bridge Rd, Suite 402
+  //   Alpharetta, GA 30022
+  const billToAddress = [
+    [address.line1, address.line2].filter(Boolean).join(', '),
+    [address.city, [address.state, address.postalCode].filter(Boolean).join(' ')]
+      .filter(Boolean)
+      .join(', '),
+    address.country,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const [{ data: existing }, { data: tenant }] = await Promise.all([
+    input.invoiceNumber
+      ? Promise.resolve({ data: [] as Array<{ invoice_number: string }> })
+      : supabase
+          .from('invoices')
+          .select('invoice_number')
+          .eq('tenant_id', ctx.tenantId)
+          .order('created_at', { ascending: false })
+          .limit(200),
+    supabase
+      .from('tenants')
+      .select('org_code, invoice_payment_details')
+      .eq('id', ctx.tenantId)
+      .maybeSingle(),
+  ])
+
   // Advisory, exactly as in the manual create path: `UNIQUE(tenant_id,
   // invoice_number)` is the guarantee, and a clash comes back as a 409 the
   // caller retries.
-  let invoiceNumber = input.invoiceNumber
-  if (!invoiceNumber) {
-    const [{ data: existing }, { data: tenant }] = await Promise.all([
-      supabase
-        .from('invoices')
-        .select('invoice_number')
-        .eq('tenant_id', ctx.tenantId)
-        .order('created_at', { ascending: false })
-        .limit(200),
-      supabase.from('tenants').select('org_code').eq('id', ctx.tenantId).maybeSingle(),
-    ])
-    invoiceNumber = suggestInvoiceNumber(
-      (existing ?? []).map((row) => row.invoice_number),
-      tenant?.org_code
-    )
-  }
+  const invoiceNumber =
+    input.invoiceNumber ||
+    suggestInvoiceNumber((existing ?? []).map((row) => row.invoice_number), tenant?.org_code)
 
   const totals = computeTotals(items, input.taxPercent, 0)
   const periodStart = rows.reduce((min, r) => (r.week_start < min ? r.week_start : min), rows[0].week_start)
@@ -239,10 +270,11 @@ async function handlePOST(request: NextRequest) {
       bill_to: {
         name: vendor.name,
         email: vendor.email ?? undefined,
-        address: [address.line1, address.line2, address.city, address.state, address.postalCode, address.country]
-          .filter(Boolean)
-          .join(', ') || undefined,
+        address: billToAddress || undefined,
       },
+      subject,
+      // Snapshotted, so a later change of bank never rewrites a sent invoice.
+      payment_details: tenant?.invoice_payment_details ?? null,
       items: normalizeItems(items),
       currency,
       subtotal: totals.subtotal,

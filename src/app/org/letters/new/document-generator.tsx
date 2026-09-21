@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
   FileText, FileSignature, GraduationCap, Eye, Download, AlertCircle,
-  ChevronDown, RotateCcw, Info, UserCheck,
+  ChevronDown, RotateCcw, Info, UserCheck, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -25,6 +25,7 @@ import {
   defaultStartDateText, defaultCompensationText, defaultEVerifyText, defaultContingencyText,
   type AgreementSectionValue, type TemplateVars,
 } from '@/lib/document-templates'
+import { ROLE_GROUPS, ROLE_PRESETS, exactRolePreset, rolePresetFor } from '@/lib/role-presets'
 import {
   loadOrgLogo, renderDocument, documentFileName,
   type LetterheadOrg, type LogoAsset,
@@ -51,6 +52,20 @@ export interface GeneratorEmployee {
   country: string | null
 }
 
+/** The dropdown value for "my position isn't listed". */
+const OTHER_POSITION = '__other'
+
+/** The paragraphs that write themselves from the details above them. */
+type TextKey =
+  | 'intro' | 'startDateText' | 'compensationText' | 'responsibilities'
+  | 'eVerifyText' | 'contingencyText' | 'closing'
+
+/** Paragraphs whose wording depends on the ROLE, re-written when it changes. */
+const ROLE_TEXT_KEYS: TextKey[] = ['intro', 'responsibilities']
+const ROLE_SECTION_KEYS = ['services', 'duties']
+
+type SectionPatch = Partial<Pick<AgreementSectionValue, 'heading' | 'body' | 'enabled'>>
+
 const TYPE_ICONS: Record<GeneratedDocumentType, React.ReactNode> = {
   offer_letter: <FileText className="size-4" />,
   employment_agreement: <FileSignature className="size-4" />,
@@ -72,9 +87,14 @@ const TYPE_ICONS: Record<GeneratedDocumentType, React.ReactNode> = {
  * profile, in which case it prefills the form and files the PDF against that
  * record — a shortcut, never a requirement.
  *
- * WHEN THE TEXT IS REBUILT. Only when the TEMPLATE or the EMPLOYEE changes.
- * Rebuilding on every keystroke would erase a paragraph someone was in the
- * middle of rewriting the moment they corrected the job title in it.
+ * THE WORDING WRITES ITSELF. Every paragraph (and every agreement clause) is
+ * DERIVED from the details above it — the position picked from the dropdown
+ * supplies the role summary and duties (src/lib/role-presets.ts), and the name,
+ * dates, salary and location are interpolated — so it follows each change live.
+ * What is stored is only what somebody has REWRITTEN by hand (`overrides`):
+ * an edited paragraph stays exactly as they wrote it until they choose "use
+ * automatic", and picking a different position re-writes the role-specific
+ * paragraphs because the old role's duties would now be wrong.
  */
 export function DocumentGenerator({
   company, employee, initialType, today,
@@ -99,6 +119,8 @@ export function DocumentGenerator({
   // --- Position details ----------------------------------------------------
   const [letterDate, setLetterDate] = React.useState(today)
   const [jobTitle, setJobTitle] = React.useState('')
+  // "Other" was chosen, so the title is typed rather than picked.
+  const [customTitle, setCustomTitle] = React.useState(false)
   const [employmentType, setEmploymentType] = React.useState<string>('Full-Time')
   const [startDate, setStartDate] = React.useState('')
   const [salaryAmount, setSalaryAmount] = React.useState('')
@@ -112,16 +134,9 @@ export function DocumentGenerator({
   const [addressLines, setAddressLines] = React.useState('')
 
   // --- Content -------------------------------------------------------------
-  const [intro, setIntro] = React.useState('')
-  const [startDateText, setStartDateText] = React.useState('')
-  const [startDateTextEdited, setStartDateTextEdited] = React.useState(false)
-  const [compensationText, setCompensationText] = React.useState('')
-  const [responsibilities, setResponsibilities] = React.useState('')
-  const [eVerifyText, setEVerifyText] = React.useState('')
-  const [contingencyText, setContingencyText] = React.useState('')
-  const [closing, setClosing] = React.useState('')
-  const [closingEdited, setClosingEdited] = React.useState(false)
-  const [sections, setSections] = React.useState<AgreementSectionValue[]>([])
+  // Only what somebody has rewritten by hand; everything else is derived below.
+  const [overrides, setOverrides] = React.useState<Partial<Record<TextKey, string>>>({})
+  const [sectionOverrides, setSectionOverrides] = React.useState<Record<string, SectionPatch>>({})
 
   // --- Signature -----------------------------------------------------------
   const [signatoryName, setSignatoryName] = React.useState(company.signatoryName ?? '')
@@ -183,22 +198,12 @@ export function DocumentGenerator({
   )
 
   /*
-   * Prefill from the employee's profile.
-   *
-   * `templateVars` is deliberately NOT a dependency: it changes on every
-   * keystroke in this very form, and depending on it would make the effect
-   * overwrite the field being typed into. It is read through a ref at the moment
-   * the template is actually rebuilt.
+   * Prefill from the employee's profile, and start every template from its
+   * automatic wording. Runs on load and when the TEMPLATE changes — a new
+   * template has different paragraphs, so wording rewritten for the old one
+   * does not carry over.
    */
-  const varsRef = React.useRef(templateVars)
-  varsRef.current = templateVars
-
   React.useEffect(() => {
-    const title = employee?.designation ?? ''
-    const type = employee?.employment_type || 'Full-Time'
-    const start = employee?.hire_date || employee?.date_of_joining || ''
-    const rate = employee?.pay_rate != null ? String(employee.pay_rate) : ''
-    const cadence = employee?.pay_type?.toLowerCase() === 'hourly' ? 'hourly' : 'annual'
     const location = companyAddress || 'Remote'
 
     // Only the profile-derived fields are overwritten, and only when there IS a
@@ -206,11 +211,13 @@ export function DocumentGenerator({
     // which on the first render is empty, and after a template switch is
     // whatever the person filling the form has already typed.
     if (employee) {
+      const title = employee.designation ?? ''
       setJobTitle(title)
-      setEmploymentType(type)
-      setStartDate(start)
-      setSalaryAmount(rate)
-      setSalaryCadence(cadence)
+      setCustomTitle(!!title.trim() && !exactRolePreset(title))
+      setEmploymentType(employee.employment_type || 'Full-Time')
+      setStartDate(employee.hire_date || employee.date_of_joining || '')
+      setSalaryAmount(employee.pay_rate != null ? String(employee.pay_rate) : '')
+      setSalaryCadence(employee.pay_type?.toLowerCase() === 'hourly' ? 'hourly' : 'annual')
       setAddressLines(
         [
           employee.street_address,
@@ -224,53 +231,93 @@ export function DocumentGenerator({
     }
     setWorkLocation(location)
     setGoverningState(company.stateProvince ?? '')
-
-    const vars: TemplateVars = employee
-      ? {
-          ...varsRef.current,
-          employeeName: employee.full_name || employee.email || '',
-          jobTitle: title,
-          employmentType: type,
-          startDate: formatDateLabel(start),
-          salaryText: composeSalaryText(rate, cadence),
-          workLocation: location,
-        }
-      : { ...varsRef.current, workLocation: location }
-
-    setResponsibilities(defaultResponsibilities(vars.jobTitle).join('\n'))
-    setSections(buildAgreementSections(vars))
-    setIntro(docType === 'internship_offer' ? defaultInternshipIntro(vars) : docType === 'employment_agreement' ? defaultAgreementIntro(vars) : defaultOfferIntro(vars))
-    setStartDateText(defaultStartDateText(vars))
-    setCompensationText(defaultCompensationText(vars))
-    setEVerifyText(defaultEVerifyText(vars))
-    setContingencyText(defaultContingencyText())
-    setClosing(defaultOfferClosing(vars))
-    setClosingEdited(false)
-    setStartDateTextEdited(false)
+    setOverrides({})
+    setSectionOverrides({})
   }, [docType, employee, companyAddress, company.stateProvince])
 
   /*
-   * The start-date paragraph spells out the date typed into the "Start date"
-   * field above it, so it has to follow that field rather than freeze at
-   * whatever the profile said on load. Same rule as the closing: it tracks the
-   * date until somebody edits the wording, after which their wording stands.
+   * The automatic wording, re-derived whenever a detail it mentions changes:
+   * the role (summary and duties), the name, the start date, the salary, the
+   * location. Cheap string building, so it simply runs on every change.
    */
-  React.useEffect(() => {
-    if (startDateTextEdited) return
-    setStartDateText(
-      defaultStartDateText({ ...varsRef.current, startDate: formatDateLabel(startDate) })
-    )
-  }, [startDate, startDateTextEdited])
+  const automatic = React.useMemo<Record<TextKey, string>>(
+    () => ({
+      intro:
+        docType === 'internship_offer'
+          ? defaultInternshipIntro(templateVars)
+          : docType === 'employment_agreement'
+            ? defaultAgreementIntro(templateVars)
+            : defaultOfferIntro(templateVars),
+      startDateText: defaultStartDateText(templateVars),
+      compensationText: defaultCompensationText(templateVars),
+      responsibilities: defaultResponsibilities(templateVars.jobTitle).join('\n'),
+      eVerifyText: defaultEVerifyText(templateVars),
+      contingencyText: defaultContingencyText(),
+      closing: defaultOfferClosing(templateVars),
+    }),
+    [docType, templateVars]
+  )
 
-  /*
-   * The closing paragraph is the ONE piece of boilerplate that names the
-   * recipient, and the recipient is now typed after the template is built. So it
-   * tracks the name — until somebody edits it, after which their wording stands.
+  const textOf = (key: TextKey) => overrides[key] ?? automatic[key]
+  const intro = textOf('intro')
+  const startDateText = textOf('startDateText')
+  const compensationText = textOf('compensationText')
+  const responsibilities = textOf('responsibilities')
+  const eVerifyText = textOf('eVerifyText')
+  const contingencyText = textOf('contingencyText')
+  const closing = textOf('closing')
+
+  const setText = (key: TextKey) => (value: string) =>
+    setOverrides((current) => ({ ...current, [key]: value }))
+  const revertText = (key: TextKey) =>
+    setOverrides((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+
+  const sections = React.useMemo<AgreementSectionValue[]>(
+    () =>
+      buildAgreementSections(templateVars).map((section) => ({
+        ...section,
+        ...sectionOverrides[section.key],
+      })),
+    [templateVars, sectionOverrides]
+  )
+
+  const matchedRole = React.useMemo(() => rolePresetFor(jobTitle), [jobTitle])
+
+  /**
+   * A position picked from the dropdown. The role-specific paragraphs are
+   * re-written for it even if they had been edited — the old role's duties
+   * would now be wrong — and an internship role suggests the internship type.
    */
-  React.useEffect(() => {
-    if (closingEdited || docType === 'employment_agreement') return
-    setClosing(defaultOfferClosing({ ...varsRef.current, employeeName }))
-  }, [employeeName, closingEdited, docType])
+  function choosePosition(value: string) {
+    if (value === OTHER_POSITION) {
+      setCustomTitle(true)
+      if (exactRolePreset(jobTitle)) setJobTitle('')
+      return
+    }
+    setCustomTitle(false)
+    setJobTitle(value)
+    const preset = exactRolePreset(value)
+    if (preset?.employmentType) setEmploymentType(preset.employmentType)
+    setOverrides((current) => {
+      const next = { ...current }
+      for (const key of ROLE_TEXT_KEYS) delete next[key]
+      return next
+    })
+    setSectionOverrides((current) => {
+      const next = { ...current }
+      for (const key of ROLE_SECTION_KEYS) {
+        if (next[key]) {
+          const { body: _body, ...rest } = next[key]
+          next[key] = rest
+        }
+      }
+      return next
+    })
+  }
 
   React.useEffect(
     () => () => {
@@ -581,13 +628,48 @@ export function DocumentGenerator({
             <CardDescription>What the document states about the role.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FormField label="Position title" required={!isAgreement}>
-              <Input
-                value={jobTitle}
-                onChange={(event) => setJobTitle(event.target.value)}
-                placeholder="Data Engineer"
-              />
+            <FormField
+              label="Position title"
+              required={!isAgreement}
+              hint={
+                customTitle
+                  ? matchedRole
+                    ? `Wording written like a ${matchedRole.title} — edit anything below.`
+                    : 'Type the title; the wording below uses generic duties for it.'
+                  : 'The duties and clauses below are written for the position you pick.'
+              }
+            >
+              <Select
+                value={customTitle ? OTHER_POSITION : exactRolePreset(jobTitle)?.title ?? ''}
+                onChange={(event) => choosePosition(event.target.value)}
+                placeholder="Choose a position"
+                searchable
+              >
+                {ROLE_GROUPS.map((group) => (
+                  <optgroup key={group} label={group}>
+                    {ROLE_PRESETS.filter((role) => role.group === group).map((role) => (
+                      <option key={role.title} value={role.title}>
+                        {role.title}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                <optgroup label="Not listed">
+                  <option value={OTHER_POSITION}>Other — type a custom title</option>
+                </optgroup>
+              </Select>
             </FormField>
+
+            {customTitle ? (
+              <FormField label="Custom position title" required={!isAgreement}>
+                <Input
+                  value={jobTitle}
+                  onChange={(event) => setJobTitle(event.target.value)}
+                  placeholder="Senior Data Engineer"
+                  autoFocus
+                />
+              </FormField>
+            ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Employment type">
@@ -682,12 +764,25 @@ export function DocumentGenerator({
         <AgreementSections
           sections={sections}
           intro={intro}
-          onIntroChange={setIntro}
-          onChange={setSections}
+          introEdited={overrides.intro !== undefined}
+          editedKeys={Object.keys(sectionOverrides).filter(
+            (key) => sectionOverrides[key].body !== undefined || sectionOverrides[key].heading !== undefined
+          )}
+          onIntroChange={setText('intro')}
+          onIntroRevert={() => revertText('intro')}
+          onUpdate={(key, patch) =>
+            setSectionOverrides((current) => ({ ...current, [key]: { ...current[key], ...patch } }))
+          }
+          onRevert={(key) =>
+            setSectionOverrides((current) => {
+              const { heading: _heading, body: _body, ...rest } = current[key] ?? {}
+              return { ...current, [key]: rest }
+            })
+          }
           onReset={() => {
-            setSections(buildAgreementSections(templateVars))
-            setIntro(defaultAgreementIntro(templateVars))
-            toast.success('Clauses reset to the template')
+            setSectionOverrides({})
+            revertText('intro')
+            toast.success('Clauses reset to the automatic wording')
           }}
         />
       ) : (
@@ -695,96 +790,94 @@ export function DocumentGenerator({
           <CardHeader className="flex-row items-center justify-between">
             <div>
               <CardTitle>Wording</CardTitle>
-              <CardDescription>Edit anything here before you generate.</CardDescription>
+              <CardDescription>
+                Written for you from the position and details above, and kept in step as they
+                change. Edit any paragraph to take it over.
+              </CardDescription>
             </div>
             <Button
               size="sm"
               variant="ghost"
+              disabled={Object.keys(overrides).length === 0}
               onClick={() => {
-                setIntro(
-                  docType === 'internship_offer'
-                    ? defaultInternshipIntro(templateVars)
-                    : defaultOfferIntro(templateVars)
-                )
-                setStartDateText(defaultStartDateText(templateVars))
-                setStartDateTextEdited(false)
-                setCompensationText(defaultCompensationText(templateVars))
-                setResponsibilities(defaultResponsibilities(jobTitle).join('\n'))
-                setEVerifyText(defaultEVerifyText(templateVars))
-                setContingencyText(defaultContingencyText())
-                setClosing(defaultOfferClosing(templateVars))
-                toast.success('Wording reset to the template')
+                setOverrides({})
+                toast.success('Wording reset to the automatic text')
               }}
             >
               <RotateCcw />
-              Reset
+              Reset all
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FormField label="Opening paragraph">
-              <Textarea rows={4} value={intro} onChange={(event) => setIntro(event.target.value)} />
-            </FormField>
+            <AutoTextField
+              label="Opening paragraph"
+              rows={4}
+              value={intro}
+              edited={overrides.intro !== undefined}
+              onChange={setText('intro')}
+              onRevert={() => revertText('intro')}
+            />
 
-            <FormField label="Start date paragraph">
-              <Textarea
-                rows={2}
-                value={startDateText}
-                onChange={(event) => {
-                  setStartDateText(event.target.value)
-                  setStartDateTextEdited(true)
-                }}
-              />
-            </FormField>
+            <AutoTextField
+              label="Start date paragraph"
+              rows={2}
+              value={startDateText}
+              edited={overrides.startDateText !== undefined}
+              onChange={setText('startDateText')}
+              onRevert={() => revertText('startDateText')}
+            />
 
-            <FormField label="Compensation paragraph">
-              <Textarea
-                rows={3}
-                value={compensationText}
-                onChange={(event) => setCompensationText(event.target.value)}
-              />
-            </FormField>
+            <AutoTextField
+              label="Compensation paragraph"
+              rows={3}
+              value={compensationText}
+              edited={overrides.compensationText !== undefined}
+              onChange={setText('compensationText')}
+              onRevert={() => revertText('compensationText')}
+            />
 
-            <FormField
+            <AutoTextField
               label={
                 docType === 'internship_offer'
                   ? 'Training focus & responsibilities'
                   : 'Job duties and responsibilities'
               }
               hint="One bullet per line."
-            >
-              <Textarea
-                rows={9}
-                value={responsibilities}
-                onChange={(event) => setResponsibilities(event.target.value)}
-              />
-            </FormField>
+              rows={9}
+              value={responsibilities}
+              edited={overrides.responsibilities !== undefined}
+              onChange={setText('responsibilities')}
+              onRevert={() => revertText('responsibilities')}
+            />
 
-            <FormField label="E-Verify statement" hint="Leave blank to omit it entirely.">
-              <Textarea
-                rows={2}
-                value={eVerifyText}
-                onChange={(event) => setEVerifyText(event.target.value)}
-              />
-            </FormField>
+            <AutoTextField
+              label="E-Verify statement"
+              hint="Leave blank to omit it entirely."
+              rows={2}
+              value={eVerifyText}
+              edited={overrides.eVerifyText !== undefined}
+              onChange={setText('eVerifyText')}
+              onRevert={() => revertText('eVerifyText')}
+            />
 
-            <FormField label="Contingency / at-will paragraph" hint="Leave blank to omit it entirely.">
-              <Textarea
-                rows={3}
-                value={contingencyText}
-                onChange={(event) => setContingencyText(event.target.value)}
-              />
-            </FormField>
+            <AutoTextField
+              label="Contingency / at-will paragraph"
+              hint="Leave blank to omit it entirely."
+              rows={3}
+              value={contingencyText}
+              edited={overrides.contingencyText !== undefined}
+              onChange={setText('contingencyText')}
+              onRevert={() => revertText('contingencyText')}
+            />
 
-            <FormField label="Closing paragraph">
-              <Textarea
-                rows={3}
-                value={closing}
-                onChange={(event) => {
-                  setClosing(event.target.value)
-                  setClosingEdited(true)
-                }}
-              />
-            </FormField>
+            <AutoTextField
+              label="Closing paragraph"
+              rows={3}
+              value={closing}
+              edited={overrides.closing !== undefined}
+              onChange={setText('closing')}
+              onRevert={() => revertText('closing')}
+            />
           </CardContent>
         </Card>
       )}
@@ -908,26 +1001,81 @@ export function DocumentGenerator({
 }
 
 /**
- * The seventeen numbered clauses, each collapsible.
+ * One paragraph that writes itself, with a note saying so.
  *
- * Collapsed by default: seventeen open textareas is a wall nobody reads, and the
- * point of this screen is that the defaults are usually right. The heading row
- * shows the number it will print with, so turning one off visibly renumbers the
- * rest — which is what the PDF does too.
+ * "Automatic" means it follows the details above; the moment somebody types in
+ * it, it becomes theirs ("Edited") and stops following, until they choose to
+ * hand it back. The note sits outside the <label> so its button is not a
+ * second click target for the textarea.
+ */
+function AutoTextField({
+  label, hint, rows, value, edited, onChange, onRevert,
+}: {
+  label: string
+  hint?: string
+  rows: number
+  value: string
+  edited: boolean
+  onChange: (value: string) => void
+  onRevert: () => void
+}) {
+  const id = React.useId()
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={id} className="text-[13px] font-medium text-ink">
+          {label}
+        </label>
+        <AutoBadge edited={edited} onRevert={onRevert} />
+      </div>
+      <Textarea id={id} rows={rows} value={value} onChange={(event) => onChange(event.target.value)} />
+      {hint ? <p className="text-xs text-ink-muted">{hint}</p> : null}
+    </div>
+  )
+}
+
+function AutoBadge({ edited, onRevert }: { edited: boolean; onRevert: () => void }) {
+  return edited ? (
+    <button
+      type="button"
+      onClick={onRevert}
+      className="focus-ring inline-flex shrink-0 items-center gap-1 rounded text-xs font-medium text-brand-600 hover:underline"
+    >
+      <RotateCcw className="size-3" aria-hidden />
+      Edited — use automatic
+    </button>
+  ) : (
+    <span className="inline-flex shrink-0 items-center gap-1 text-xs text-ink-muted">
+      <Sparkles className="size-3" aria-hidden />
+      Automatic
+    </span>
+  )
+}
+
+/**
+ * The numbered clauses, each collapsible.
+ *
+ * Collapsed by default: a column of open textareas is a wall nobody reads, and
+ * the point of this screen is that the automatic wording is usually right. The
+ * heading row shows the number it will print with, so turning one off visibly
+ * renumbers the rest — which is what the PDF does too.
  */
 function AgreementSections({
-  sections, intro, onIntroChange, onChange, onReset,
+  sections, intro, introEdited, editedKeys, onIntroChange, onIntroRevert, onUpdate, onRevert,
+  onReset,
 }: {
   sections: AgreementSectionValue[]
   intro: string
+  introEdited: boolean
+  /** Clauses whose heading or text somebody has rewritten. */
+  editedKeys: string[]
   onIntroChange: (value: string) => void
-  onChange: (sections: AgreementSectionValue[]) => void
+  onIntroRevert: () => void
+  onUpdate: (key: string, patch: SectionPatch) => void
+  onRevert: (key: string) => void
   onReset: () => void
 }) {
   const [open, setOpen] = React.useState<string | null>(null)
-
-  const update = (key: string, patch: Partial<AgreementSectionValue>) =>
-    onChange(sections.map((section) => (section.key === key ? { ...section, ...patch } : section)))
 
   let printed = 0
 
@@ -937,7 +1085,8 @@ function AgreementSections({
         <div>
           <CardTitle>Clauses</CardTitle>
           <CardDescription>
-            Turn a clause off to leave it out entirely — the rest renumber themselves.
+            Written for the position above and kept in step with the details. Turn a clause off to
+            leave it out entirely — the rest renumber themselves.
           </CardDescription>
         </div>
         <Button size="sm" variant="ghost" onClick={onReset}>
@@ -947,22 +1096,28 @@ function AgreementSections({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <FormField label="Opening paragraph">
-          <Textarea rows={3} value={intro} onChange={(event) => onIntroChange(event.target.value)} />
-        </FormField>
+        <AutoTextField
+          label="Opening paragraph"
+          rows={3}
+          value={intro}
+          edited={introEdited}
+          onChange={onIntroChange}
+          onRevert={onIntroRevert}
+        />
 
         <div className="divide-y divide-line rounded-lg border border-line">
           {sections.map((section) => {
             if (section.enabled) printed += 1
             const number = section.enabled ? printed : null
             const expanded = open === section.key
+            const edited = editedKeys.includes(section.key)
 
             return (
               <div key={section.key}>
                 <div className="flex items-center gap-3 px-3.5 py-2.5">
                   <Checkbox
                     checked={section.enabled}
-                    onChange={(event) => update(section.key, { enabled: event.target.checked })}
+                    onChange={(event) => onUpdate(section.key, { enabled: event.target.checked })}
                     aria-label={`Include ${section.heading}`}
                   />
                   <span
@@ -983,6 +1138,9 @@ function AgreementSections({
                     aria-expanded={expanded}
                   >
                     <span className="min-w-0 flex-1 truncate">{section.heading}</span>
+                    {edited ? (
+                      <span className="shrink-0 text-xs font-normal text-brand-600">Edited</span>
+                    ) : null}
                     <ChevronDown
                       className={cn(
                         'size-4 shrink-0 text-ink-muted transition-transform',
@@ -995,17 +1153,20 @@ function AgreementSections({
 
                 {expanded ? (
                   <div className="space-y-3 border-t border-line bg-page/40 px-3.5 py-3.5">
+                    <div className="flex justify-end">
+                      <AutoBadge edited={edited} onRevert={() => onRevert(section.key)} />
+                    </div>
                     <FormField label="Heading">
                       <Input
                         value={section.heading}
-                        onChange={(event) => update(section.key, { heading: event.target.value })}
+                        onChange={(event) => onUpdate(section.key, { heading: event.target.value })}
                       />
                     </FormField>
                     <FormField label="Text">
                       <Textarea
                         rows={7}
                         value={section.body}
-                        onChange={(event) => update(section.key, { body: event.target.value })}
+                        onChange={(event) => onUpdate(section.key, { body: event.target.value })}
                       />
                     </FormField>
                   </div>

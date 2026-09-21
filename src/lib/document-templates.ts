@@ -10,6 +10,7 @@
  * by the PDF writer (also client-side).
  */
 import type { GeneratedDocumentType } from '@/types/db'
+import { rolePresetFor } from '@/lib/role-presets'
 
 export const DOCUMENT_TYPE_LABELS: Record<GeneratedDocumentType, string> = {
   offer_letter: 'Offer letter',
@@ -21,7 +22,7 @@ export const DOCUMENT_TYPE_DESCRIPTIONS: Record<GeneratedDocumentType, string> =
   offer_letter:
     'A short, two-page offer: position details, responsibilities and an acceptance block.',
   employment_agreement:
-    'The full agreement — seventeen numbered clauses, signature blocks and page numbers.',
+    'The full agreement — numbered clauses written for the role, signature blocks and page numbers.',
   internship_offer:
     'An internship or short-form offer with a training focus and an acknowledgement block.',
 }
@@ -52,14 +53,36 @@ export const EMPLOYMENT_TYPE_OPTIONS = [
   'Internship',
 ] as const
 
+/** "an AI/ML Engineer", "a Data Engineer" — by the sound of the first letter. */
+export function withArticle(noun: string): string {
+  return `${/^[aeiou]/i.test(noun.trim()) ? 'an' : 'a'} ${noun.trim()}`
+}
+
 /**
- * Generic duties, used when an org has not written its own.
+ * What the role is, in one phrase — "designing, building and maintaining
+ * scalable data pipelines…". From the matching preset in
+ * src/lib/role-presets.ts, or a plain generic phrase when nothing matches.
+ */
+export function roleSummary(jobTitle: string): string {
+  const preset = rolePresetFor(jobTitle)
+  if (preset) return preset.summary
+  const role = jobTitle.trim()
+  return role
+    ? `performing the duties customarily associated with the role of ${role}`
+    : 'performing the duties assigned to you'
+}
+
+/**
+ * The duties list for a title: the preset's when one matches, otherwise
+ * generic duties.
  *
- * Deliberately about HOW the work is done rather than what it is: a made-up list
- * of technologies on a real offer letter is worse than a short honest one, and
- * the org is expected to replace these.
+ * The generic list is deliberately about HOW the work is done rather than what
+ * it is: a made-up list of technologies on a real offer letter is worse than a
+ * short honest one, and the org is expected to replace these.
  */
 export function defaultResponsibilities(jobTitle: string): string[] {
+  const preset = rolePresetFor(jobTitle)
+  if (preset) return preset.responsibilities
   const role = jobTitle.trim() || 'employee'
   return [
     `Perform the duties customarily associated with the role of ${role}.`,
@@ -89,11 +112,13 @@ export function defaultOfferIntro(vars: TemplateVars): string {
     ? ` Your primary work location will be ${vars.workLocation}.`
     : ''
 
+  const roleLine = vars.jobTitle ? ` In this role you will be responsible for ${roleSummary(vars.jobTitle)}.` : ''
+
   return (
     `On behalf of ${vars.companyName}, we are pleased to offer you the position of ` +
     `${vars.jobTitle || 'the role'}. As a ${(vars.employmentType || 'full-time').toLowerCase()} ` +
     `employee you will be working ${vars.hoursPerWeek || '40'} hours per week for ` +
-    `${vars.companyName}.${managerLine}${locationLine}`
+    `${vars.companyName}.${roleLine}${managerLine}${locationLine}`
   )
 }
 
@@ -151,15 +176,15 @@ export function defaultInternshipIntro(vars: TemplateVars): string {
     `On behalf of ${vars.companyName}, we are pleased to offer you the position of ` +
     `${vars.jobTitle || 'the role'}. This is a ${(vars.employmentType || 'full-time').toLowerCase()} ` +
     `internship, working ${vars.hoursPerWeek || '40'} hours per week, with responsibilities ` +
-    `focused on the design, development and maintenance of software applications and ` +
-    `data-driven solutions.${managerLine}`
+    `focused on ${roleSummary(vars.jobTitle)}.${managerLine}`
   )
 }
 
 export function defaultAgreementIntro(vars: TemplateVars): string {
   return (
     `${vars.companyName} (hereinafter referred to as "the Company") is pleased to offer you ` +
-    `employment as "${vars.jobTitle || 'Employee'}" on the following terms and conditions.`
+    `employment as "${vars.jobTitle || 'Employee'}", a role responsible for ` +
+    `${roleSummary(vars.jobTitle)}, on the following terms and conditions.`
   )
 }
 
@@ -199,10 +224,23 @@ export const AGREEMENT_SECTIONS: AgreementSectionDef[] = [
     heading: 'SERVICES',
     body: (v) =>
       `You shall serve ${v.companyName} as a ${(v.employmentType || 'full-time').toLowerCase()} ` +
-      `employee and shall render all duties customarily performed by a ${v.jobTitle}, together ` +
+      `employee and shall render all duties customarily performed by ${withArticle(v.jobTitle || 'person in your position')}, ` +
+      `including ${roleSummary(v.jobTitle)}, together ` +
       `with such other ancillary duties as may be assigned to you from time to time by your ` +
       `Project Manager or such other person appointed for this purpose by ${v.companyName}. ` +
       `Your services will be governed by the service rules and regulations of ${v.companyName}.`,
+  },
+  {
+    key: 'duties',
+    heading: 'DUTIES AND RESPONSIBILITIES',
+    body: (v) =>
+      `As ${withArticle(v.jobTitle || 'employee')}, your duties and ` +
+      `responsibilities will include, without limitation: ` +
+      defaultResponsibilities(v.jobTitle)
+        .map((duty, i) => `(${String.fromCharCode(97 + i)}) ${duty.replace(/\.$/, '')}`)
+        .join('; ') +
+      `. ${v.companyName} may reasonably modify these duties from time to time to meet ` +
+      `business and client needs.`,
   },
   {
     key: 'work_instructions',
