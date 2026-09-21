@@ -158,3 +158,21 @@ export function suggestInvoiceNumber(existing: string[], orgCode?: string | null
   }
   return invoiceNumberFor(orgCode, highest + 1)
 }
+
+/**
+ * A vendor's stored address as the invoice's bill-to block prints it, one line
+ * each:
+ *
+ *   11180 State Bridge Rd, Suite 402
+ *   Alpharetta, GA 30022
+ */
+export function billToAddressText(address: Record<string, string | undefined> | null): string {
+  const a = address ?? {}
+  return [
+    [a.line1, a.line2].filter(Boolean).join(', '),
+    [a.city, [a.state, a.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+    a.country,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}

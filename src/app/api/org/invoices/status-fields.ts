@@ -13,10 +13,48 @@ export const invoiceStatusEnum = z.enum([
   'draft', 'sent', 'partially_paid', 'paid', 'overdue', 'cancelled',
 ])
 
-export const invoiceWriteSchema = invoiceSchema.extend({
-  status: invoiceStatusEnum.default('draft'),
-  paidAt: isoDate.nullable().optional(),
-})
+const blankToNull = (v: unknown) => (v === '' || v === undefined ? null : v)
+
+export const invoiceWriteSchema = invoiceSchema
+  .extend({
+    status: invoiceStatusEnum.default('draft'),
+    paidAt: isoDate.nullable().optional(),
+    /*
+     * The payout side (043): billed in `currency`, paid to the person in
+     * `payoutCurrency`. Internal only — the printed invoice never shows it.
+     */
+    employeeId: z.preprocess(blankToNull, z.string().uuid().nullable()).optional(),
+    vendorId: z.preprocess(blankToNull, z.string().uuid().nullable()).optional(),
+    payoutAmount: z
+      .preprocess(blankToNull, z.coerce.number().min(0).max(100_000_000).nullable())
+      .optional(),
+    payoutCurrency: z
+      .preprocess(
+        blankToNull,
+        z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Use a 3-letter currency code').nullable()
+      )
+      .optional(),
+    exchangeRate: z
+      .preprocess(blankToNull, z.coerce.number().positive('The rate must be above 0').nullable())
+      .optional(),
+  })
+  .refine((v) => v.payoutAmount == null || !!v.payoutCurrency, {
+    message: 'Choose the currency the payout is made in',
+    path: ['payoutCurrency'],
+  })
+
+/** The payout columns as stored, from a parsed write body. */
+export function payoutColumns(input: z.infer<typeof invoiceWriteSchema>) {
+  const hasPayout = input.payoutAmount != null
+  return {
+    employee_id: input.employeeId ?? null,
+    payout_amount: hasPayout ? input.payoutAmount : null,
+    payout_currency: hasPayout ? input.payoutCurrency ?? null : null,
+    // A rate only means something between two DIFFERENT currencies.
+    exchange_rate:
+      hasPayout && input.payoutCurrency !== input.currency ? input.exchangeRate ?? null : null,
+  }
+}
 
 /** The body of the quick "mark as …" action on the list. */
 export const invoiceStatusSchema = z.object({

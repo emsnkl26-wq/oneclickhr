@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { TimesheetEditor } from './timesheet-editor'
+import { timesheetAttachments } from '@/lib/timesheet-attachments'
 import type { TimesheetStatus } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Timesheet' }
@@ -53,7 +54,7 @@ export default async function EmployeeTimesheetPage({
   const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, vendor_id, client_id, assignment_id, pay_amount, pay_currency, attachment_url, attachment_name, review_note, reviewed_at, submitted_at'
+      'id, code, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, vendor_id, client_id, assignment_id, pay_amount, pay_currency, attachments, attachment_url, attachment_name, review_note, reviewed_at, submitted_at'
     )
     .eq('id', id)
     .maybeSingle()
@@ -145,8 +146,7 @@ export default async function EmployeeTimesheetPage({
         assignmentId: sheet.assignment_id ?? '',
         payAmount: sheet.pay_amount == null ? null : Number(sheet.pay_amount),
         payCurrency: sheet.pay_currency ?? null,
-        attachmentKey: sheet.attachment_url,
-        attachmentName: sheet.attachment_name,
+        attachments: timesheetAttachments(sheet),
         reviewNote: sheet.review_note,
       }}
       entries={((entries ?? []) as unknown as EntryRow[]).map((entry) => ({

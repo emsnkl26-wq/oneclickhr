@@ -89,10 +89,7 @@ export function WeekGrid({
   const setRow = (key: string, patch: Partial<GridRow>) =>
     update(rows.map((row) => (row.key === key ? { ...row, ...patch } : row)))
 
-  const setHours = (key: string, dayIndex: number, raw: string) => {
-    // Accept an empty box while someone is retyping a figure; it means zero.
-    const parsed = raw.trim() === '' ? 0 : Number(raw)
-    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 24) return
+  const setHours = (key: string, dayIndex: number, parsed: number) => {
     update(
       rows.map((row) =>
         row.key === key
@@ -228,13 +225,10 @@ export function WeekGrid({
                         </span>
                       ) : (
                         <div className="inline-flex flex-col items-center">
-                          <input
-                            value={String(row.hours[index] ?? 0)}
-                            onChange={(e) => setHours(row.key, index, e.target.value)}
-                            onFocus={(e) => e.currentTarget.select()}
-                            inputMode="decimal"
-                            aria-label={`Hours on ${formatDayHeader(date)}`}
-                            className="tabular h-9 w-14 rounded-lg border border-line bg-card px-2 text-center text-sm shadow-sm outline-none transition-colors hover:border-ink-muted/40 focus-visible:border-brand-600"
+                          <HoursInput
+                            value={row.hours[index] ?? 0}
+                            onChange={(hours) => setHours(row.key, index, hours)}
+                            label={`Hours on ${formatDayHeader(date)}`}
                           />
                           <span className="mt-0.5 text-[10px] uppercase tracking-wide text-ink-muted">
                             Hrs
@@ -333,4 +327,59 @@ function projectLabel(projects: GridProject[], projectId: string): string {
   if (!projectId) return ''
   const project = projects.find((candidate) => candidate.id === projectId)
   return project ? `${project.code} · ${project.name}` : ''
+}
+
+/** What a half-typed hours box may hold: up to 24, two decimal places. */
+const PARTIAL_HOURS = /^\d{0,2}([.,]\d{0,2})?$/
+
+/**
+ * One day's hours, typed as TEXT and reported as a number.
+ *
+ * The box keeps its own string while focused because the number alone cannot
+ * represent what someone is in the middle of typing: "4." is on its way to
+ * 4.5, but `String(Number('4.'))` is "4", so a box bound straight to the number
+ * swallows the decimal point and nobody can ever enter a fraction. Outside
+ * focus it shows the stored value, so a restored draft or a removed line still
+ * repaints it.
+ *
+ * Accepts a comma as the decimal mark too (4,5), for keyboards that type one.
+ */
+function HoursInput({
+  value, onChange, label,
+}: {
+  value: number
+  onChange: (hours: number) => void
+  label: string
+}) {
+  const [text, setText] = React.useState(String(value))
+  const [focused, setFocused] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!focused) setText(String(value))
+  }, [value, focused])
+
+  return (
+    <input
+      value={text}
+      onChange={(event) => {
+        const raw = event.target.value.trim()
+        if (!PARTIAL_HOURS.test(raw)) return
+        const parsed = raw === '' || raw === '.' || raw === ',' ? 0 : Number(raw.replace(',', '.'))
+        if (!Number.isFinite(parsed) || parsed > 24) return
+        setText(raw)
+        onChange(parsed)
+      }}
+      onFocus={(event) => {
+        setFocused(true)
+        event.currentTarget.select()
+      }}
+      onBlur={() => {
+        setFocused(false)
+        setText(String(value))
+      }}
+      inputMode="decimal"
+      aria-label={label}
+      className="tabular h-9 w-14 rounded-lg border border-line bg-card px-2 text-center text-sm shadow-sm outline-none transition-colors hover:border-ink-muted/40 focus-visible:border-brand-600"
+    />
+  )
 }

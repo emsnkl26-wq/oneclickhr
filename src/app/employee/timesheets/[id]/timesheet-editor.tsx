@@ -20,7 +20,7 @@ import {
   WeekGrid, emptyRow, rowTotal, round2, MAX_HOURS_PER_DAY,
   type GridRow, type GridProject,
 } from '@/components/timesheet/week-grid'
-import { AttachmentDrop, type Attachment } from '@/components/timesheet/attachment-drop'
+import { AttachmentsDrop, type Attachment } from '@/components/timesheet/attachment-drop'
 import { TimesheetLetterhead, type LetterheadOrg } from '@/components/timesheet/letterhead'
 import { apiPatch, apiDelete, ApiClientError } from '@/lib/fetcher'
 import { useProgressRouter } from '@/lib/use-progress-router'
@@ -45,8 +45,8 @@ export interface EditorTimesheet {
    */
   payAmount: number | null
   payCurrency: string | null
-  attachmentKey: string | null
-  attachmentName: string | null
+  /** Every file on the week, in upload order (044). */
+  attachments: Attachment[]
   reviewNote: string | null
 }
 
@@ -65,21 +65,27 @@ interface StoredDraft {
   v: 1
   rows: GridRow[]
   weeklyLearnings: string
-  attachment: Attachment | null
+  /** Drafts written before 044 held one file here; still read on restore. */
+  attachment?: Attachment | null
+  attachments?: Attachment[]
   savedAt: number
 }
 
 const DRAFT_VERSION = 1
+
+/** A draft's files, whichever shape it was written in. */
+const draftAttachments = (draft: StoredDraft): Attachment[] =>
+  Array.isArray(draft.attachments) ? draft.attachments : draft.attachment ? [draft.attachment] : []
 const draftKey = (id: string) => `oneclickhr:timesheet-draft:${id}`
 
 /** The comparable shape of the form — what "unsaved" is measured against. */
-function fingerprint(rows: GridRow[], weeklyLearnings: string, attachment: Attachment | null) {
+function fingerprint(rows: GridRow[], weeklyLearnings: string, attachments: Attachment[]) {
   return JSON.stringify({
     rows: rows
       .filter((row) => rowTotal(row) > 0 || row.projectId || row.taskName.trim())
       .map((row) => [row.projectId, row.taskName.trim(), row.billable, row.hours]),
     weeklyLearnings: weeklyLearnings.trim(),
-    attachment: attachment?.key ?? null,
+    attachments: attachments.map((file) => file.key),
   })
 }
 
@@ -121,11 +127,9 @@ export function TimesheetEditor({
     () => ({
       rows: entries.length ? entries : editable ? [emptyRow('row-initial')] : [],
       weeklyLearnings: timesheet.weeklyLearnings,
-      attachment: timesheet.attachmentKey
-        ? { key: timesheet.attachmentKey, name: timesheet.attachmentName || 'Attachment' }
-        : null,
+      attachments: timesheet.attachments,
     }),
-    [entries, editable, timesheet.weeklyLearnings, timesheet.attachmentKey, timesheet.attachmentName]
+    [entries, editable, timesheet.weeklyLearnings, timesheet.attachments]
   )
 
   const [rows, setRows] = React.useState<GridRow[]>(initial.rows)
@@ -139,7 +143,7 @@ export function TimesheetEditor({
   const learningsMissing = triedSubmit && !weeklyLearnings.trim()
   const [assignmentId, setAssignmentId] = React.useState(timesheet.assignmentId)
   const placement = placements.find((p) => p.id === assignmentId) ?? null
-  const [attachment, setAttachment] = React.useState<Attachment | null>(initial.attachment)
+  const [attachments, setAttachments] = React.useState<Attachment[]>(initial.attachments)
   const [error, setError] = React.useState<string | null>(null)
   const [rowErrors, setRowErrors] = React.useState<Record<string, string>>({})
   const [busy, setBusy] = React.useState<'save' | 'submit' | 'delete' | null>(null)
@@ -150,10 +154,10 @@ export function TimesheetEditor({
   // The server's version of this week, as a string. Anything else on screen is
   // unsaved work.
   const savedPrint = React.useMemo(
-    () => fingerprint(initial.rows, initial.weeklyLearnings, initial.attachment),
+    () => fingerprint(initial.rows, initial.weeklyLearnings, initial.attachments),
     [initial]
   )
-  const currentPrint = fingerprint(rows, weeklyLearnings, attachment)
+  const currentPrint = fingerprint(rows, weeklyLearnings, attachments)
   const dirty = editable && currentPrint !== savedPrint
 
   const rowKey = React.useRef(0)
@@ -187,7 +191,7 @@ export function TimesheetEditor({
         window.localStorage.removeItem(draftKey(timesheet.id))
         return
       }
-      if (fingerprint(draft.rows, draft.weeklyLearnings, draft.attachment) === savedPrint) {
+      if (fingerprint(draft.rows, draft.weeklyLearnings, draftAttachments(draft)) === savedPrint) {
         window.localStorage.removeItem(draftKey(timesheet.id))
         return
       }
@@ -214,12 +218,12 @@ export function TimesheetEditor({
         window.localStorage.removeItem(key)
         return
       }
-      const draft: StoredDraft = { v: DRAFT_VERSION, rows, weeklyLearnings, attachment, savedAt: Date.now() }
+      const draft: StoredDraft = { v: DRAFT_VERSION, rows, weeklyLearnings, attachments, savedAt: Date.now() }
       window.localStorage.setItem(key, JSON.stringify(draft))
     } catch {
       // Out of quota or storage denied — the in-memory form still works.
     }
-  }, [editable, recoverable, dirty, rows, weeklyLearnings, attachment, timesheet.id])
+  }, [editable, recoverable, dirty, rows, weeklyLearnings, attachments, timesheet.id])
 
   // The browser's own guard, for the tab close and the reload that no in-app
   // handler ever sees.
@@ -237,7 +241,7 @@ export function TimesheetEditor({
     if (!recoverable) return
     setRows(recoverable.rows.length ? recoverable.rows : [newRow()])
     setWeeklyLearnings(recoverable.weeklyLearnings ?? '')
-    setAttachment(recoverable.attachment ?? null)
+    setAttachments(draftAttachments(recoverable))
     setRecoverable(null)
     toast.success('Unsaved hours restored — save them when you are ready')
   }
@@ -329,8 +333,7 @@ export function TimesheetEditor({
       submit,
       weeklyLearnings: weeklyLearnings.trim() || undefined,
       assignmentId: assignmentId || null,
-      attachmentKey: attachment?.key,
-      attachmentName: attachment?.name,
+      attachments,
       entries: filled.map((row) => ({
         projectId: row.projectId || null,
         taskName: row.taskName.trim() || undefined,
@@ -539,7 +542,7 @@ export function TimesheetEditor({
 
         <Card>
           <CardContent>
-            <AttachmentDrop value={attachment} onChange={setAttachment} disabled={!editable} />
+            <AttachmentsDrop value={attachments} onChange={setAttachments} disabled={!editable} />
           </CardContent>
         </Card>
       </div>

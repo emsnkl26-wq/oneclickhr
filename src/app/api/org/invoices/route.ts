@@ -3,7 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from 
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { todayIn } from '@/lib/time'
-import { invoiceWriteSchema, resolvePaidAt } from './status-fields'
+import { invoiceWriteSchema, resolvePaidAt, payoutColumns } from './status-fields'
 import { computeTotals, normalizeItems } from '@/lib/invoice'
 import { audit } from '@/lib/audit'
 
@@ -51,6 +51,8 @@ async function handlePOST(request: NextRequest) {
       issue_date: input.issueDate,
       due_date: input.dueDate ?? null,
       notes: input.notes,
+      vendor_id: input.vendorId ?? null,
+      ...payoutColumns(input),
       created_by: ctx.userId,
     })
     .select('id, invoice_number')

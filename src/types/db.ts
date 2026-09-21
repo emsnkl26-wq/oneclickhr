@@ -281,6 +281,13 @@ export interface Invoice {
   issue_date: string
   due_date: string | null
   notes: string | null
+  /** Who the invoice is for, when it is for one person (043). */
+  employee_id?: string | null
+  /** What the org pays that person, in their currency. Never printed (043). */
+  payout_amount?: number | null
+  payout_currency?: string | null
+  /** 1 `currency` = this many `payout_currency`, as booked (043). */
+  exchange_rate?: number | null
   created_by: string | null
   created_at: string
   updated_at: string

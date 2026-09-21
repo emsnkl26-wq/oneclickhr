@@ -11,6 +11,7 @@ import { formatPeriod, formatLocal } from '@/lib/time'
 import { initials } from '@/lib/utils'
 import { TimesheetReview } from './timesheet-review'
 import type { TimesheetStatus } from '@/types/db'
+import { timesheetAttachments } from '@/lib/timesheet-attachments'
 
 export const metadata: Metadata = { title: 'Timesheet review' }
 export const dynamic = 'force-dynamic'
@@ -50,7 +51,7 @@ export default async function OrgTimesheetDetailPage({
   const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, attachment_url, attachment_name, review_note, submitted_at, reviewed_at, employee:profiles!timesheets_employee_id_fkey(id, full_name, email, photo_url, designation)'
+      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, attachments, attachment_url, attachment_name, review_note, submitted_at, reviewed_at, employee:profiles!timesheets_employee_id_fkey(id, full_name, email, photo_url, designation)'
     )
     .eq('id', id)
     .maybeSingle()
@@ -171,8 +172,7 @@ export default async function OrgTimesheetDetailPage({
           weekStart: sheet.week_start,
           status: sheet.status as TimesheetStatus,
           weeklyLearnings: sheet.weekly_learnings,
-          attachmentKey: sheet.attachment_url,
-          attachmentName: sheet.attachment_name,
+          attachments: timesheetAttachments(sheet),
           reviewNote: sheet.review_note,
           reviewedAt: sheet.reviewed_at,
           employeeName: employee?.full_name || employee?.email || 'Employee',

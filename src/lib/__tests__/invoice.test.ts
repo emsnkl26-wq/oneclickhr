@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeTotals, lineAmount, normalizeItems, suggestInvoiceNumber,
-  invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading, invoiceDate,
+  invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading, invoiceDate, billToAddressText,
 } from '@/lib/invoice'
 
 /**
@@ -116,5 +116,20 @@ describe('invoice presentation', () => {
   it('keeps a line’s unit when normalising', () => {
     expect(normalizeItems([{ description: 'x', quantity: 2, rate: 3, unit: 'hour' }])[0].unit)
       .toBe('hour')
+  })
+})
+
+describe('billToAddressText', () => {
+  it('prints one line each, skipping what is missing', () => {
+    expect(
+      billToAddressText({
+        line1: '11180 State Bridge Rd',
+        line2: 'Suite 402',
+        city: 'Alpharetta',
+        state: 'GA',
+        postalCode: '30022',
+      })
+    ).toBe('11180 State Bridge Rd, Suite 402\nAlpharetta, GA 30022')
+    expect(billToAddressText(null)).toBe('')
   })
 })

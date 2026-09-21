@@ -23,8 +23,8 @@ export interface ReviewTimesheet {
   weekStart: string
   status: TimesheetStatus
   weeklyLearnings: string | null
-  attachmentKey: string | null
-  attachmentName: string | null
+  /** Every file on the week, in upload order (044). */
+  attachments: Array<{ key: string; name: string }>
   reviewNote: string | null
   reviewedAt: string | null
   employeeName: string
@@ -103,26 +103,35 @@ export function TimesheetReview({
 
         <Card>
           <CardHeader>
-            <CardTitle>Uploaded timesheet file</CardTitle>
+            <CardTitle>
+              Uploaded timesheet {timesheet.attachments.length === 1 ? 'file' : 'files'}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {timesheet.attachmentKey ? (
-              <div className="flex items-center gap-3 rounded-lg border border-line px-3.5 py-3">
-                <FileText className="size-4 shrink-0 text-ink-muted" aria-hidden />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {timesheet.attachmentName || 'Attachment'}
-                </span>
-                <Button asChild size="sm" variant="secondary">
-                  <a
-                    href={`/api/files/view?key=${encodeURIComponent(timesheet.attachmentKey)}&download=${encodeURIComponent(
-                      timesheet.attachmentName || 'timesheet'
-                    )}`}
+            {timesheet.attachments.length ? (
+              <ul className="space-y-2">
+                {timesheet.attachments.map((file) => (
+                  <li
+                    key={file.key}
+                    className="flex items-center gap-3 rounded-lg border border-line px-3.5 py-3"
                   >
-                    <Download />
-                    Download
-                  </a>
-                </Button>
-              </div>
+                    <FileText className="size-4 shrink-0 text-ink-muted" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium" title={file.name}>
+                      {file.name}
+                    </span>
+                    <Button asChild size="sm" variant="secondary">
+                      <a
+                        href={`/api/files/view?key=${encodeURIComponent(file.key)}&download=${encodeURIComponent(
+                          file.name || 'timesheet'
+                        )}`}
+                      >
+                        <Download />
+                        Download
+                      </a>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="text-sm text-ink-muted">No attachments uploaded.</p>
             )}

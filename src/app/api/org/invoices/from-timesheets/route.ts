@@ -3,7 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from 
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { invoiceFromTimesheetsSchema } from '@/lib/schemas'
-import { computeTotals, normalizeItems, suggestInvoiceNumber } from '@/lib/invoice'
+import { billToAddressText, computeTotals, normalizeItems, suggestInvoiceNumber } from '@/lib/invoice'
 import { serviceLines, type BillableWeek } from '@/lib/billing'
 import { addDays } from '@/lib/time'
 import { audit } from '@/lib/audit'
@@ -56,7 +56,7 @@ async function handlePOST(request: NextRequest) {
   const { data: sheets, error: loadError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, week_start, week_end, status, billable_hours, invoice_id, vendor_id, client_id, assignment_id, employee_id, employee:profiles!timesheets_employee_id_fkey(full_name, email, designation)'
+      'id, code, week_start, week_end, status, billable_hours, pay_amount, pay_currency, invoice_id, vendor_id, client_id, assignment_id, employee_id, employee:profiles!timesheets_employee_id_fkey(full_name, email, designation)'
     )
     .in('id', ids)
     .eq('tenant_id', ctx.tenantId)
@@ -70,6 +70,8 @@ async function handlePOST(request: NextRequest) {
     week_end: string
     status: string
     billable_hours: number | string
+    pay_amount: number | string | null
+    pay_currency: string | null
     invoice_id: string | null
     vendor_id: string | null
     client_id: string | null
@@ -218,18 +220,7 @@ async function handlePOST(request: NextRequest) {
   const dueDate =
     input.dueDate ?? addDays(issueDate, Number(vendor.payment_terms_days ?? 30))
 
-  // Printed one line each, the way an address block reads on the page:
-  //   11180 State Bridge Rd, Suite 402
-  //   Alpharetta, GA 30022
-  const billToAddress = [
-    [address.line1, address.line2].filter(Boolean).join(', '),
-    [address.city, [address.state, address.postalCode].filter(Boolean).join(' ')]
-      .filter(Boolean)
-      .join(', '),
-    address.country,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  const billToAddress = billToAddressText(address)
 
   const [{ data: existing }, { data: tenant }] = await Promise.all([
     input.invoiceNumber
@@ -255,6 +246,26 @@ async function handlePOST(request: NextRequest) {
     suggestInvoiceNumber((existing ?? []).map((row) => row.invoice_number), tenant?.org_code)
 
   const totals = computeTotals(items, input.taxPercent, 0)
+
+  /*
+   * The payout side (043). The vendor is billed in `currency`; the person is
+   * paid in whatever their placement pays in — often a different one (billed
+   * USD, paid INR). Each week's pay was fixed at approval, so this is a sum of
+   * those snapshots, recorded only when it is one person, every week has a
+   * figure, and they share a currency. Anything less would be a guess.
+   */
+  const payCurrencies = new Set(rows.map((row) => row.pay_currency))
+  const payout =
+    employeeIds.size === 1 &&
+    payCurrencies.size === 1 &&
+    rows.every((row) => row.pay_amount != null && row.pay_currency)
+      ? {
+          amount:
+            Math.round(rows.reduce((sum, row) => sum + Number(row.pay_amount) * 100, 0)) / 100,
+          currency: rows[0].pay_currency!,
+        }
+      : null
+
   const periodStart = rows.reduce((min, r) => (r.week_start < min ? r.week_start : min), rows[0].week_start)
   const periodEnd = rows.reduce((max, r) => (r.week_end > max ? r.week_end : max), rows[0].week_end)
 
@@ -286,6 +297,9 @@ async function handlePOST(request: NextRequest) {
       issue_date: issueDate,
       due_date: dueDate,
       notes: input.notes,
+      employee_id: employeeIds.size === 1 ? rows[0].employee_id : null,
+      payout_amount: payout?.amount ?? null,
+      payout_currency: payout?.currency ?? null,
       created_by: ctx.userId,
     })
     .select('id, invoice_number')

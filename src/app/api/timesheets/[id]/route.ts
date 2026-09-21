@@ -56,7 +56,15 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     return jsonError('This timesheet has been submitted and can no longer be edited.', 409)
   }
 
-  if (input.attachmentKey && !keyBelongsToTenant(input.attachmentKey, ctx.tenantId)) {
+  // The full list when the client sends one (044); otherwise the legacy single
+  // file. Deduplicated by key so a double drop does not list a file twice.
+  const attachments = input.attachments
+    ? Array.from(new Map(input.attachments.map((file) => [file.key, file])).values())
+    : input.attachmentKey
+      ? [{ key: input.attachmentKey, name: input.attachmentName || 'Attachment' }]
+      : []
+
+  if (attachments.some((file) => !keyBelongsToTenant(file.key, ctx.tenantId))) {
     return jsonError('That file does not belong to this workspace.', 403)
   }
 
@@ -108,8 +116,10 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
    */
   const patch: Record<string, unknown> = {
     weekly_learnings: input.weeklyLearnings,
-    attachment_url: input.attachmentKey,
-    attachment_name: input.attachmentName,
+    attachments,
+    // Mirrored to the first file for the pages that only ask "is there one?".
+    attachment_url: attachments[0]?.key ?? null,
+    attachment_name: attachments[0]?.name ?? null,
   }
 
   /*

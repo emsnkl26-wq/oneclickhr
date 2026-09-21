@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import {
   ArrowLeft, ArrowRight, ClipboardList, Download, FileText, FileSignature, FilePlus2,
-  Eye, Briefcase, Timer, Building2,
+  Eye, Briefcase, Timer, Building2, Pencil,
 } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -200,6 +200,13 @@ export default async function EmployeeDetailPage({
 
   const employeeName = employee.full_name || employee.email || 'Employee'
 
+  /*
+   * A COMPLETED onboarding is history, not a state: the person is onboarded.
+   * Only an open one (invited / submitted) makes them "Onboarding" — which is
+   * also what the team list goes by, so the two pages agree.
+   */
+  const onboardingOpen = !!onboarding && onboarding.status !== 'completed'
+
   const billableWeeks = ((billable ?? []) as unknown as Array<{
     id: string
     code: string
@@ -256,6 +263,7 @@ export default async function EmployeeDetailPage({
           <>
             <GenerateInvoiceButton
               timesheets={billableWeeks}
+              employeeId={employee.id}
               employeeName={employee.full_name || employee.email || 'this employee'}
             />
             <Button asChild>
@@ -274,31 +282,25 @@ export default async function EmployeeDetailPage({
         }
       />
 
-      {onboarding ? (
+      {onboarding && onboardingOpen ? (
         /*
-          Three states, three tones. A submitted form is an ACTION waiting on
-          somebody (green, prominent); an unfinished one is a gap (amber); a
-          completed one is neither — just the way back into the full record, so
-          it gets the same neutral treatment as any other card on the page.
+          Only while there is something to DO: a submitted form is an action
+          waiting on somebody (green, prominent); an unfinished one is a gap
+          (amber). Once completed, the way back into the full record is the
+          "Edit details" button on the profile card below — not a card of its own.
         */
         <div
           className={cn(
             'flex flex-col gap-4 rounded-xl border p-5 sm:flex-row sm:items-center',
             onboarding.status === 'submitted'
               ? 'border-emerald-200 bg-emerald-50/60'
-              : onboarding.status === 'completed'
-                ? 'border-line bg-card shadow-sm'
-                : 'border-amber-200 bg-amber-50/60'
+              : 'border-amber-200 bg-amber-50/60'
           )}
         >
           <ClipboardList
             className={cn(
               'size-5 shrink-0',
-              onboarding.status === 'submitted'
-                ? 'text-emerald-600'
-                : onboarding.status === 'completed'
-                  ? 'text-brand-600'
-                  : 'text-amber-600'
+              onboarding.status === 'submitted' ? 'text-emerald-600' : 'text-amber-600'
             )}
             aria-hidden
           />
@@ -306,25 +308,17 @@ export default async function EmployeeDetailPage({
             <p className="font-semibold">
               {onboarding.status === 'submitted'
                 ? 'Their onboarding details are ready for review'
-                : onboarding.status === 'completed'
-                  ? 'Full employee details'
-                  : 'Onboarding is not finished'}
+                : 'Onboarding is not finished'}
             </p>
             <p className="mt-0.5 text-sm leading-relaxed text-ink-muted">
               {onboarding.status === 'submitted'
                 ? 'They have filled in their own details. Approving is what writes them onto this profile.'
-                : onboarding.status === 'completed'
-                  ? 'Address, work authorization, compensation, bank details and documents. Editing here updates their profile directly.'
-                  : 'They can sign in and complete their own details, or you can fill them in here. Until it is approved they are not counted as an active member of the team.'}
+                : 'They can sign in and complete their own details, or you can fill them in here. Until it is approved they are not counted as an active member of the team.'}
             </p>
           </div>
           <Button asChild variant={onboarding.status === 'submitted' ? 'default' : 'secondary'}>
             <Link href={`/org/employees/onboard/${onboarding.id}`}>
-              {onboarding.status === 'submitted'
-                ? 'Review and approve'
-                : onboarding.status === 'completed'
-                  ? 'Edit full details'
-                  : 'Open onboarding form'}
+              {onboarding.status === 'submitted' ? 'Review and approve' : 'Open onboarding form'}
               <ArrowRight />
             </Link>
           </Button>
@@ -349,7 +343,7 @@ export default async function EmployeeDetailPage({
             <p className="text-[17px] font-semibold">{employee.full_name || 'Unnamed'}</p>
             {!employee.is_active ? (
               <StatusChip status="inactive" />
-            ) : onboarding ? (
+            ) : onboardingOpen ? (
               <StatusChip status="onboarding" label="Onboarding" tone="warning" />
             ) : (
               <StatusChip status="active" />
@@ -365,9 +359,25 @@ export default async function EmployeeDetailPage({
           </p>
         </div>
 
-        <div className="text-right text-sm text-ink-muted">
-          <p>Joined {employee.date_of_joining || formatLocal(employee.created_at, tz, 'd MMM yyyy')}</p>
-          <p className="mt-0.5">{employee.timezone}</p>
+        <div className="flex flex-col items-end gap-3 text-right text-sm text-ink-muted">
+          <div>
+            <p>Joined {employee.date_of_joining || formatLocal(employee.created_at, tz, 'd MMM yyyy')}</p>
+            <p className="mt-0.5">{employee.timezone}</p>
+          </div>
+          {/* Address, work authorization, compensation, bank details and
+              documents live on the full onboarding record; editing it there
+              updates this profile directly. */}
+          {onboarding?.status === 'completed' ? (
+            <Button asChild size="sm" variant="secondary">
+              <Link
+                href={`/org/employees/onboard/${onboarding.id}`}
+                title="Address, work authorization, compensation, bank details and documents"
+              >
+                <Pencil />
+                Edit details
+              </Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 

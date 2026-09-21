@@ -191,3 +191,21 @@ export function payForWeek(
   if (payRate === null || !Number.isFinite(payRate)) return null
   return lineAmount(unitsFor(billableHours, unit), payRate)
 }
+
+/**
+ * The line a MANUAL invoice starts from — one calendar month, worded exactly
+ * like `serviceLines` words a month of timesheets, so an invoice typed by hand
+ * reads the same as one generated from approved weeks.
+ *
+ * `month` is `yyyy-mm`.
+ */
+export function monthServiceDescription(role: string | null, month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  const start = `${month}-01`
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  const end = `${month}-${String(lastDay).padStart(2, '0')}`
+  return (
+    `${role?.trim() || 'Consulting'} Services rendered for ${servicePeriodLabel(start, end)}.\n\n` +
+    `Service Period : ( ${longDate(start)} - ${longDate(end)} )`
+  )
+}

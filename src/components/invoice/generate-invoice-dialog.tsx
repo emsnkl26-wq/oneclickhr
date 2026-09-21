@@ -22,7 +22,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText } from 'lucide-react'
+import Link from 'next/link'
+import { FileText, PenLine } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -48,10 +49,12 @@ export interface BillableTimesheet {
 }
 
 export function GenerateInvoiceDialog({
-  open, timesheets, onClose, title = 'Generate invoice',
+  open, timesheets, onClose, title = 'Generate invoice', manualHref,
 }: {
   open: boolean
   timesheets: BillableTimesheet[]
+  /** Where an invoice entered by hand starts, when this dialog offers one. */
+  manualHref?: string
   onClose: () => void
   title?: string
 }) {
@@ -127,8 +130,9 @@ export function GenerateInvoiceDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Approved weeks that have not been billed yet. The invoice is created as a draft, at the
-            bill rate on each placement.
+            {timesheets.length === 0 && manualHref
+              ? 'Enter the invoice by hand, starting from their placement: billed in the vendor’s currency, with their payout in theirs.'
+              : 'Approved weeks that have not been billed yet. The invoice is created as a draft, at the bill rate on each placement.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -137,8 +141,11 @@ export function GenerateInvoiceDialog({
 
           {timesheets.length === 0 ? (
             <p className="text-sm text-ink-muted">
-              There are no approved, uninvoiced weeks here yet. A week has to be approved before it
-              can be billed.
+              There are no approved, uninvoiced weeks here yet, so there is nothing to bill from
+              timesheets.
+              {manualHref
+                ? ' You can still invoice for a period by hand — the vendor, rate and currencies come from their placement.'
+                : ' A week has to be approved before it can be billed.'}
             </p>
           ) : (
             <>
@@ -202,10 +209,20 @@ export function GenerateInvoiceDialog({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={busy} disabled={!chosen.length}>
-            <FileText />
-            Create draft invoice
-          </Button>
+          {manualHref ? (
+            <Button asChild variant={timesheets.length ? 'secondary' : 'default'}>
+              <Link href={manualHref} onClick={onClose}>
+                <PenLine />
+                {timesheets.length ? 'Enter by hand instead' : 'Create invoice manually'}
+              </Link>
+            </Button>
+          ) : null}
+          {timesheets.length ? (
+            <Button onClick={submit} loading={busy} disabled={!chosen.length}>
+              <FileText />
+              Create draft invoice
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -150,3 +150,161 @@ export function AttachmentDrop({
     </div>
   )
 }
+
+/**
+ * The same zone for ANY NUMBER of files — what a timesheet week takes, since a
+ * client's export often comes in pieces (a PDF, a spreadsheet, a signed photo).
+ *
+ * Files already attached are listed above the zone, and the zone stays in
+ * place so more can be added. Several files dropped or picked at once upload
+ * side by side; one that fails is reported by name without losing the rest.
+ */
+export function AttachmentsDrop({
+  value,
+  onChange,
+  disabled,
+  label = 'Upload timesheet files',
+  hint = 'Drag and drop or click to upload — as many files as you need (PDF, Excel, images accepted)',
+}: {
+  value: Attachment[]
+  onChange: (attachments: Attachment[]) => void
+  disabled?: boolean
+  label?: string
+  hint?: string
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const [dragDepth, setDragDepth] = React.useState(0)
+  const [uploading, setUploading] = React.useState(0)
+  const [errors, setErrors] = React.useState<string[]>([])
+  // Uploads finish out of order and after re-renders; the latest list is read
+  // from here so one upload landing never drops another.
+  const latest = React.useRef(value)
+  latest.current = value
+
+  async function accept(files: FileList | null | undefined) {
+    const picked = Array.from(files ?? [])
+    if (!picked.length || disabled) return
+    setErrors([])
+    setUploading((n) => n + picked.length)
+    await Promise.all(
+      picked.map(async (file) => {
+        try {
+          const uploaded = await uploadFile(file, 'general', {})
+          const next = [...latest.current, { key: uploaded.key, name: file.name }]
+          latest.current = next
+          onChange(next)
+        } catch (err) {
+          const reason = err instanceof ApiClientError ? err.message : 'the upload failed'
+          setErrors((prev) => [...prev, `${file.name}: ${reason}`])
+        } finally {
+          setUploading((n) => n - 1)
+        }
+      })
+    )
+    setDragDepth(0)
+  }
+
+  function remove(key: string) {
+    onChange(latest.current.filter((file) => file.key !== key))
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[13px] font-medium text-ink">{label}</p>
+
+      {value.length ? (
+        <ul className="space-y-2">
+          {value.map((file) => (
+            <li
+              key={file.key}
+              className="flex items-center gap-3 rounded-lg border border-line bg-card px-3.5 py-2.5"
+            >
+              <FileText className="size-4 shrink-0 text-ink-muted" aria-hidden />
+              <a
+                href={`/api/files/view?key=${encodeURIComponent(file.key)}&download=${encodeURIComponent(file.name)}`}
+                className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                title={file.name}
+              >
+                {file.name}
+              </a>
+              {disabled ? null : (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => remove(file.key)}
+                >
+                  <X />
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : disabled ? (
+        <p className="text-sm text-ink-muted">No attachments uploaded.</p>
+      ) : null}
+
+      {disabled ? null : (
+        <div
+          onDragEnter={(event) => {
+            event.preventDefault()
+            setDragDepth((depth) => depth + 1)
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={() => setDragDepth((depth) => Math.max(0, depth - 1))}
+          onDrop={(event) => {
+            event.preventDefault()
+            setDragDepth(0)
+            void accept(event.dataTransfer.files)
+          }}
+          onClick={() => inputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              inputRef.current?.click()
+            }
+          }}
+          className={cn(
+            'focus-ring flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-line bg-page/40 px-6 text-center transition hover:border-brand-500 hover:bg-brand-50/40',
+            value.length ? 'py-5' : 'py-8',
+            dragDepth > 0 && 'border-brand-600 bg-brand-50/60'
+          )}
+        >
+          {uploading ? (
+            <Loader2 className="size-5 animate-spin text-ink-muted" aria-hidden />
+          ) : (
+            <UploadCloud className="size-6 text-ink-muted" aria-hidden />
+          )}
+          <p className="mt-2 text-sm font-medium text-ink">
+            {uploading
+              ? `Uploading ${uploading} ${uploading === 1 ? 'file' : 'files'}…`
+              : value.length
+                ? 'Add more files'
+                : 'No attachments uploaded'}
+          </p>
+          <p className="mt-1 max-w-sm text-xs text-ink-muted">{hint}</p>
+
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            className="sr-only"
+            onChange={(event) => {
+              const files = event.target.files
+              void accept(files).finally(() => {
+                event.target.value = ''
+              })
+            }}
+          />
+        </div>
+      )}
+
+      {errors.map((message) => (
+        <p key={message} className="text-xs text-danger">{message}</p>
+      ))}
+    </div>
+  )
+}

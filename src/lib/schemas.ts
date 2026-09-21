@@ -1038,6 +1038,20 @@ export const saveTimesheetSchema = z
     assignmentId: uuid.nullable().optional(),
     attachmentKey: optionalText(300),
     attachmentName: optionalText(255),
+    /**
+     * Every file on the week, in upload order (044). When present it wins over
+     * the single `attachmentKey`, which older clients still send. The cap is a
+     * sanity bound on the request, not a product limit.
+     */
+    attachments: z
+      .array(
+        z.object({
+          key: z.string().trim().min(1).max(300),
+          name: z.string().trim().min(1).max(255),
+        })
+      )
+      .max(200, 'That is too many files for one week')
+      .optional(),
     /** True turns the draft in. The status change is re-checked server-side. */
     submit: z.boolean().default(false),
   })

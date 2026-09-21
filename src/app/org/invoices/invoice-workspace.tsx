@@ -35,6 +35,28 @@ interface DraftItem {
 // Hourly by default: the invoices this is built for bill hours × a rate.
 const EMPTY_ITEM: DraftItem = { description: '', quantity: '1', rate: '0', unit: 'hour' }
 
+/**
+ * A new invoice started from one person's placement (see `employeePrefill` on
+ * the page). The bill side fills the printed invoice; the pay side fills the
+ * internal payout — often in a different currency.
+ */
+export interface InvoicePrefill {
+  employeeId: string
+  employeeName: string
+  vendorId: string | null
+  billTo: { name: string; email: string; address: string }
+  subject: string
+  /** What the vendor is billed in. */
+  currency: string
+  item: { description: string; rate: number; unit: InvoiceUnit }
+  /** What the person is paid in — may differ from `currency`. */
+  payoutCurrency: string
+  payRate: number | null
+  hasPlacement: boolean
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
 /** Statuses that still have money coming, and so can be marked paid. */
 const PAYABLE: InvoiceStatus[] = ['draft', 'sent', 'partially_paid', 'overdue']
 
@@ -42,7 +64,7 @@ const PAYABLE: InvoiceStatus[] = ['draft', 'sent', 'partially_paid', 'overdue']
 export function InvoiceWorkspace({
   invoices, total, page, perPage, filtered, suggestedNumber, orgName, orgLogoUrl, orgPrimaryColor,
   orgAddressLines, orgEmail, orgPhone, orgPaymentDetails,
-  timezone, today,
+  timezone, today, prefill,
 }: {
   invoices: Invoice[]
   total: number
@@ -61,10 +83,28 @@ export function InvoiceWorkspace({
   timezone: string
   /** The tenant's today, so the chip and the server agree on what is overdue. */
   today: string
+  /** Opens "New invoice" straight away, filled from an employee's placement. */
+  prefill?: InvoicePrefill | null
 }) {
   const router = useRouter()
   const [editing, setEditing] = React.useState<Invoice | null>(null)
-  const [creating, setCreating] = React.useState(false)
+  const [creating, setCreating] = React.useState(!!prefill)
+  // Used once: after that dialog closes, "New invoice" starts blank again.
+  const [activePrefill, setActivePrefill] = React.useState(prefill ?? null)
+
+  React.useEffect(() => {
+    if (prefill) {
+      setActivePrefill(prefill)
+      setCreating(true)
+    }
+  }, [prefill])
+
+  // Drop `?new=employee&employee=…` so a refresh does not reopen the form.
+  function clearPrefill() {
+    if (!activePrefill) return
+    setActivePrefill(null)
+    router.replace('/org/invoices')
+  }
   const [deleting, setDeleting] = React.useState<Invoice | null>(null)
   const [marking, setMarking] = React.useState<{ invoice: Invoice; quick: boolean } | null>(null)
   const [busy, setBusy] = React.useState(false)
@@ -113,8 +153,13 @@ export function InvoiceWorkspace({
       className: 'text-right',
       headerClassName: 'text-right',
       cell: (row) => (
-        <span className="tabular block text-right font-medium">
-          {formatMoney(row.total, row.currency)}
+        <span className="tabular block text-right">
+          <span className="block font-medium">{formatMoney(row.total, row.currency)}</span>
+          {row.payout_amount != null && row.payout_currency ? (
+            <span className="block text-[11px] text-ink-muted">
+              pays {formatMoney(row.payout_amount, row.payout_currency)}
+            </span>
+          ) : null}
         </span>
       ),
     },
@@ -259,6 +304,7 @@ export function InvoiceWorkspace({
       <InvoiceDialog
         open={creating || !!editing}
         invoice={editing}
+        prefill={editing ? null : activePrefill}
         suggestedNumber={suggestedNumber}
         defaultPaymentDetails={orgPaymentDetails ?? ''}
         today={today}
@@ -273,11 +319,13 @@ export function InvoiceWorkspace({
         onClose={() => {
           setCreating(false)
           setEditing(null)
+          clearPrefill()
         }}
         onSaved={() => {
           setCreating(false)
           setEditing(null)
-          router.refresh()
+          if (activePrefill) clearPrefill()
+          else router.refresh()
         }}
       />
 
@@ -317,10 +365,11 @@ export function InvoiceWorkspace({
 }
 
 function InvoiceDialog({
-  open, invoice, suggestedNumber, defaultPaymentDetails, org, today, onClose, onSaved,
+  open, invoice, prefill, suggestedNumber, defaultPaymentDetails, org, today, onClose, onSaved,
 }: {
   open: boolean
   invoice: Invoice | null
+  prefill: InvoicePrefill | null
   org: PreviewOrg
   suggestedNumber: string
   defaultPaymentDetails: string
@@ -343,6 +392,15 @@ function InvoiceDialog({
   const [dueDate, setDueDate] = React.useState('')
   const [paidAt, setPaidAt] = React.useState('')
   const [notes, setNotes] = React.useState('')
+  // The payout side (043): internal, never printed on the invoice.
+  const [employeeId, setEmployeeId] = React.useState<string | null>(null)
+  const [vendorId, setVendorId] = React.useState<string | null>(null)
+  const [payoutCurrency, setPayoutCurrency] = React.useState('USD')
+  const [payoutAmount, setPayoutAmount] = React.useState('')
+  const [exchangeRate, setExchangeRate] = React.useState('')
+  // From the placement. While set, the payout follows quantity × pay rate
+  // until somebody types their own figure.
+  const [payRate, setPayRate] = React.useState<number | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
@@ -352,6 +410,21 @@ function InvoiceDialog({
     if (!open) return
     setError(null)
     setFields({})
+    setPayRate(null)
+    if (invoice) {
+      setEmployeeId(invoice.employee_id ?? null)
+      setVendorId(invoice.vendor_id ?? null)
+      setPayoutCurrency(invoice.payout_currency ?? invoice.currency)
+      setPayoutAmount(invoice.payout_amount == null ? '' : String(invoice.payout_amount))
+      setExchangeRate(invoice.exchange_rate == null ? '' : String(invoice.exchange_rate))
+    } else {
+      setEmployeeId(prefill?.employeeId ?? null)
+      setVendorId(prefill?.vendorId ?? null)
+      setPayoutCurrency(prefill?.payoutCurrency ?? 'USD')
+      setPayoutAmount('')
+      setExchangeRate('')
+      setPayRate(prefill?.payRate ?? null)
+    }
     if (invoice) {
       setInvoiceNumber(invoice.invoice_number)
       setBillToName(invoice.bill_to?.name ?? '')
@@ -378,13 +451,24 @@ function InvoiceDialog({
       setNotes(invoice.notes ?? '')
     } else {
       setInvoiceNumber(suggestedNumber)
-      setBillToName('')
-      setBillToEmail('')
-      setBillToAddress('')
-      setSubject('')
+      setBillToName(prefill?.billTo.name ?? '')
+      setBillToEmail(prefill?.billTo.email ?? '')
+      setBillToAddress(prefill?.billTo.address ?? '')
+      setSubject(prefill?.subject ?? '')
       setPaymentDetails(defaultPaymentDetails)
-      setItems([{ ...EMPTY_ITEM }])
-      setCurrency('USD')
+      setItems(
+        prefill
+          ? [
+              {
+                description: prefill.item.description,
+                quantity: '0',
+                rate: String(prefill.item.rate),
+                unit: prefill.item.unit,
+              },
+            ]
+          : [{ ...EMPTY_ITEM }]
+      )
+      setCurrency(prefill?.currency ?? 'USD')
       setTaxPercent('0')
       setAmountPaid('0')
       setStatus('draft')
@@ -393,7 +477,7 @@ function InvoiceDialog({
       setPaidAt('')
       setNotes('')
     }
-  }, [open, invoice, suggestedNumber, defaultPaymentDetails])
+  }, [open, invoice, prefill, suggestedNumber, defaultPaymentDetails])
 
   // Same helper the server uses, so the preview can never disagree with what
   // gets stored.
@@ -406,6 +490,23 @@ function InvoiceDialog({
       ),
     [items, taxPercent, amountPaid]
   )
+
+  /*
+   * The payout as it stands: typed, or — while a pay rate came with the
+   * placement and nobody has typed one — the billed quantity at the pay rate.
+   */
+  const payout =
+    payoutAmount !== ''
+      ? Number(payoutAmount) || 0
+      : payRate != null
+        ? round2(items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0) * payRate)
+        : null
+  const crossCurrency = payoutCurrency !== currency
+  const rate = Number(exchangeRate) || 0
+  // What is left after paying the person, in THEIR currency. Only stated when
+  // the two sides can honestly be compared: same currency, or a booked rate.
+  const margin =
+    payout == null ? null : !crossCurrency ? totals.subtotal - payout : rate > 0 ? totals.subtotal * rate - payout : null
 
   function updateItem(index: number, patch: Partial<DraftItem>) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)))
@@ -435,6 +536,11 @@ function InvoiceDialog({
       issueDate,
       dueDate: dueDate || null,
       notes: notes || undefined,
+      employeeId,
+      vendorId,
+      payoutAmount: payout,
+      payoutCurrency: payout == null ? null : payoutCurrency,
+      exchangeRate: crossCurrency && rate > 0 ? rate : null,
     }
 
     try {
@@ -478,6 +584,20 @@ function InvoiceDialog({
           <DialogBody className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
           <div className="space-y-5">
             <FormError message={error} />
+
+            {prefill && !invoice ? (
+              <p
+                className={
+                  prefill.hasPlacement
+                    ? 'rounded-lg border border-line bg-page px-3.5 py-2.5 text-[13px] text-ink-muted'
+                    : 'rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-800'
+                }
+              >
+                {prefill.hasPlacement
+                  ? `Filled from ${prefill.employeeName}’s placement. Enter the quantity for the period and check the rest.`
+                  : `${prefill.employeeName} has no active placement, so there is no vendor or rate to start from. Fill them in here, or add a placement first.`}
+              </p>
+            ) : null}
 
             <div className="grid gap-4 sm:grid-cols-3">
               <FormField label="Invoice number" error={fields.invoiceNumber} required>
@@ -615,7 +735,7 @@ function InvoiceDialog({
             </div>
 
             <div className="grid gap-4 sm:grid-cols-4">
-              <FormField label="Currency">
+              <FormField label="Billed in" hint="The currency the client pays.">
                 <CurrencySelect value={currency} onChange={setCurrency} />
               </FormField>
               <FormField label="Tax %">
@@ -658,6 +778,71 @@ function InvoiceDialog({
                 </FormField>
               </div>
             ) : null}
+
+            {/*
+              The other half of a staffing invoice: what the person behind it is
+              paid, in THEIR currency. Billed USD, paid INR is the everyday case.
+              Kept on the invoice so the two figures live side by side, and never
+              printed — the vendor has no business seeing it.
+            */}
+            <fieldset className="space-y-4 rounded-xl border border-dashed border-line p-4">
+              <legend className="px-1.5 text-[13px] font-medium">
+                Employee payout{' '}
+                <span className="font-normal text-ink-muted">· internal, not printed</span>
+              </legend>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <FormField label="Paid in" error={fields.payoutCurrency}>
+                  <CurrencySelect value={payoutCurrency} onChange={setPayoutCurrency} />
+                </FormField>
+                <FormField
+                  label="Payout amount"
+                  error={fields.payoutAmount}
+                  hint={
+                    payRate != null && payoutAmount === ''
+                      ? `Quantity × pay rate ${formatMoney(payRate, payoutCurrency)}`
+                      : 'Leave blank if not tracked here.'
+                  }
+                >
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={payoutAmount}
+                    placeholder={payout != null ? String(payout) : ''}
+                    onChange={(e) => setPayoutAmount(e.target.value)}
+                    className="tabular"
+                  />
+                </FormField>
+                {crossCurrency ? (
+                  <FormField
+                    label={`1 ${currency} =`}
+                    error={fields.exchangeRate}
+                    hint={`${payoutCurrency}, as you booked it. Optional.`}
+                  >
+                    <Input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={exchangeRate}
+                      onChange={(e) => setExchangeRate(e.target.value)}
+                      placeholder={currency === 'USD' && payoutCurrency === 'INR' ? '83.50' : ''}
+                      className="tabular"
+                    />
+                  </FormField>
+                ) : null}
+              </div>
+              {payout != null ? (
+                <p className="tabular text-[13px] text-ink-muted">
+                  Billed {formatMoney(totals.subtotal, currency)} · paid{' '}
+                  {formatMoney(payout, payoutCurrency)}
+                  {margin != null
+                    ? ` · margin ${formatMoney(margin, payoutCurrency)}`
+                    : crossCurrency
+                      ? ' · add an exchange rate to see the margin'
+                      : ''}
+                </p>
+              ) : null}
+            </fieldset>
 
             <FormField label="Notes" hint="Optional — printed above the payment details.">
               <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />

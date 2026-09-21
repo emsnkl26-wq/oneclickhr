@@ -3,7 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSc
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { todayIn } from '@/lib/time'
-import { invoiceWriteSchema, resolvePaidAt } from '../status-fields'
+import { invoiceWriteSchema, resolvePaidAt, payoutColumns } from '../status-fields'
 import { computeTotals, normalizeItems } from '@/lib/invoice'
 import { audit } from '@/lib/audit'
 
@@ -26,6 +26,10 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   const today = todayIn(ctx.tenant.timezone)
 
   const supabase = await createSupabaseServerClient()
+
+  // Who the invoice is for is only changed when the body says so, so the payout
+  // figures can be edited without re-sending the link to the person.
+  const { employee_id, ...payout } = payoutColumns(input)
 
   const { data: existing } = await supabase
     .from('invoices')
@@ -52,6 +56,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       issue_date: input.issueDate,
       due_date: input.dueDate ?? null,
       notes: input.notes,
+      ...payout,
+      ...(input.employeeId !== undefined ? { employee_id } : {}),
     })
     .eq('id', id)
     .select('id')

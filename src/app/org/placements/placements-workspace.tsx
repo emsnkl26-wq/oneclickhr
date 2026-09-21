@@ -573,7 +573,8 @@ function PlacementDialog({
   const [clientId, setClientId] = React.useState('')
   const [billRate, setBillRate] = React.useState('')
   const [payRate, setPayRate] = React.useState('')
-  const [currency, setCurrency] = React.useState('USD')
+  const [billCurrency, setBillCurrency] = React.useState('USD')
+  const [payCurrency, setPayCurrency] = React.useState('USD')
   const [rateUnit, setRateUnit] = React.useState('hour')
   const [startDate, setStartDate] = React.useState('')
   const [endDate, setEndDate] = React.useState('')
@@ -593,7 +594,8 @@ function PlacementDialog({
     setClientId(placement?.client_id ?? '')
     setBillRate(placement?.bill_rate == null ? '' : String(placement.bill_rate))
     setPayRate(placement?.pay_rate == null ? '' : String(placement.pay_rate))
-    setCurrency(placement?.bill_currency ?? 'USD')
+    setBillCurrency(placement?.bill_currency ?? 'USD')
+    setPayCurrency(placement?.pay_currency ?? placement?.bill_currency ?? 'USD')
     setRateUnit(placement?.rate_unit ?? 'hour')
     setStartDate(placement?.start_date ?? '')
     setEndDate(placement?.end_date ?? '')
@@ -608,7 +610,10 @@ function PlacementDialog({
    * says nothing.
    */
   const inverted =
-    billRate !== '' && payRate !== '' && Number(payRate) > Number(billRate)
+    billCurrency === payCurrency &&
+    billRate !== '' &&
+    payRate !== '' &&
+    Number(payRate) > Number(billRate)
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -620,9 +625,9 @@ function PlacementDialog({
       vendorId,
       clientId: clientId || null,
       billRate: billRate === '' ? '' : Number(billRate),
-      billCurrency: currency,
+      billCurrency,
       payRate: payRate === '' ? '' : Number(payRate),
-      payCurrency: currency,
+      payCurrency,
       rateUnit,
       startDate: startDate || null,
       endDate: endDate || null,
@@ -701,40 +706,70 @@ function PlacementDialog({
               </FormField>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            {/*
+              Each rate carries its OWN currency: the vendor is often billed in
+              USD while the employee is paid in INR. Invoices go out in the bill
+              currency; the payout is recorded in the pay currency.
+            */}
+            <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 label="Bill rate"
-                error={fields.billRate}
+                error={fields.billRate ?? fields.billCurrency}
                 hint="What the vendor pays."
               >
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={billRate}
-                  onChange={(e) => setBillRate(e.target.value)}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={billRate}
+                    onChange={(e) => setBillRate(e.target.value)}
+                    className="min-w-0 flex-1"
+                  />
+                  <CurrencySelect
+                    value={billCurrency}
+                    onChange={setBillCurrency}
+                    className="w-32 shrink-0"
+                  />
+                </div>
               </FormField>
               <FormField
                 label="Pay rate"
-                error={fields.payRate}
+                error={fields.payRate ?? fields.payCurrency}
                 hint="What the employee earns."
               >
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={payRate}
-                  onChange={(e) => setPayRate(e.target.value)}
-                  aria-invalid={inverted || undefined}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={payRate}
+                    onChange={(e) => setPayRate(e.target.value)}
+                    aria-invalid={inverted || undefined}
+                    className="min-w-0 flex-1"
+                  />
+                  <CurrencySelect
+                    value={payCurrency}
+                    onChange={setPayCurrency}
+                    className="w-32 shrink-0"
+                  />
+                </div>
               </FormField>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
               <FormField label="Per">
                 <Select value={rateUnit} onChange={(e) => setRateUnit(e.target.value)}>
                   {RATE_UNITS.map((unit) => (
                     <option key={unit} value={unit}>{unit}</option>
                   ))}
                 </Select>
+              </FormField>
+              <FormField label="Start date" error={fields.startDate}>
+                <DateField value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </FormField>
+              <FormField label="End date" error={fields.endDate}>
+                <DateField value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </FormField>
             </div>
 
@@ -744,18 +779,6 @@ function PlacementDialog({
                 figures the wrong way round — worth a second look.
               </p>
             ) : null}
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <FormField label="Currency" error={fields.billCurrency}>
-                <CurrencySelect value={currency} onChange={setCurrency} />
-              </FormField>
-              <FormField label="Start date" error={fields.startDate}>
-                <DateField value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              </FormField>
-              <FormField label="End date" error={fields.endDate}>
-                <DateField value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-              </FormField>
-            </div>
 
             <FormField label="Status">
               <Select value={status} onChange={(e) => setStatus(e.target.value)}>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   billLines, payForWeek, unitsFor, lineDescription, serviceLines, servicePeriodLabel,
+  monthServiceDescription,
 } from '@/lib/billing'
 import { computeTotals } from '@/lib/invoice'
 import { assignmentSchema } from '@/lib/schemas'
@@ -191,5 +192,19 @@ describe('servicePeriodLabel', () => {
 
   it('falls back to the period for a long span', () => {
     expect(servicePeriodLabel('2026-06-01', '2026-08-31')).toBe('the service period below')
+  })
+})
+
+describe('monthServiceDescription', () => {
+  it('words a manual month the way serviceLines words a month of timesheets', () => {
+    expect(monthServiceDescription('AI/ML Engineer', '2026-08')).toBe(
+      'AI/ML Engineer Services rendered for the month of August-2026.\n\n' +
+        'Service Period : ( August 1, 2026 - August 31, 2026 )'
+    )
+  })
+
+  it('knows February is short, and falls back to Consulting without a role', () => {
+    expect(monthServiceDescription(null, '2026-02')).toContain('( February 1, 2026 - February 28, 2026 )')
+    expect(monthServiceDescription('  ', '2026-02')).toMatch(/^Consulting Services/)
   })
 })

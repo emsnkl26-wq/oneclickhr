@@ -6,11 +6,12 @@ import { PageHeader, StatCard } from '@/components/ui/patterns'
 import { invoiceSummary } from '@/lib/invoice-summary'
 import { mailingAddressLines } from '@/lib/geo'
 import { formatMoney } from '@/lib/utils'
-import { suggestInvoiceNumber } from '@/lib/invoice'
-import { InvoiceWorkspace } from './invoice-workspace'
+import { billToAddressText, suggestInvoiceNumber } from '@/lib/invoice'
+import { monthServiceDescription } from '@/lib/billing'
+import { InvoiceWorkspace, type InvoicePrefill } from './invoice-workspace'
 import { todayIn } from '@/lib/time'
 import { INVOICE_STATUSES } from '@/components/invoice/invoice-status'
-import type { Invoice, InvoiceStatus } from '@/types/db'
+import type { Invoice, InvoiceStatus, RateUnit } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Invoices' }
 export const dynamic = 'force-dynamic'
@@ -29,7 +30,7 @@ const STATUSES: InvoiceStatus[] = INVOICE_STATUSES
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string; page?: string }>
+  searchParams: Promise<{ q?: string; status?: string; page?: string; new?: string; employee?: string }>
 }) {
   const ctx = await requireOrg()
   const supabase = await createSupabaseServerClient()
@@ -96,6 +97,11 @@ export default async function InvoicesPage({
     invoiceSummary(supabase, ctx.tenantId, currency, todayIn(ctx.tenant.timezone)),
   ])
 
+  const prefill =
+    params.new === 'employee' && params.employee
+      ? await employeePrefill(supabase, params.employee, todayIn(ctx.tenant.timezone))
+      : null
+
   const money = (value: number) => formatMoney(value, currency)
 
   const suggested = suggestInvoiceNumber(
@@ -158,7 +164,88 @@ export default async function InvoicesPage({
         orgPhone={company?.company_phone ?? null}
         timezone={ctx.tenant.timezone}
         today={today}
+        prefill={prefill}
       />
     </div>
   )
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * A new invoice for one person, started from their placement — what the
+ * employee page's "Generate invoice" opens when there are no approved weeks to
+ * bill from.
+ *
+ * TWO CURRENCIES, on purpose: the vendor is billed in the placement's bill
+ * currency (say USD) while the person is paid in its pay currency (say INR).
+ * The bill side fills the printed invoice; the pay side fills the internal
+ * payout, which the vendor never sees.
+ *
+ * Covers LAST month, since that is the month that gets billed. Quantity is left
+ * at zero rather than guessed — the hours are the one figure a person has to
+ * enter.
+ */
+async function employeePrefill(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  employeeId: string,
+  today: string
+): Promise<InvoicePrefill | null> {
+  if (!UUID.test(employeeId)) return null
+
+  const [{ data: person }, { data: placement }] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('id, full_name, email, designation')
+      .eq('id', employeeId)
+      .eq('role', 'employee')
+      .maybeSingle(),
+    supabase
+      .from('employee_assignments')
+      .select(
+        'bill_rate, bill_currency, pay_rate, pay_currency, rate_unit, vendor:vendors(id, name, email, address)'
+      )
+      .eq('employee_id', employeeId)
+      .eq('status', 'active')
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (!person) return null
+
+  const row = placement as unknown as {
+    bill_rate: number | string | null
+    bill_currency: string
+    pay_rate: number | string | null
+    pay_currency: string
+    rate_unit: RateUnit
+    vendor: { id: string; name: string; email: string | null; address: Record<string, string> | null } | null
+  } | null
+
+  const [y, m] = today.split('-').map(Number)
+  const lastMonth = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+  const name = person.full_name || person.email || ''
+
+  return {
+    employeeId: person.id,
+    employeeName: name,
+    vendorId: row?.vendor?.id ?? null,
+    billTo: {
+      name: row?.vendor?.name ?? '',
+      email: row?.vendor?.email ?? '',
+      address: billToAddressText(row?.vendor?.address ?? null),
+    },
+    subject: [person.designation, name].filter(Boolean).join(' - '),
+    currency: row?.bill_currency ?? 'USD',
+    item: {
+      description: monthServiceDescription(person.designation, lastMonth),
+      rate: row?.bill_rate == null ? 0 : Number(row.bill_rate),
+      unit: row?.rate_unit ?? 'hour',
+    },
+    payoutCurrency: row?.pay_currency ?? row?.bill_currency ?? 'USD',
+    payRate: row?.pay_rate == null ? null : Number(row.pay_rate),
+    hasPlacement: !!row,
+  }
 }

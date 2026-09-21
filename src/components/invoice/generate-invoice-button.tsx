@@ -8,10 +8,11 @@
  * `open` state a dialog needs. This is the smallest possible piece of client
  * code that closes that gap.
  *
- * It is rendered even when there is nothing to bill, and disabled with an
- * explanation instead. A button that appears and disappears depending on
- * invisible state teaches people that the feature is unreliable; one that is
- * present and says why it cannot be used teaches them how the feature works.
+ * On an employee's page it is ALWAYS usable: with no approved weeks to bill
+ * from, the dialog offers an invoice entered by hand, filled from the person's
+ * placement. Elsewhere, with nothing to bill, it is disabled with an
+ * explanation — a button that appears and disappears depending on invisible
+ * state teaches people that the feature is unreliable.
  */
 
 import * as React from 'react'
@@ -20,24 +21,32 @@ import { Button } from '@/components/ui/button'
 import { GenerateInvoiceDialog, type BillableTimesheet } from './generate-invoice-dialog'
 
 export function GenerateInvoiceButton({
-  timesheets, employeeName,
+  timesheets, employeeName, employeeId,
 }: {
   timesheets: BillableTimesheet[]
   employeeName?: string
+  /** Enables the manual invoice, pre-filled from this person's placement. */
+  employeeId?: string
 }) {
   const [open, setOpen] = React.useState(false)
   const none = timesheets.length === 0
+  const manualHref = employeeId
+    ? `/org/invoices?new=employee&employee=${encodeURIComponent(employeeId)}`
+    : undefined
+  const unusable = none && !manualHref
 
   return (
     <>
       <Button
-        variant={none ? 'secondary' : 'default'}
+        variant={unusable ? 'secondary' : 'default'}
         onClick={() => setOpen(true)}
-        disabled={none}
+        disabled={unusable}
         title={
-          none
+          unusable
             ? 'There are no approved, uninvoiced weeks to bill yet.'
-            : `Bill ${timesheets.length} approved ${timesheets.length === 1 ? 'week' : 'weeks'}`
+            : none
+              ? 'No approved weeks to bill — create one by hand'
+              : `Bill ${timesheets.length} approved ${timesheets.length === 1 ? 'week' : 'weeks'}`
         }
       >
         <FileText />
@@ -47,6 +56,7 @@ export function GenerateInvoiceButton({
       <GenerateInvoiceDialog
         open={open}
         timesheets={timesheets}
+        manualHref={manualHref}
         onClose={() => setOpen(false)}
         title={employeeName ? `Invoice for ${employeeName}` : 'Generate invoice'}
       />
