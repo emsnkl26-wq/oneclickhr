@@ -4,7 +4,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSc
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { audit } from '@/lib/audit'
-import { boardSchema, syncBoardMembers } from '../../board-writes'
+import { boardSchema, syncBoardMembers, notifyBoardMembers } from '../../board-writes'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,8 +34,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   if (input.color !== undefined) patch.color = input.color
 
   const { data, error } = Object.keys(patch).length
-    ? await supabase.from('boards').update(patch).eq('id', id).select('id').maybeSingle()
-    : await supabase.from('boards').select('id').eq('id', id).maybeSingle()
+    ? await supabase.from('boards').update(patch).eq('id', id).select('id, name').maybeSingle()
+    : await supabase.from('boards').select('id, name').eq('id', id).maybeSingle()
   if (error) return jsonError(friendlyDbError(error), 400)
   if (!data) return jsonError('That board was not found.', 404)
 
@@ -47,6 +47,13 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       desired: input.memberIds,
     })
     if (members.error) return jsonError(members.error, 400)
+
+    await notifyBoardMembers(supabase, {
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      profileIds: members.added,
+      boardName: data.name,
+    })
   }
 
   await audit({

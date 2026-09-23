@@ -67,20 +67,45 @@ async function handlePOST(request: NextRequest) {
 
   const supabase = await createSupabaseServerClient()
 
-  // RLS confines this to the caller's own rows, so no employee can clock anyone
-  // else in or out.
-  const { data: existing } = await supabase
+  /*
+   * The OPEN shift — whatever day it was started on, not just today's.
+   *
+   * A shift that crosses midnight in the org's zone (a late clock-in, or
+   * simply someone who forgot to clock out) still has `date` set to the day
+   * it began. Looking this up by `date = today` only, as both branches used
+   * to, means the moment the calendar day rolls over the row becomes
+   * invisible to a fresh "today" query: clock-out reports "you have not
+   * clocked in today", the dashboard reports "not clocked in" and offers a
+   * fresh Clock In, and the original shift is stuck open forever with no UI
+   * path back to it.
+   */
+  const { data: openShift } = await supabase
     .from('attendance')
-    .select('id, login_time, logout_time')
+    .select('id, date, login_time, logout_time')
     .eq('employee_id', ctx.userId)
-    .eq('date', today)
+    .is('logout_time', null)
+    .order('date', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   if (action === 'in') {
-    if (existing && !existing.logout_time) {
-      return jsonError('You are already clocked in.', 409)
+    if (openShift) {
+      return jsonError(
+        openShift.date === today
+          ? 'You are already clocked in.'
+          : `You still have an open shift from ${openShift.date} — clock out before starting a new one.`,
+        409
+      )
     }
-    if (existing?.logout_time) {
+
+    const { data: todayRow } = await supabase
+      .from('attendance')
+      .select('id')
+      .eq('employee_id', ctx.userId)
+      .eq('date', today)
+      .maybeSingle()
+
+    if (todayRow) {
       return jsonError('You have already completed your shift for today.', 409)
     }
 
@@ -118,15 +143,16 @@ async function handlePOST(request: NextRequest) {
   }
 
   // --- Clock out -----------------------------------------------------------
-  if (!existing) return jsonError('You have not clocked in today.', 409)
-  if (existing.logout_time) return jsonError('You have already clocked out.', 409)
+  // Deliberately NOT scoped to `today` — see the comment on `openShift` above.
+  // Whatever day the open shift started on, this is what closes it.
+  if (!openShift) return jsonError('You are not clocked in.', 409)
 
-  const totalHours = hoursBetween(existing.login_time, now)
+  const totalHours = hoursBetween(openShift.login_time, now)
 
   const { data, error } = await supabase
     .from('attendance')
     .update({ logout_time: now.toISOString(), total_hours: totalHours })
-    .eq('id', existing.id)
+    .eq('id', openShift.id)
     // Idempotent: a second request finds logout_time already set and matches
     // nothing, so the recorded hours cannot be overwritten by a late retry.
     .is('logout_time', null)
@@ -143,7 +169,7 @@ async function handlePOST(request: NextRequest) {
     action: 'attendance.clock_out',
     entity: 'attendance',
     entityId: data.id,
-    meta: { date: today, totalHours },
+    meta: { date: openShift.date, totalHours },
     request,
   })
 

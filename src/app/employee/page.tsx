@@ -40,6 +40,7 @@ export default async function EmployeeDashboard() {
    */
   const [
     todayRecord,
+    openRecord,
     monthRecords,
     pendingLeaves,
     notifications,
@@ -53,6 +54,21 @@ export default async function EmployeeDashboard() {
       .from('attendance')
       .select('id, login_time, logout_time, total_hours, is_late')
       .eq('date', today)
+      .maybeSingle(),
+    /*
+     * A shift that crossed midnight in the org's zone is still open but no
+     * longer files under "today" — see the matching comment in
+     * `/api/employee/clock`. Without this, the toggle below loses track of it
+     * the moment the calendar day rolls over: it reports "not clocked in" and
+     * offers a fresh Clock In while the earlier shift sits open forever with
+     * no control left to close it.
+     */
+    supabase
+      .from('attendance')
+      .select('id, login_time, logout_time, total_hours, is_late')
+      .is('logout_time', null)
+      .order('date', { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from('attendance')
@@ -92,7 +108,7 @@ export default async function EmployeeDashboard() {
   const records = monthRecords.data ?? []
   const totalHours = records.reduce((sum, r) => sum + Number(r.total_hours ?? 0), 0)
   const lateCount = records.filter((r) => r.is_late).length
-  const current = todayRecord.data
+  const current = openRecord.data ?? todayRecord.data
 
   const tasks = (myTasks.data ?? [])
     .map((row) => row.tasks as unknown as { id: string; title: string; priority: string; due_date: string | null } | null)

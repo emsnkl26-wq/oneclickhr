@@ -10,6 +10,7 @@ import 'server-only'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { BOARD_COLORS } from '@/components/board/board-colors'
+import { notifyEmployee } from '@/lib/notify'
 
 export const boardSchema = z.object({
   name: z.string().trim().min(1, 'Give the board a name').max(100),
@@ -110,4 +111,33 @@ export async function syncBoardMembers(
   }
 
   return { added: error ? [] : added, removed: error ? [] : removed, error }
+}
+
+/**
+ * Tell people they were put on a board.
+ *
+ * `syncBoardMembers` only ever changes the roster — same split as
+ * `syncAssignees`/`notifyAssigned` on the task side, and for the same reason:
+ * a write that is refused should not also claim to have notified anyone.
+ * Never the actor, for the same reason as `notifyAssigned`.
+ */
+export async function notifyBoardMembers(
+  supabase: SupabaseClient,
+  args: { tenantId: string; actorId: string; profileIds: string[]; boardName: string }
+): Promise<void> {
+  const targets = args.profileIds.filter((id) => id !== args.actorId)
+  if (!targets.length) return
+
+  await Promise.all(
+    targets.map((employeeId) =>
+      notifyEmployee(supabase, {
+        tenantId: args.tenantId,
+        employeeId,
+        title: 'You were added to a board',
+        description: args.boardName,
+        createdBy: args.actorId,
+        event: 'board.member_added',
+      })
+    )
+  )
 }

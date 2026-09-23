@@ -4,7 +4,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from 
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { audit } from '@/lib/audit'
-import { boardSchema, syncBoardMembers, seedBoardColumns } from '../board-writes'
+import { boardSchema, syncBoardMembers, seedBoardColumns, notifyBoardMembers } from '../board-writes'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +53,13 @@ async function handlePOST(request: NextRequest) {
     tenantId: ctx.tenantId,
     actorId: ctx.userId,
     desired: input.memberIds,
+  })
+
+  await notifyBoardMembers(supabase, {
+    tenantId: ctx.tenantId,
+    actorId: ctx.userId,
+    profileIds: members.added,
+    boardName: input.name,
   })
 
   await audit({

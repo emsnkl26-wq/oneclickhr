@@ -49,6 +49,7 @@ export type NotificationEvent =
   | 'onboarding.changes_requested'
   | 'task.assigned'
   | 'task.commented'
+  | 'board.member_added'
   | 'visa.expiring'
   | 'meeting.invited'
   | 'generic'
@@ -138,6 +139,14 @@ const CATALOG: Record<NotificationEvent, EventSpec> = {
     importance: 'normal',
     path: employeeOrOrg(EMPLOYEE_ROUTES.board, ORG_ROUTES.board),
     tag: (targetId) => (targetId ? `task:${targetId}` : undefined),
+  },
+
+  // Being added to a board is how someone finds out there is a board to look
+  // at. Same shape as `task.assigned` — noticed on the board itself, not
+  // worth a mail.
+  'board.member_added': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.board, ORG_ROUTES.board),
   },
 
   // A deadline with legal consequences, measured in days. The whole point of
