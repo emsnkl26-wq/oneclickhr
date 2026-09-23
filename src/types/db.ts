@@ -18,6 +18,8 @@ export type NotificationChannel = 'push' | 'email'
 export type NotificationDeliveryStatus = 'sent' | 'failed' | 'skipped'
 export type InvoiceStatus =
   | 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'
+/** 046. `normal` is hourly/timesheet-backed; `freelancer` is entered by hand, no timesheet. */
+export type InvoiceType = 'normal' | 'freelancer'
 export type CalendarStatus = 'connected' | 'needs_reauth' | 'revoked'
 export type MeetingSource = 'app' | 'google'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
@@ -265,6 +267,8 @@ export interface Invoice {
   period_start: string | null
   period_end: string | null
   invoice_number: string
+  /** Normal (timesheet-backed) or freelancer (hand-entered), chosen per invoice (046). */
+  invoice_type: InvoiceType
   bill_to: { name?: string; email?: string; address?: string }
   /** The "FOR:" line on the printed invoice (042). */
   subject: string | null

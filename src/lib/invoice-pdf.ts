@@ -23,6 +23,8 @@ import {
   invoiceDate, invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading,
 } from '@/lib/invoice'
 import { loadOrgLogo, ONECLICKHR_URL, type LogoAsset } from '@/lib/document-pdf'
+import { apiGet } from '@/lib/fetcher'
+import { formatPeriod } from '@/lib/time'
 import type { Invoice } from '@/types/db'
 import type { jsPDF as JsPDF } from 'jspdf'
 
@@ -56,6 +58,97 @@ function linesOf(text: string | null | undefined): string[] {
     .filter(Boolean)
 }
 
+/** A billed week, as the timesheet summary page prints it. */
+export interface TimesheetSummaryRow {
+  code: string
+  employeeName: string
+  weekStart: string
+  weekEnd: string
+  billableHours: number
+}
+
+/**
+ * The weeks behind a NORMAL invoice, straight from `timesheets.invoice_id`
+ * (024) — nothing here is typed by hand, so there is nothing that can drift
+ * from what was actually billed.
+ *
+ * Failure is swallowed rather than blocking the download: a saved invoice
+ * without a reachable summary should still hand over its PDF.
+ */
+async function fetchTimesheetSummary(invoiceId: string): Promise<TimesheetSummaryRow[]> {
+  try {
+    const { timesheets } = await apiGet<{ timesheets: TimesheetSummaryRow[] }>(
+      `/api/org/invoices/${invoiceId}/timesheets`
+    )
+    return timesheets
+  } catch (err) {
+    console.error('[invoice-pdf] could not load the timesheet summary', err)
+    return []
+  }
+}
+
+/** A fresh page listing every billed week, ending with the total hours. */
+function appendTimesheetSummaryPage(doc: JsPDF, rows: TimesheetSummaryRow[]): void {
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const left = 44
+  const right = pageWidth - 44
+
+  const text = (
+    value: string,
+    x: number,
+    y: number,
+    opts: { bold?: boolean; size?: number; color?: RGB; align?: 'left' | 'center' | 'right' } = {}
+  ) => {
+    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal')
+    doc.setFontSize(opts.size ?? 8.5)
+    doc.setTextColor(...(opts.color ?? INK))
+    doc.text(value, x, y, opts.align ? { align: opts.align } : undefined)
+  }
+
+  doc.addPage()
+  let y = 56
+  text('TIMESHEET SUMMARY', left, y, { bold: true, size: 13 })
+  y += 20
+
+  const cols = [left, left + 90, right - 220, right - 90, right]
+  const rowHeight = 16
+
+  const drawHeader = (at: number) => {
+    doc.setDrawColor(...INK)
+    doc.setLineWidth(1.2)
+    doc.line(cols[0], at, cols[4], at)
+    doc.setLineWidth(0.6)
+    doc.line(cols[0], at + rowHeight, cols[4], at + rowHeight)
+    const labels = ['WEEK', 'EMPLOYEE', 'PERIOD', 'HOURS']
+    labels.forEach((label, i) => {
+      text(label, i === 3 ? cols[i] + 6 : cols[i] + 4, at + 11, { bold: true })
+    })
+    return at + rowHeight
+  }
+
+  y = drawHeader(y)
+  let totalHours = 0
+  for (const row of rows) {
+    if (y + rowHeight > pageHeight - 56) {
+      doc.line(cols[0], y, cols[4], y)
+      doc.addPage()
+      y = drawHeader(56)
+    }
+    text(row.code, cols[0] + 4, y + 11)
+    text(row.employeeName, cols[1] + 4, y + 11)
+    text(formatPeriod(row.weekStart, row.weekEnd), cols[2] + 4, y + 11)
+    text(String(row.billableHours), cols[3] + 6, y + 11)
+    totalHours += Number(row.billableHours) || 0
+    y += rowHeight
+  }
+  doc.setLineWidth(0.6)
+  doc.line(cols[0], y, cols[4], y)
+
+  y += 20
+  text(`TOTAL BILLABLE HOURS: ${totalHours}`, cols[3] + 6, y, { bold: true })
+}
+
 export async function downloadInvoicePdf(
   invoice: Invoice,
   orgName: string,
@@ -63,6 +156,14 @@ export async function downloadInvoicePdf(
 ): Promise<void> {
   const logo = await loadOrgLogo(org?.logoUrl ?? null)
   const doc = await buildInvoicePdf(invoice, orgName, org, logo)
+
+  // A normal invoice is timesheet-backed by definition, so its PDF carries the
+  // weeks it was built from — auto-attached, never a separate manual step.
+  if (invoice.invoice_type === 'normal' && invoice.id) {
+    const timesheets = await fetchTimesheetSummary(invoice.id)
+    if (timesheets.length) appendTimesheetSummaryPage(doc, timesheets)
+  }
+
   doc.save(`${invoice.invoice_number}.pdf`)
 }
 

@@ -36,6 +36,7 @@ async function handlePOST(request: NextRequest) {
     .insert({
       tenant_id: ctx.tenantId,
       invoice_number: input.invoiceNumber,
+      invoice_type: input.invoiceType,
       bill_to: input.billTo,
       subject: input.subject,
       payment_details: input.paymentDetails,

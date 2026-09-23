@@ -278,6 +278,9 @@ async function handlePOST(request: NextRequest) {
       period_start: periodStart,
       period_end: periodEnd,
       invoice_number: invoiceNumber,
+      // Always normal: this route only ever bills approved timesheet weeks,
+      // and a freelancer invoice by definition has none — see 046.
+      invoice_type: 'normal',
       bill_to: {
         name: vendor.name,
         email: vendor.email ?? undefined,

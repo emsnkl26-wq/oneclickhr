@@ -596,8 +596,11 @@ export const invoiceItemSchema = z.object({
   unit: z.enum(['hour', 'day', 'month', 'year', 'item']).optional(),
 })
 
+export const invoiceTypeEnum = z.enum(['normal', 'freelancer'])
+
 export const invoiceSchema = z.object({
   invoiceNumber: z.string().trim().min(1, 'Enter an invoice number').max(60),
+  invoiceType: invoiceTypeEnum.default('normal'),
   billTo: z.object({
     name: z.string().trim().min(1, 'Who is this invoice for?').max(160),
     email: z.string().trim().max(254).optional().or(z.literal('')),

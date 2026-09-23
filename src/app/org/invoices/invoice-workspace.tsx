@@ -23,7 +23,13 @@ import { downloadInvoicePdf } from '@/lib/invoice-pdf'
 import {
   INVOICE_STATUSES, INVOICE_STATUS_LABELS, InvoiceStatusChip,
 } from '@/components/invoice/invoice-status'
-import type { Invoice, InvoiceStatus, InvoiceUnit } from '@/types/db'
+import { StatusChip } from '@/components/ui/patterns'
+import type { Invoice, InvoiceStatus, InvoiceType, InvoiceUnit } from '@/types/db'
+
+const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
+  normal: 'Normal',
+  freelancer: 'Freelancer',
+}
 
 interface DraftItem {
   description: string
@@ -134,6 +140,17 @@ export function InvoiceWorkspace({
       key: 'billTo',
       header: 'Bill to',
       cell: (row) => <span className="truncate">{row.bill_to?.name || '—'}</span>,
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      cell: (row) => (
+        <StatusChip
+          status={row.invoice_type}
+          label={INVOICE_TYPE_LABELS[row.invoice_type] ?? row.invoice_type}
+          tone={row.invoice_type === 'freelancer' ? 'info' : 'neutral'}
+        />
+      ),
     },
     {
       key: 'issued',
@@ -378,6 +395,7 @@ function InvoiceDialog({
   onSaved: () => void
 }) {
   const [invoiceNumber, setInvoiceNumber] = React.useState('')
+  const [invoiceType, setInvoiceType] = React.useState<InvoiceType>('normal')
   const [billToName, setBillToName] = React.useState('')
   const [billToEmail, setBillToEmail] = React.useState('')
   const [billToAddress, setBillToAddress] = React.useState('')
@@ -427,6 +445,7 @@ function InvoiceDialog({
     }
     if (invoice) {
       setInvoiceNumber(invoice.invoice_number)
+      setInvoiceType(invoice.invoice_type ?? 'normal')
       setBillToName(invoice.bill_to?.name ?? '')
       setBillToEmail(invoice.bill_to?.email ?? '')
       setBillToAddress(invoice.bill_to?.address ?? '')
@@ -451,6 +470,7 @@ function InvoiceDialog({
       setNotes(invoice.notes ?? '')
     } else {
       setInvoiceNumber(suggestedNumber)
+      setInvoiceType('normal')
       setBillToName(prefill?.billTo.name ?? '')
       setBillToEmail(prefill?.billTo.email ?? '')
       setBillToAddress(prefill?.billTo.address ?? '')
@@ -519,6 +539,7 @@ function InvoiceDialog({
 
     const payload = {
       invoiceNumber,
+      invoiceType,
       billTo: { name: billToName, email: billToEmail, address: billToAddress },
       subject: subject || undefined,
       paymentDetails: paymentDetails || undefined,
@@ -598,6 +619,23 @@ function InvoiceDialog({
                   : `${prefill.employeeName} has no active placement, so there is no vendor or rate to start from. Fill them in here, or add a placement first.`}
               </p>
             ) : null}
+
+            <FormField
+              label="Invoice type"
+              hint={
+                invoiceType === 'normal'
+                  ? 'Hourly, timesheet-backed. When this invoice is generated from approved weeks, a timesheet summary is attached automatically.'
+                  : 'Entered by hand — a fixed fee or custom line items, with no timesheet involved.'
+              }
+            >
+              <Select
+                value={invoiceType}
+                onChange={(e) => setInvoiceType(e.target.value as InvoiceType)}
+              >
+                <option value="normal">Normal invoice</option>
+                <option value="freelancer">Freelancer invoice</option>
+              </Select>
+            </FormField>
 
             <div className="grid gap-4 sm:grid-cols-3">
               <FormField label="Invoice number" error={fields.invoiceNumber} required>

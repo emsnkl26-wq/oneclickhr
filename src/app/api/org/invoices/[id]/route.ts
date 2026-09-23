@@ -41,6 +41,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     .from('invoices')
     .update({
       invoice_number: input.invoiceNumber,
+      invoice_type: input.invoiceType,
       bill_to: input.billTo,
       subject: input.subject,
       payment_details: input.paymentDetails,
