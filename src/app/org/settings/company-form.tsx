@@ -12,7 +12,7 @@ import { Select } from '@/components/ui/select'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import {
-  COUNTRY_CODES, countryCodeOf, countryName, divisionLabel, divisionsFor,
+  COUNTRY_CODES, countryCodeOf, countryName, divisionLabel, divisionsFor, phonePlaceholderFor,
 } from '@/lib/geo'
 import type { CompanyDetails } from '@/types/db'
 
@@ -271,7 +271,7 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
                 <Input
                   value={values.companyPhone}
                   onChange={set('companyPhone')}
-                  placeholder="+1 (314) 548-9101"
+                  placeholder={phonePlaceholderFor(values.country)}
                 />
               </FormField>
               <FormField label="Website" error={fields.website}>
@@ -312,7 +312,7 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
                 <Input
                   value={values.signatoryPhone}
                   onChange={set('signatoryPhone')}
-                  placeholder="+1 (484) 803-2090"
+                  placeholder={phonePlaceholderFor(values.country)}
                 />
               </FormField>
             </div>

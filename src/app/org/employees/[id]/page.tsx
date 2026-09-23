@@ -22,6 +22,7 @@ import { EMPLOYEE_LOGIN_PATH } from '@/lib/routes'
 import { appUrl } from '@/lib/env'
 import { EmployeeEditForm } from './employee-edit-form'
 import { SignInDetails } from './sign-in-details'
+import { EmployeeDangerZone } from './danger-zone'
 import { GenerateInvoiceButton } from '@/components/invoice/generate-invoice-button'
 import type { GeneratedDocumentType, TimesheetStatus } from '@/types/db'
 
@@ -697,6 +698,11 @@ export default async function EmployeeDetailPage({
           </Card>
         </div>
       </div>
+
+      <EmployeeDangerZone
+        employeeId={employee.id}
+        name={employee.full_name || null}
+      />
     </div>
   )
 }

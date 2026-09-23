@@ -417,10 +417,10 @@ export type AgreementSectionValue = ReturnType<typeof buildAgreementSections>[nu
  * "$72,800 per annum, payable in 12 monthly instalments" — the sentence clause 6
  * needs, assembled from the two fields the form actually asks for.
  */
-export function composeSalaryText(amount: string, cadence: string): string {
+export function composeSalaryText(amount: string, cadence: string, symbol = '$'): string {
   const value = amount.trim()
   if (!value) return 'the agreed compensation'
-  const money = /^[\d.,]+$/.test(value) ? `$${value}` : value
+  const money = /^[\d.,]+$/.test(value) ? `${symbol}${value}` : value
   switch (cadence) {
     case 'monthly':
       return `${money} per month, payable on or before the 15th of every month`

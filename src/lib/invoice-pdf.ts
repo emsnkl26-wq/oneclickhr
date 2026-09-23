@@ -22,8 +22,17 @@
 import {
   invoiceDate, invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading,
 } from '@/lib/invoice'
-import { loadOrgLogo, ONECLICKHR_URL } from '@/lib/document-pdf'
+import { loadOrgLogo, ONECLICKHR_URL, type LogoAsset } from '@/lib/document-pdf'
 import type { Invoice } from '@/types/db'
+import type { jsPDF as JsPDF } from 'jspdf'
+
+/** Everything the printed page reads. A saved row satisfies it; so does the form. */
+export type PrintableInvoice = Pick<
+  Invoice,
+  | 'invoice_number' | 'issue_date' | 'due_date' | 'currency' | 'bill_to' | 'subject'
+  | 'items' | 'subtotal' | 'tax_percent' | 'total' | 'amount_paid' | 'balance_due'
+  | 'notes' | 'payment_details'
+>
 
 export interface InvoiceOrgBranding {
   logoUrl: string | null
@@ -52,8 +61,27 @@ export async function downloadInvoicePdf(
   orgName: string,
   org?: InvoiceOrgBranding
 ): Promise<void> {
-  const { default: jsPDF } = await import('jspdf')
   const logo = await loadOrgLogo(org?.logoUrl ?? null)
+  const doc = await buildInvoicePdf(invoice, orgName, org, logo)
+  doc.save(`${invoice.invoice_number}.pdf`)
+}
+
+/**
+ * Draw the invoice and hand back the document, unsaved.
+ *
+ * The ONE layout. The download saves what this returns, and the on-screen
+ * preview (src/components/invoice/invoice-preview.tsx) rasterizes the very same
+ * bytes — so what somebody checks while typing is page-for-page what they get.
+ * `logo` is passed in, already loaded, so the preview can fetch it once rather
+ * than on every keystroke.
+ */
+export async function buildInvoicePdf(
+  invoice: PrintableInvoice,
+  orgName: string,
+  org?: InvoiceOrgBranding,
+  logo: LogoAsset | null = null
+): Promise<JsPDF> {
+  const { default: jsPDF } = await import('jspdf')
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -213,7 +241,7 @@ export async function downloadInvoicePdf(
   }
 
   const boxHeight = 18
-  const needed = rows.length * boxHeight + 200
+  const needed = rows.length * boxHeight
   let ty = bodyBottom
   if (ty + needed > pageHeight - 40) {
     doc.addPage()
@@ -231,9 +259,18 @@ export async function downloadInvoicePdf(
 
   // --- Notes ----------------------------------------------------------------
   let fy = ty + 50
+  /** Start a fresh page when `height` more points would run off this one. */
+  const ensureRoom = (height: number) => {
+    if (fy + height > pageHeight - 40) {
+      doc.addPage()
+      fy = 56
+    }
+  }
   if (invoice.notes) {
+    ensureRoom(22)
     text('NOTES', left, fy)
     for (const line of doc.splitTextToSize(invoice.notes, right - left) as string[]) {
+      ensureRoom(11)
       fy += 11
       text(line, left, fy)
     }
@@ -243,10 +280,7 @@ export async function downloadInvoicePdf(
   // --- Payment details and sign-off ------------------------------------------
   const payment = linesOf(invoice.payment_details ?? org?.paymentDetails)
   if (payment.length) {
-    if (fy + payment.length * 11.5 + 60 > pageHeight - 40) {
-      doc.addPage()
-      fy = 56
-    }
+    ensureRoom(payment.length * 11.5 + 12)
     text('PAYMENT DETAILS', left, fy)
     for (const line of payment) {
       fy += 11.5
@@ -255,6 +289,7 @@ export async function downloadInvoicePdf(
     fy += 34
   }
 
+  ensureRoom(12)
   text('Thank you for your business !', left, fy, { bold: true })
   text(orgName, left, fy + 11.5, { bold: true })
 
@@ -265,5 +300,5 @@ export async function downloadInvoicePdf(
   // Clickable — this is the only branding on an invoice that isn't the org's own.
   doc.textWithLink('Powered by OneClickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
 
-  doc.save(`${invoice.invoice_number}.pdf`)
+  return doc
 }

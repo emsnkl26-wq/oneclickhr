@@ -610,7 +610,6 @@ function ExpenseDialog({
                 <input
                   ref={fileInput}
                   type="file"
-                  accept="image/*,application/pdf"
                   onChange={onPickFile}
                   className="sr-only"
                   aria-label="Attach a receipt"

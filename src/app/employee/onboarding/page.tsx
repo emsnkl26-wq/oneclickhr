@@ -23,10 +23,10 @@ export const dynamic = 'force-dynamic'
  *   • invited             → the form.
  *
  * The org has no currency setting yet (invoices carry their own), so pay is
- * labelled with a plain dollar sign — the same placeholder the org's wizard
+ * labelled in USD unless the draft names a currency — the same fallback the org's wizard
  * uses, and the same single place to change when a workspace currency lands.
  */
-const DEFAULT_CURRENCY_SYMBOL = '$'
+const DEFAULT_CURRENCY = 'USD'
 
 export default async function EmployeeOnboardingPage() {
   const ctx = await requireEmployee()
@@ -77,7 +77,7 @@ export default async function EmployeeOnboardingPage() {
       <EmployeeOnboardingForm
         state={state}
         orgName={ctx.tenant.name}
-        currencySymbol={DEFAULT_CURRENCY_SYMBOL}
+        defaultCurrency={DEFAULT_CURRENCY}
       />
     </div>
   )

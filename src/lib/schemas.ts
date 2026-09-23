@@ -395,6 +395,13 @@ export const onboardingDraftSchema = z.object({
     .max(1_000_000_000)
     .nullish()
     .transform((v) => (v === undefined ? undefined : (v ?? null))),
+  payCurrency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^([A-Z]{3})?$/, 'Choose a currency')
+    .nullish()
+    .transform((v) => (v === undefined ? undefined : v || null)),
   payFrequency: draftText(30),
   employmentType: draftText(30),
   bankName: draftText(120),
@@ -742,6 +749,17 @@ export const meetingSchema = z
      * behaving exactly as it did.
      */
     addMeetLink: z.boolean().default(true),
+    /*
+     * A video link typed in by the organiser — for a workspace with no Google
+     * Calendar connected, or one using Zoom/Teams. When present it is stored as
+     * the meeting's link and Google is NOT asked to mint a Meet room.
+     */
+    meetLink: z
+      .string()
+      .trim()
+      .max(500)
+      .refine((v) => v === '' || /^https:\/\/\S+$/i.test(v), 'Paste a full https:// link')
+      .optional(),
     attendees: z
       .array(z.object({ email: emailSchema, name: z.string().trim().max(120).optional() }))
       .max(50)
@@ -890,7 +908,12 @@ export const finalizeUploadSchema = z.object({
   key: z.string().trim().min(1).max(300),
   fileName: z.string().trim().min(1).max(255),
   contentType: z.string().trim().min(1).max(160),
-  purpose: z.enum(['photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo', 'general']),
+  // Must list every purpose presignSchema accepts — a purpose missing here gets
+  // a presigned URL, uploads its bytes, then fails at finalize.
+  purpose: z.enum([
+    'photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo',
+    'notification_image', 'expense_receipt', 'general',
+  ]),
   employeeId: uuid.nullable().optional(),
 })
 
@@ -1251,6 +1274,12 @@ export const generatedDocumentSchema = z.object({
   documentId: uuid.nullable().optional(),
   payload: z.record(z.unknown()).default({}),
 })
+
+/**
+ * Re-issuing a letter after an edit. The recipient's employee link is fixed at
+ * creation, so it is not accepted here — the rest describes the new PDF.
+ */
+export const generatedDocumentUpdateSchema = generatedDocumentSchema.omit({ employeeId: true })
 
 // ---------------------------------------------------------------------------
 // Jobs

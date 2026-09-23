@@ -67,7 +67,7 @@ export default async function ResumeOnboardingPage({
     redirect('/org/employees?tab=drafts')
   }
 
-  const { departments, managers, currencySymbol } = await loadWizardData(ctx)
+  const { departments, managers, defaultCurrency } = await loadWizardData(ctx)
 
   const draft = draftFromRow(row)
   // Shown in full to the admin, like every other field on the form.
@@ -100,7 +100,7 @@ export default async function ResumeOnboardingPage({
         departments={departments}
         managers={managers}
         accountLast4={accountLast4(row.account_number_enc)}
-        currencySymbol={currencySymbol}
+        defaultCurrency={defaultCurrency}
         initialStatus={status}
         employeeProfileId={row.employee_profile_id ?? null}
         submittedAt={row.submitted_at ?? null}

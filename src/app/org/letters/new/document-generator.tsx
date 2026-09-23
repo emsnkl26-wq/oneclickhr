@@ -14,7 +14,7 @@ import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/primitives'
-import { apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
+import { apiPost, apiPatch, uploadFile, ApiClientError } from '@/lib/fetcher'
 import { useProgressRouter } from '@/lib/use-progress-router'
 import { formatDateLabel } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -26,6 +26,8 @@ import {
   type AgreementSectionValue, type TemplateVars,
 } from '@/lib/document-templates'
 import { ROLE_GROUPS, ROLE_PRESETS, exactRolePreset, rolePresetFor } from '@/lib/role-presets'
+import { phonePlaceholderFor } from '@/lib/geo'
+import { currencyForCountry, currencySymbol } from '@/lib/currencies'
 import {
   loadOrgLogo, renderDocument, documentFileName,
   type LetterheadOrg, type LogoAsset,
@@ -42,6 +44,7 @@ export interface GeneratorEmployee {
   employment_type: string | null
   pay_rate: number | null
   pay_type: string | null
+  pay_currency?: string | null
   hire_date: string | null
   date_of_joining: string | null
   street_address: string | null
@@ -50,6 +53,14 @@ export interface GeneratorEmployee {
   state_province: string | null
   zip_postal: string | null
   country: string | null
+}
+
+/** A saved letter being edited: its stored form refills the generator. */
+export interface ExistingLetter {
+  id: string
+  recipientName: string
+  recipientEmail: string
+  payload: Record<string, unknown>
 }
 
 /** The dropdown value for "my position isn't listed". */
@@ -97,51 +108,96 @@ const TYPE_ICONS: Record<GeneratedDocumentType, React.ReactNode> = {
  * paragraphs because the old role's duties would now be wrong.
  */
 export function DocumentGenerator({
-  company, employee, initialType, today,
+  company, employee, initialType, today, existing = null,
 }: {
   company: CompanyDetails
   employee: GeneratorEmployee | null
   initialType: GeneratedDocumentType
   today: string
+  /** Set when editing a saved letter rather than writing a new one. */
+  existing?: ExistingLetter | null
 }) {
   const router = useRouter()
   const progressRouter = useProgressRouter()
+
+  // A saved field, or the new-letter default when absent (older letters stored less).
+  const saved = existing?.payload ?? {}
+  const savedText = (key: string, fallback: string): string =>
+    typeof saved[key] === 'string' ? (saved[key] as string) : fallback
 
   const [docType, setDocType] = React.useState<GeneratedDocumentType>(initialType)
 
   // --- Recipient -----------------------------------------------------------
   const [employeeName, setEmployeeName] = React.useState(
-    employee?.full_name || employee?.email || ''
+    existing ? existing.recipientName : employee?.full_name || employee?.email || ''
   )
-  const [recipientEmail, setRecipientEmail] = React.useState(employee?.email ?? '')
+  const [recipientEmail, setRecipientEmail] = React.useState(
+    existing ? existing.recipientEmail : employee?.email ?? ''
+  )
   const employeeId = employee?.id ?? ''
 
   // --- Position details ----------------------------------------------------
-  const [letterDate, setLetterDate] = React.useState(today)
-  const [jobTitle, setJobTitle] = React.useState('')
+  const [letterDate, setLetterDate] = React.useState(savedText('letterDate', today))
+  const [jobTitle, setJobTitle] = React.useState(savedText('jobTitle', ''))
   // "Other" was chosen, so the title is typed rather than picked.
-  const [customTitle, setCustomTitle] = React.useState(false)
-  const [employmentType, setEmploymentType] = React.useState<string>('Full-Time')
-  const [startDate, setStartDate] = React.useState('')
-  const [salaryAmount, setSalaryAmount] = React.useState('')
-  const [salaryCadence, setSalaryCadence] = React.useState<string>('annual')
-  const [workLocation, setWorkLocation] = React.useState('')
-  const [hoursPerWeek, setHoursPerWeek] = React.useState('40')
-  const [acceptanceDeadline, setAcceptanceDeadline] = React.useState('')
-  const [honorific, setHonorific] = React.useState('')
-  const [governingState, setGoverningState] = React.useState('')
-  const [visaType, setVisaType] = React.useState('H1B')
-  const [addressLines, setAddressLines] = React.useState('')
+  const [customTitle, setCustomTitle] = React.useState(() => {
+    const title = savedText('jobTitle', '').trim()
+    return !!title && !exactRolePreset(title)
+  })
+  const [employmentType, setEmploymentType] = React.useState<string>(
+    savedText('employmentType', 'Full-Time')
+  )
+  const [startDate, setStartDate] = React.useState(savedText('startDate', ''))
+  const [salaryAmount, setSalaryAmount] = React.useState(savedText('salaryAmount', ''))
+  const [salaryCadence, setSalaryCadence] = React.useState<string>(
+    savedText('salaryCadence', 'annual')
+  )
+  const [workLocation, setWorkLocation] = React.useState(savedText('workLocation', ''))
+  const [hoursPerWeek, setHoursPerWeek] = React.useState(savedText('hoursPerWeek', '40'))
+  const [acceptanceDeadline, setAcceptanceDeadline] = React.useState(
+    savedText('acceptanceDeadline', '')
+  )
+  const [honorific, setHonorific] = React.useState(savedText('honorific', ''))
+  const [governingState, setGoverningState] = React.useState(savedText('governingState', ''))
+  const [visaType, setVisaType] = React.useState(savedText('visaType', 'H1B'))
+  const [addressLines, setAddressLines] = React.useState(savedText('addressLines', ''))
 
   // --- Content -------------------------------------------------------------
   // Only what somebody has rewritten by hand; everything else is derived below.
-  const [overrides, setOverrides] = React.useState<Partial<Record<TextKey, string>>>({})
-  const [sectionOverrides, setSectionOverrides] = React.useState<Record<string, SectionPatch>>({})
+  // An edited letter restores its stored overrides; one saved before overrides
+  // were stored keeps every paragraph exactly as it was printed.
+  const [overrides, setOverrides] = React.useState<Partial<Record<TextKey, string>>>(() => {
+    if (!existing) return {}
+    if (saved.overrides && typeof saved.overrides === 'object') {
+      return saved.overrides as Partial<Record<TextKey, string>>
+    }
+    const legacy: Partial<Record<TextKey, string>> = {}
+    const keys: TextKey[] = [
+      'intro', 'startDateText', 'compensationText', 'responsibilities',
+      'eVerifyText', 'contingencyText', 'closing',
+    ]
+    for (const key of keys) {
+      if (typeof saved[key] === 'string') legacy[key] = saved[key] as string
+    }
+    return legacy
+  })
+  const [sectionOverrides, setSectionOverrides] = React.useState<Record<string, SectionPatch>>(
+    () =>
+      existing && saved.sectionOverrides && typeof saved.sectionOverrides === 'object'
+        ? (saved.sectionOverrides as Record<string, SectionPatch>)
+        : {}
+  )
 
   // --- Signature -----------------------------------------------------------
-  const [signatoryName, setSignatoryName] = React.useState(company.signatoryName ?? '')
-  const [signatoryTitle, setSignatoryTitle] = React.useState(company.signatoryTitle ?? '')
-  const [signatoryPhone, setSignatoryPhone] = React.useState(company.signatoryPhone ?? '')
+  const [signatoryName, setSignatoryName] = React.useState(
+    savedText('signatoryName', company.signatoryName ?? '')
+  )
+  const [signatoryTitle, setSignatoryTitle] = React.useState(
+    savedText('signatoryTitle', company.signatoryTitle ?? '')
+  )
+  const [signatoryPhone, setSignatoryPhone] = React.useState(
+    savedText('signatoryPhone', company.signatoryPhone ?? '')
+  )
   // Per-letter only: drawn, uploaded or typed, never stored outside the PDF.
   const [signatureImage, setSignatureImage] = React.useState<LogoAsset | null>(null)
 
@@ -172,6 +228,13 @@ export function DocumentGenerator({
     return gaps
   }, [company])
 
+  // The salary's currency: the employee's own pay currency when the letter was
+  // opened from their profile, else the one usual where the company is (₹ for an
+  // Indian workspace), else $. Typing "USD 72,000" in the box still wins.
+  const salarySymbol = currencySymbol(
+    employee?.pay_currency || currencyForCountry(company.country) || 'USD'
+  )
+
   const templateVars: TemplateVars = React.useMemo(
     () => ({
       companyName: company.name,
@@ -179,7 +242,7 @@ export function DocumentGenerator({
       jobTitle,
       employmentType,
       startDate: formatDateLabel(startDate),
-      salaryText: composeSalaryText(salaryAmount, salaryCadence),
+      salaryText: composeSalaryText(salaryAmount, salaryCadence, salarySymbol),
       workLocation,
       governingState,
       visaType,
@@ -192,8 +255,8 @@ export function DocumentGenerator({
     }),
     [
       company.name, company.registrationNumber, employeeName, jobTitle, employmentType, startDate,
-      salaryAmount, salaryCadence, workLocation, governingState, visaType, hoursPerWeek,
-      signatoryName, signatoryTitle,
+      salaryAmount, salaryCadence, salarySymbol, workLocation, governingState, visaType,
+      hoursPerWeek, signatoryName, signatoryTitle,
     ]
   )
 
@@ -203,7 +266,13 @@ export function DocumentGenerator({
    * template has different paragraphs, so wording rewritten for the old one
    * does not carry over.
    */
+  // When editing, the form already holds the saved letter: skip the prefill for
+  // the template it was saved as (a ref, so React's dev double-run is harmless),
+  // and reset only if somebody switches template.
+  const prefilledFor = React.useRef<GeneratedDocumentType | null>(existing ? initialType : null)
   React.useEffect(() => {
+    if (prefilledFor.current === docType) return
+    prefilledFor.current = docType
     const location = companyAddress || 'Remote'
 
     // Only the profile-derived fields are overwritten, and only when there IS a
@@ -396,7 +465,7 @@ export function DocumentGenerator({
       jobTitle,
       employmentType,
       startDate: formatDateLabel(startDate),
-      salary: composeSalaryText(salaryAmount, salaryCadence),
+      salary: composeSalaryText(salaryAmount, salaryCadence, salarySymbol),
       workLocation,
       intro,
       startDateText,
@@ -465,8 +534,7 @@ export function DocumentGenerator({
         employeeId ? { employeeId } : {}
       )
 
-      await apiPost('/api/org/letters', {
-        employeeId: employeeId || null,
+      const body = {
         recipientName: employeeName.trim(),
         recipientEmail: recipientEmail.trim(),
         docType,
@@ -477,13 +545,23 @@ export function DocumentGenerator({
         payload: {
           letterDate, jobTitle, employmentType, startDate, salaryAmount, salaryCadence,
           workLocation, hoursPerWeek, acceptanceDeadline, honorific, governingState, visaType,
+          addressLines,
           intro, startDateText, compensationText, responsibilities, eVerifyText, contingencyText,
           closing, signatoryName, signatoryTitle, signatoryPhone,
+          // What was hand-written, so editing later restores those paragraphs as
+          // "Edited" and leaves the rest automatic.
+          overrides, sectionOverrides,
           signed: !!signatureImage,
         },
-      })
+      }
 
-      toast.success('Document generated and saved')
+      if (existing) {
+        await apiPatch(`/api/org/letters/${existing.id}`, body)
+      } else {
+        await apiPost('/api/org/letters', { ...body, employeeId: employeeId || null })
+      }
+
+      toast.success(existing ? 'Document updated' : 'Document generated and saved')
       router.refresh()
       progressRouter.push('/org/letters')
     } catch (err) {
@@ -727,7 +805,7 @@ export function DocumentGenerator({
             </div>
 
             <p className="rounded-lg bg-page px-3.5 py-2.5 text-[13px] text-ink-muted">
-              Reads as: {composeSalaryText(salaryAmount, salaryCadence)}
+              Reads as: {composeSalaryText(salaryAmount, salaryCadence, salarySymbol)}
             </p>
 
             <FormField label="Work location">
@@ -909,13 +987,19 @@ export function DocumentGenerator({
               <Input
                 value={signatoryPhone}
                 onChange={(event) => setSignatoryPhone(event.target.value)}
-                placeholder="+1 (484) 803-2090"
+                placeholder={phonePlaceholderFor(company.country)}
               />
             </FormField>
           </div>
 
           <div className="mt-5 space-y-2">
             <p className="text-sm font-medium text-ink">Signature</p>
+            {existing && saved.signed && !signatureImage ? (
+              <p className="rounded-lg bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-800">
+                The saved copy was signed. Signatures are not stored, so sign again below or the
+                updated PDF will have a blank line to sign by hand.
+              </p>
+            ) : null}
             <p className="text-[13px] text-ink-muted">
               Optional. Printed above the signatory&apos;s name with today&apos;s date. Leave it
               empty to keep a blank line for a wet signature.
@@ -943,7 +1027,7 @@ export function DocumentGenerator({
           </Button>
           <Button loading={busy === 'generate'} disabled={busy !== null} onClick={generate}>
             <Download />
-            Generate PDF
+            {existing ? 'Save changes' : 'Generate PDF'}
           </Button>
         </div>
       </div>

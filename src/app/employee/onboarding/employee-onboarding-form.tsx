@@ -43,11 +43,11 @@ import type { EmployeeOnboardingState } from '@/lib/employee-onboarding'
 const AUTOSAVE_MS = 30_000
 
 export function EmployeeOnboardingForm({
-  state, orgName, currencySymbol,
+  state, orgName, defaultCurrency,
 }: {
   state: EmployeeOnboardingState
   orgName: string
-  currencySymbol: string
+  defaultCurrency: string
 }) {
   const router = useRouter()
 
@@ -250,7 +250,7 @@ export function EmployeeOnboardingForm({
     // "create a department" callback can never fire.
     departments: [],
     managers: [],
-    currencySymbol,
+    defaultCurrency,
     accountLast4,
     onDepartmentCreated: () => {},
     onBusyChange: (key, busy) => {
@@ -386,7 +386,7 @@ export function EmployeeOnboardingForm({
               steps={EMPLOYEE_STEPS}
               title="Check everything over"
               intro={`This is what ${orgName} will see. Anything wrong can be fixed from here — click a step to go back to it.`}
-              ctx={{ departments: [], managers: [], currencySymbol, accountLast4 }}
+              ctx={{ departments: [], managers: [], defaultCurrency, accountLast4 }}
             />
           </div>
         )}

@@ -222,6 +222,7 @@ describe('the notification catalog', () => {
       'task.assigned',
       'task.commented',
       'visa.expiring',
+      'meeting.invited',
       'generic',
     ] as const
 

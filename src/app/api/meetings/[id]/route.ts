@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { meetingSchema } from '@/lib/schemas'
 import { getAccessToken, patchEvent, deleteEvent, meetingToEvent } from '@/lib/google-calendar'
 import { audit } from '@/lib/audit'
+import { notifyMeetingAttendees } from '@/lib/meeting-invites'
 import type { Connection } from '@/lib/google-calendar'
 
 export const dynamic = 'force-dynamic'
@@ -42,7 +43,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
 
   const { data: existing } = await supabase
     .from('meetings')
-    .select('id, google_event_id, read_only, source')
+    .select('id, google_event_id, read_only, source, meet_link, start_time')
     .eq('id', id)
     .maybeSingle()
 
@@ -71,10 +72,29 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       start_time: input.startTime,
       end_time: input.endTime,
       attendees: input.attendees,
+      // Sent only by the edit form's link box: set, replace, or clear the link.
+      ...(input.meetLink !== undefined ? { meet_link: input.meetLink.trim() || null } : {}),
     })
     .eq('id', id)
 
   if (error) return jsonError(friendlyDbError(error), 400)
+
+  const meetLink =
+    input.meetLink !== undefined ? input.meetLink.trim() || null : existing.meet_link ?? null
+  const moved = new Date(existing.start_time).getTime() !== new Date(input.startTime).getTime()
+  if (moved || meetLink !== (existing.meet_link ?? null)) {
+    await notifyMeetingAttendees(supabase, {
+      tenantId: ctx.tenantId,
+      meetingId: id,
+      title: input.title,
+      startTime: input.startTime,
+      timezone: input.timezone || ctx.tenant.timezone,
+      meetLink,
+      attendees: input.attendees,
+      createdBy: ctx.userId,
+      kind: 'updated',
+    })
+  }
 
   // Mirror the edit. Failure is logged, not fatal — the local row is correct and
   // the next incremental sync reconciles.
@@ -91,6 +111,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
           end_time: input.endTime,
           timezone: input.timezone,
           attendees: input.attendees,
+          // A pasted link rides along as the location, as it does on create.
+          location: input.meetLink?.trim() || undefined,
         })
       )
       if (!result.ok) console.warn('[meetings] Google patch failed', result.status, result.detail)

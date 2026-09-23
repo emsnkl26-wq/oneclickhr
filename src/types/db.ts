@@ -118,6 +118,8 @@ export interface ProfileOnboardingFields {
   reporting_manager_id: string | null
   pay_type: string | null
   pay_rate: number | null
+  /** ISO code the pay rate is in (045). Null on rows from before it. */
+  pay_currency: string | null
   pay_frequency: string | null
   employment_type: string | null
   bank_name: string | null

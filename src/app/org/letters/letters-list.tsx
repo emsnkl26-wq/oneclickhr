@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FileSignature, Download, Eye, Trash2, RefreshCw } from 'lucide-react'
+import { FileSignature, Download, Eye, Trash2, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -155,9 +155,9 @@ export function LettersList({
               <Download />
             </a>
           </Button>
-          <Button asChild size="icon" variant="ghost" aria-label={`Generate another for ${row.employeeName}`}>
-            <Link href={`/org/letters/new?employee=${row.employeeId}&type=${row.docType}`}>
-              <RefreshCw />
+          <Button asChild size="icon" variant="ghost" aria-label={`Edit ${row.title}`} title="Edit">
+            <Link href={`/org/letters/new?edit=${row.id}`}>
+              <Pencil />
             </Link>
           </Button>
           <Button

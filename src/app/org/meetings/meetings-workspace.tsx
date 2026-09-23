@@ -217,6 +217,7 @@ export function MeetingsWorkspace({
         meeting={editing}
         timezone={timezone}
         teammates={teammates}
+        connected={connected}
         onClose={() => {
           setCreating(false)
           setEditing(null)
@@ -388,12 +389,14 @@ function DetailRow({
 }
 
 function MeetingDialog({
-  open, meeting, timezone, teammates, onClose, onSaved,
+  open, meeting, timezone, teammates, connected, onClose, onSaved,
 }: {
   open: boolean
   meeting: Meeting | null
   timezone: string
   teammates: Teammate[]
+  /** Google Calendar is connected, so Google can mint a Meet room. */
+  connected: boolean
   onClose: () => void
   onSaved: () => void
 }) {
@@ -402,6 +405,9 @@ function MeetingDialog({
   const [startTime, setStartTime] = React.useState('')
   const [endTime, setEndTime] = React.useState('')
   const [addMeetLink, setAddMeetLink] = React.useState(true)
+  // A link typed in by hand: always on edit, and on create whenever Google is
+  // not the one making the room (not connected, or the switch is off).
+  const [meetLink, setMeetLink] = React.useState('')
   const [attendees, setAttendees] = React.useState<MeetingAttendee[]>([])
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
@@ -417,6 +423,7 @@ function MeetingDialog({
       setStartTime(toZonedInput(meeting.start_time, timezone))
       setEndTime(toZonedInput(meeting.end_time, timezone))
       setAddMeetLink(!!meeting.meet_link)
+      setMeetLink(meeting.meet_link ?? '')
       setAttendees(meeting.attendees ?? [])
     } else {
       /*
@@ -437,10 +444,11 @@ function MeetingDialog({
           ? toZonedInput(new Date(new Date(startInstant).getTime() + 60 * 60_000), timezone)
           : ''
       )
-      setAddMeetLink(true)
+      setAddMeetLink(connected)
+      setMeetLink('')
       setAttendees([])
     }
-  }, [open, meeting, timezone])
+  }, [open, meeting, timezone, connected])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -468,7 +476,11 @@ function MeetingDialog({
       startTime: startInstant,
       endTime: endInstant,
       timezone,
-      addMeetLink,
+      // Google mints a room only when it can and nobody pasted one. A request
+      // it cannot fulfil is refused by the server rather than dropped silently.
+      addMeetLink: !meeting && connected && addMeetLink && !meetLink.trim(),
+      // On edit the box is always shown, so an empty one clears the link.
+      meetLink: meeting ? meetLink.trim() : meetLink.trim() || undefined,
       attendees: attendees.map((a) => ({ email: a.email, name: a.name || undefined })),
     }
 
@@ -477,10 +489,24 @@ function MeetingDialog({
         await apiPatch(`/api/meetings/${meeting.id}`, payload)
         toast.success('Meeting updated')
       } else {
-        const result = await apiPost<{ syncedToGoogle: boolean }>('/api/meetings', payload)
-        toast.success(
-          result.syncedToGoogle ? 'Meeting created and synced to Google' : 'Meeting created'
-        )
+        const result = await apiPost<{
+          syncedToGoogle: boolean
+          meetLink: string | null
+          warning: string | null
+        }>('/api/meetings', payload)
+        if (result.warning) {
+          toast.warning(result.warning, { duration: 10_000 })
+        } else {
+          toast.success(
+            result.syncedToGoogle
+              ? result.meetLink
+                ? 'Meeting created — invites with the Meet link are on their way'
+                : 'Meeting created and synced to Google'
+              : result.meetLink
+                ? 'Meeting created — attendees were sent the link'
+                : 'Meeting created'
+          )
+        }
       }
       onSaved()
     } catch (err) {
@@ -551,11 +577,57 @@ function MeetingDialog({
             </p>
 
             {/*
-              CREATE ONLY. The Meet room is minted by Google during the create
-              call, so on an edit there is no decision left to offer — the link
-              either exists already or the event was made without one.
+              THE LINK. Google mints a Meet room only during create, so an edit
+              offers the link itself (paste, replace or clear). On create: the
+              Meet switch when Calendar is connected; otherwise a plain notice
+              that it is not, with a way to connect and a box to paste a link.
             */}
-            {meeting ? null : (
+            {meeting ? (
+              <FormField
+                label="Meeting link"
+                error={fields.meetLink}
+                hint="Google Meet, Zoom or Teams. Leave empty for an in-person meeting."
+              >
+                <Input
+                  type="url"
+                  value={meetLink}
+                  onChange={(e) => setMeetLink(e.target.value)}
+                  placeholder="https://meet.google.com/abc-defg-hij"
+                />
+              </FormField>
+            ) : !connected ? (
+              /*
+                No calendar, so no automatic room — said up front, with the two
+                ways forward, instead of a switch that would do nothing.
+              */
+              <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="flex items-start gap-2 text-sm text-amber-900">
+                    <Video className="mt-0.5 size-4 shrink-0" aria-hidden />
+                    <span>
+                      <span className="font-medium">Google Calendar isn&apos;t connected.</span>{' '}
+                      A Meet link can&apos;t be created automatically — connect your calendar, or
+                      paste a link below.
+                    </span>
+                  </p>
+                  <Button asChild size="sm" variant="secondary" className="shrink-0">
+                    <Link href="/org/settings/integrations">Connect calendar</Link>
+                  </Button>
+                </div>
+                <FormField
+                  label="Meeting link"
+                  error={fields.meetLink}
+                  hint="Optional. Sent to every attendee. Leave empty for an in-person meeting."
+                >
+                  <Input
+                    type="url"
+                    value={meetLink}
+                    onChange={(e) => setMeetLink(e.target.value)}
+                    placeholder="https://meet.google.com/abc-defg-hij"
+                  />
+                </FormField>
+              </div>
+            ) : (
               <label className="flex items-start justify-between gap-4 rounded-lg border border-line p-3">
                 <span className="min-w-0">
                   <span className="flex items-center gap-2 text-sm font-medium">
@@ -575,10 +647,25 @@ function MeetingDialog({
               </label>
             )}
 
+            {!meeting && connected && !addMeetLink ? (
+              <FormField
+                label="Meeting link"
+                error={fields.meetLink}
+                hint="Optional — paste a Zoom or Teams link, or leave empty for an in-person meeting."
+              >
+                <Input
+                  type="url"
+                  value={meetLink}
+                  onChange={(e) => setMeetLink(e.target.value)}
+                  placeholder="https://zoom.us/j/…"
+                />
+              </FormField>
+            ) : null}
+
             <FormField
               label="Attendees"
               error={fields.attendees}
-              hint="Pick teammates, or add anyone else by email. They receive a Google invite when Calendar is connected."
+              hint="Pick teammates, or add anyone else by email. Teammates are notified with the time and link; everyone gets a Google invite when Calendar is connected."
             >
               <AttendeePicker
                 teammates={teammates}

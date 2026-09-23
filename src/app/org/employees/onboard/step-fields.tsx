@@ -21,8 +21,9 @@ import {
 import { apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
 import { DOCUMENT_LABELS } from '@/lib/schemas'
 import { cn } from '@/lib/utils'
+import { currencyOptions, currencySymbol } from '@/lib/currencies'
 import {
-  countryLabel, payRateLabel,
+  countryLabel, payRateLabel, resolvePayCurrency,
   type AdditionalDoc, type DraftFieldKey, type FieldDef, type OnboardingDraft,
 } from '@/lib/onboarding'
 
@@ -37,7 +38,8 @@ export interface Person {
 export interface FieldContext {
   departments: { id: string; name: string }[]
   managers: Person[]
-  currencySymbol: string
+  /** ISO code used when a draft has no pay currency and no country to infer one from. */
+  defaultCurrency: string
   /** Last four digits of an already-saved bank account, if any. */
   accountLast4: string | null
   onDepartmentCreated: (department: { id: string; name: string }) => void
@@ -224,21 +226,42 @@ function TextareaField(props: FieldProps) {
 
 function CurrencyField(props: FieldProps) {
   const { draft, set, ctx } = props
+  // Defaults to the employee's country's currency; the picker overrides it.
+  const currency = resolvePayCurrency(draft, ctx.defaultCurrency)
   return (
     <Wrap {...props}>
-      <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-muted">
-          {ctx.currencySymbol}
-        </span>
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          className="pl-7"
-          value={draft.payRate}
-          onChange={(e) => set('payRate', e.target.value)}
-          placeholder={draft.payType === 'Hourly' ? '28.50' : '72000'}
-        />
+      <div className="flex gap-2">
+        <Select
+          aria-label="Pay currency"
+          className="w-28 shrink-0"
+          value={currency}
+          onChange={(e) => set('payCurrency', e.target.value)}
+        >
+          {currencyOptions(currency).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.value} {currencySymbol(option.value)}
+            </option>
+          ))}
+        </Select>
+        <div className="relative min-w-0 flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-muted">
+            {currencySymbol(currency)}
+          </span>
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            className="pl-9"
+            value={draft.payRate}
+            onChange={(e) => {
+              set('payRate', e.target.value)
+              // Pin the currency that was on screen when the amount was typed, so
+              // a later change of country cannot silently re-denominate it.
+              if (!draft.payCurrency) set('payCurrency', currency)
+            }}
+            placeholder={draft.payType === 'Hourly' ? '28.50' : '72000'}
+          />
+        </div>
       </div>
     </Wrap>
   )

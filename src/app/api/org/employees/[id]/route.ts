@@ -6,6 +6,7 @@ import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { updateEmployeeSchema } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { audit } from '@/lib/audit'
+import { deleteEmployeePermanently } from '@/lib/employee-delete'
 
 export const dynamic = 'force-dynamic'
 
@@ -96,6 +97,25 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
 
   if (employeeId === ctx.userId) {
     return jsonError('You cannot deactivate your own account.', 400)
+  }
+
+  // `?permanent=true` — the irreversible delete the UI offers behind a typed
+  // confirmation. Everything below this block is the default: deactivation.
+  if (request.nextUrl.searchParams.get('permanent') === 'true') {
+    const result = await deleteEmployeePermanently(employeeId, tenantId)
+    if (!result.ok) return jsonError(result.error, result.status)
+
+    await audit({
+      tenantId,
+      actorId: ctx.userId,
+      actorEmail: ctx.email,
+      action: 'employee.deleted',
+      entity: 'profiles',
+      entityId: employeeId,
+      meta: { email: result.email, name: result.name },
+      request,
+    })
+    return jsonOk({ ok: true, deleted: true })
   }
 
   const supabase = await createSupabaseServerClient()

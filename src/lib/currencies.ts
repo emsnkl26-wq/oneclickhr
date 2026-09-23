@@ -5,6 +5,8 @@
  * the same reason src/lib/geo.ts keeps one. Showing only "INR" or "AED" makes
  * people stop and think; "₹ INR" or "د.إ AED" does not.
  */
+import { countryCodeOf } from '@/lib/geo'
+
 export const CURRENCIES: ReadonlyArray<{ code: string; symbol: string; name: string }> = [
   { code: 'USD', symbol: '$', name: 'US Dollar' },
   { code: 'EUR', symbol: '€', name: 'Euro' },
@@ -64,4 +66,20 @@ export function currencyOptions(current?: string | null): Array<{ value: string;
     options.push({ value: extra, label: `${currencySymbol(extra)}  ${extra}` })
   }
   return options
+}
+
+/**
+ * The currency a country is usually paid in, for the countries on the geo list.
+ * Only a DEFAULT — every place that uses it lets the person pick another, since
+ * someone living in India can perfectly well be paid in dollars.
+ */
+const CURRENCY_BY_COUNTRY: Record<string, string> = {
+  US: 'USD', CA: 'CAD', GB: 'GBP', IE: 'EUR', IN: 'INR', AU: 'AUD', NZ: 'NZD',
+  DE: 'EUR', FR: 'EUR', ES: 'EUR', IT: 'EUR', NL: 'EUR', SE: 'SEK', AE: 'AED',
+  SG: 'SGD', PH: 'PHP', ZA: 'ZAR', MX: 'MXN', BR: 'BRL', JP: 'JPY',
+}
+
+/** "INR" for India (code or printed name); null for a country not on the list. */
+export function currencyForCountry(stored: string | null | undefined): string | null {
+  return CURRENCY_BY_COUNTRY[countryCodeOf(stored)] ?? null
 }

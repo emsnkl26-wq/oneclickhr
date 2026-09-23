@@ -3,21 +3,23 @@
 /**
  * What the invoice will look like, while it is being typed.
  *
- * NOT A PICTURE OF THE PDF — a second rendering of the same numbers. The
- * arithmetic comes from `computeTotals` in src/lib/invoice.ts, which is the
- * exact function the server stores from and the PDF prints from, and the
- * wording (`$44/hr`, `168 hrs`, `09/11/2026`) comes from the same helpers the
- * PDF writer uses, so the two cannot disagree about a cent or a label. Only the
- * LAYOUT is duplicated here, and layout disagreeing is a cosmetic problem
- * rather than a financial one.
+ * A PICTURE OF THE PDF. The form state is handed to `buildInvoicePdf` — the
+ * same function the Download button saves from — and the resulting pages are
+ * rasterized with pdf.js. So page breaks, spacing and wording are exactly what
+ * the download will contain; nothing is laid out twice.
  *
- * Scaled down rather than reflowed: it is recognisably the page somebody is
- * about to send, which is the entire point of showing it.
+ * pdf.js (~1.7MB) and jsPDF are imported lazily, and a rebuild is debounced so
+ * typing stays smooth. If rendering fails for any reason the HTML approximation
+ * below (`InvoiceHtmlPreview`) is shown instead of an empty panel.
  */
 
+import { useEffect, useRef, useState } from 'react'
 import {
-  computeTotals, invoiceDate, invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading,
+  computeTotals, invoiceDate, invoiceMoney, invoiceQuantity, invoiceRate, normalizeItems,
+  quantityHeading,
 } from '@/lib/invoice'
+import { buildInvoicePdf, type PrintableInvoice } from '@/lib/invoice-pdf'
+import { loadOrgLogo, type LogoAsset } from '@/lib/document-pdf'
 import type { InvoiceUnit } from '@/types/db'
 
 export interface PreviewOrg {
@@ -46,7 +48,115 @@ export interface PreviewInvoice {
 const lines = (value: string) =>
   value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
 
+/** The form state in the shape the PDF writer prints — including its totals. */
+function toPrintable(invoice: PreviewInvoice): PrintableInvoice {
+  const items = invoice.items.filter(
+    (item) => item.description.trim() || item.quantity || item.rate
+  )
+  const totals = computeTotals(items, invoice.taxPercent, invoice.amountPaid)
+  return {
+    invoice_number: invoice.invoiceNumber || '—',
+    issue_date: invoice.issueDate,
+    due_date: invoice.dueDate || null,
+    currency: invoice.currency || 'USD',
+    bill_to: { name: invoice.billTo.name, email: invoice.billTo.email, address: invoice.billTo.address },
+    subject: invoice.subject.trim() || null,
+    items: normalizeItems(items),
+    subtotal: totals.subtotal,
+    tax_percent: invoice.taxPercent,
+    total: totals.total,
+    amount_paid: invoice.amountPaid,
+    balance_due: totals.balanceDue,
+    notes: invoice.notes.trim() || null,
+    payment_details: invoice.paymentDetails,
+  }
+}
+
+type PdfJs = typeof import('unpdf')
+
 export function InvoicePreview({
+  org, invoice,
+}: {
+  org: PreviewOrg
+  invoice: PreviewInvoice
+}) {
+  const pagesRef = useRef<HTMLDivElement>(null)
+  const logoRef = useRef<Promise<LogoAsset | null> | null>(null)
+  const pdfjsRef = useRef<Promise<PdfJs> | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [ready, setReady] = useState(false)
+
+  // A stable key for "did anything printed change" — the effect below rebuilds
+  // only then, not on every parent render.
+  const printable = toPrintable(invoice)
+  const signature = JSON.stringify([printable, org.name, org.addressLines, org.logoKey])
+
+  useEffect(() => {
+    if (failed) return
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        logoRef.current ??= loadOrgLogo(org.logoKey)
+        pdfjsRef.current ??= import('unpdf')
+        const [logo, unpdf] = await Promise.all([logoRef.current, pdfjsRef.current])
+
+        const doc = await buildInvoicePdf(
+          printable,
+          org.name,
+          { logoUrl: org.logoKey, primaryColor: org.primaryColor, addressLines: org.addressLines },
+          logo
+        )
+        const bytes = new Uint8Array(doc.output('arraybuffer'))
+        const pdf = await unpdf.getDocumentProxy(bytes)
+
+        // Render every page off-screen first, then swap them in together, so
+        // the panel never flashes empty between keystrokes.
+        const canvases: HTMLCanvasElement[] = []
+        for (let n = 1; n <= pdf.numPages; n++) {
+          const page = await pdf.getPage(n)
+          const viewport = page.getViewport({ scale: 2 })
+          const canvas = document.createElement('canvas')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          canvas.className = 'block h-auto w-full rounded-md border border-line bg-white shadow-sm'
+          canvas.setAttribute('aria-label', `Invoice preview, page ${n} of ${pdf.numPages}`)
+          const context = canvas.getContext('2d')
+          if (!context) throw new Error('No canvas context')
+          await page.render({ canvasContext: context, viewport }).promise
+          canvases.push(canvas)
+        }
+        await pdf.destroy()
+
+        if (cancelled || !pagesRef.current) return
+        pagesRef.current.replaceChildren(...canvases)
+        setReady(true)
+      } catch (err) {
+        console.warn('[invoice-preview] PDF render failed, using HTML preview', err)
+        if (!cancelled) setFailed(true)
+      }
+    }, 350)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+    // `signature` captures everything printed; `printable` is rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature, failed])
+
+  if (failed) return <InvoiceHtmlPreview org={org} invoice={invoice} />
+
+  return (
+    <div className="relative">
+      {!ready ? (
+        <div className="aspect-[8.5/11] w-full animate-pulse rounded-md border border-line bg-muted" />
+      ) : null}
+      <div ref={pagesRef} className="space-y-3" />
+    </div>
+  )
+}
+
+/** Fallback when the PDF cannot be rasterized — the same content, laid out in HTML. */
+function InvoiceHtmlPreview({
   org, invoice,
 }: {
   org: PreviewOrg

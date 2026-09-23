@@ -61,7 +61,7 @@ export function OnboardingWizard({
   departments: initialDepartments,
   managers,
   accountLast4: initialLast4,
-  currencySymbol,
+  defaultCurrency,
   initialStatus = 'draft',
   employeeProfileId = null,
   submittedAt = null,
@@ -73,7 +73,7 @@ export function OnboardingWizard({
   departments: { id: string; name: string }[]
   managers: Person[]
   accountLast4: string | null
-  currencySymbol: string
+  defaultCurrency: string
   /** Where this onboarding stands. Drives which buttons the action bar offers. */
   initialStatus?: OnboardingStatus
   /** The account, once one exists. Null while the status is still `draft`. */
@@ -403,7 +403,7 @@ export function OnboardingWizard({
   const fieldCtx: FieldContext = {
     departments,
     managers,
-    currencySymbol,
+    defaultCurrency,
     accountLast4,
     onDepartmentCreated: (department) =>
       setDepartments((prev) =>
@@ -519,7 +519,7 @@ export function OnboardingWizard({
               draft={draft}
               errorCounts={errorCounts}
               onJump={goTo}
-              ctx={{ departments, managers, currencySymbol, accountLast4 }}
+              ctx={{ departments, managers, defaultCurrency, accountLast4 }}
             />
           </div>
         )}

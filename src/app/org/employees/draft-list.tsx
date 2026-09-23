@@ -26,6 +26,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/primitives'
 import { apiDelete, ApiClientError } from '@/lib/fetcher'
+import { DeleteEmployeeDialog } from '@/components/profile/delete-employee-dialog'
 import { formatLocal } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { ONBOARDING_STEPS } from '@/lib/onboarding'
@@ -52,6 +53,8 @@ const TOTAL = ONBOARDING_STEPS.length
 export function DraftList({ drafts, timezone }: { drafts: DraftRow[]; timezone: string }) {
   const router = useRouter()
   const [pending, setPending] = React.useState<DraftRow | null>(null)
+  // An onboarding that already has an account: deleting it deletes the employee.
+  const [deleting, setDeleting] = React.useState<{ row: DraftRow; name: string } | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   async function remove(draft: DraftRow) {
@@ -113,11 +116,12 @@ export function DraftList({ drafts, timezone }: { drafts: DraftRow[]; timezone: 
                     {draft.designation || 'No job title yet'}
                   </p>
                 </div>
-                {isDraft ? (
+                {isDraft || draft.employee_profile_id ? (
                   <button
                     type="button"
-                    aria-label={`Delete the draft for ${name}`}
-                    onClick={() => setPending(draft)}
+                    aria-label={isDraft ? `Delete the draft for ${name}` : `Delete ${name}`}
+                    title={isDraft ? 'Delete draft' : 'Delete employee'}
+                    onClick={() => (isDraft ? setPending(draft) : setDeleting({ row: draft, name }))}
                     className="focus-ring shrink-0 rounded p-1 text-ink-muted transition hover:text-danger"
                   >
                     <Trash2 className="size-4" />
@@ -177,6 +181,18 @@ export function DraftList({ drafts, timezone }: { drafts: DraftRow[]; timezone: 
           )
         })}
       </ul>
+
+      <DeleteEmployeeDialog
+        open={!!deleting}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        name={
+          deleting && ![deleting.row.personal_email, 'Unnamed draft'].includes(deleting.name)
+            ? deleting.name
+            : null
+        }
+        endpoint={`/api/org/onboarding/${deleting?.row.id ?? ''}`}
+        onDeleted={() => router.refresh()}
+      />
 
       <Dialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
         <DialogContent size="sm">

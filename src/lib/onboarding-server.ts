@@ -15,6 +15,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { encryptToken, decryptToken, isEncryptionConfigured } from '@/lib/crypto'
 import { employeeCodeFor } from '@/lib/org-code'
+import { currencyForCountry } from '@/lib/currencies'
 import {
   DRAFT_COLUMNS, EMPLOYEE_EDITABLE_KEYS,
   type DraftFieldKey, type OnboardingDraft,
@@ -183,6 +184,9 @@ export function profilePatchFromDraft(
     reporting_manager_id: draft.reportingManagerId || null,
     pay_type: draft.payType || null,
     pay_rate: draft.payRate === '' ? null : Number(draft.payRate),
+    // What the org picked, else the employee's country's currency. Null only when
+    // neither is known, and readers then fall back to the workspace currency.
+    pay_currency: draft.payCurrency || currencyForCountry(draft.country) || null,
     pay_frequency: draft.payFrequency || null,
     employment_type: draft.employmentType || null,
     bank_name: draft.bankName || null,

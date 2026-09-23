@@ -1,11 +1,12 @@
 import type { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Settings } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { DocumentGenerator, type GeneratorEmployee } from './document-generator'
+import { DocumentGenerator, type GeneratorEmployee, type ExistingLetter } from './document-generator'
 import { todayIn } from '@/lib/time'
 import type { CompanyDetails, GeneratedDocumentType } from '@/types/db'
 
@@ -14,7 +15,7 @@ export const dynamic = 'force-dynamic'
 
 /** Columns the generator can prefill from. Never `*` — profiles is a wide row. */
 const EMPLOYEE_COLUMNS =
-  'id, full_name, email, phone, designation, employment_type, pay_rate, pay_type, hire_date, date_of_joining, street_address, apartment, city, state_province, zip_postal, country'
+  'id, full_name, email, phone, designation, employment_type, pay_rate, pay_type, pay_currency, hire_date, date_of_joining, street_address, apartment, city, state_province, zip_postal, country'
 
 /**
  * The generator form.
@@ -40,16 +41,29 @@ const EMPLOYEE_COLUMNS =
 export default async function NewLetterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ employee?: string; type?: string }>
+  searchParams: Promise<{ employee?: string; type?: string; edit?: string }>
 }) {
   const ctx = await requireOrg()
   const supabase = await createSupabaseServerClient()
   const params = await searchParams
 
+  // Editing an existing letter: its saved form (`payload`) refills the generator,
+  // and saving replaces the PDF on the same row. RLS scopes this to the tenant.
+  const editId = /^[0-9a-f-]{36}$/i.test(params.edit ?? '') ? params.edit! : ''
+  const { data: editing } = editId
+    ? await supabase
+        .from('generated_documents')
+        .select('id, doc_type, employee_id, recipient_name, recipient_email, payload')
+        .eq('id', editId)
+        .maybeSingle()
+    : { data: null }
+  if (editId && !editing) notFound()
+
   // Only ever ONE profile is read, and only when the page was opened from an
   // employee's record. The old version loaded every employee in the workspace to
   // fill a dropdown that no longer exists.
-  const employeeId = params.employee?.trim() || ''
+  const rawEmployee = editing ? editing.employee_id ?? '' : params.employee?.trim() || ''
+  const employeeId = /^[0-9a-f-]{36}$/i.test(rawEmployee) ? rawEmployee : ''
 
   const [{ data: linked }, { data: tenant }] = await Promise.all([
     employeeId
@@ -86,15 +100,27 @@ export default async function NewLetterPage({
   }
 
   const types: GeneratedDocumentType[] = ['offer_letter', 'employment_agreement', 'internship_offer']
-  const initialType = types.includes(params.type as GeneratedDocumentType)
-    ? (params.type as GeneratedDocumentType)
-    : 'offer_letter'
+  const requestedType = (editing?.doc_type ?? params.type) as GeneratedDocumentType
+  const initialType = types.includes(requestedType) ? requestedType : 'offer_letter'
+
+  const existing: ExistingLetter | null = editing
+    ? {
+        id: editing.id,
+        recipientName: editing.recipient_name ?? '',
+        recipientEmail: editing.recipient_email ?? '',
+        payload: (editing.payload ?? {}) as Record<string, unknown>,
+      }
+    : null
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Generate document"
-        description="Pick a template, check the details, and download a PDF on your letterhead."
+        title={existing ? 'Edit document' : 'Generate document'}
+        description={
+          existing
+            ? 'Change anything, then save — the PDF is re-issued in place of the old one.'
+            : 'Pick a template, check the details, and download a PDF on your letterhead.'
+        }
         actions={
           <>
             <Button asChild variant="ghost">
@@ -117,6 +143,7 @@ export default async function NewLetterPage({
         company={company}
         employee={(linked ?? null) as unknown as GeneratorEmployee | null}
         initialType={initialType}
+        existing={existing}
         today={todayIn(ctx.tenant.timezone)}
       />
     </div>

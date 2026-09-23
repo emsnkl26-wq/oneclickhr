@@ -23,10 +23,11 @@
 import * as React from 'react'
 import {
   DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors,
-  closestCorners, useDroppable, type DragEndEvent, type DragStartEvent,
+  closestCorners, useDroppable, type DragEndEvent, type DragOverEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import {
   useSortable, SortableContext, verticalListSortingStrategy, horizontalListSortingStrategy,
+  arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
@@ -64,6 +65,27 @@ export function KanbanBoard({
     { type: 'task'; task: BoardTask } | { type: 'column'; column: BoardColumnData } | null
   >(null)
 
+  /*
+   * WHERE EVERY CARD SITS WHILE A CARD IS IN THE AIR. Column → ordered task ids,
+   * copied from the board when a card drag starts and updated as it crosses into
+   * another column (onDragOver), so the target column opens a gap under the
+   * pointer and the drop animation lands where the card is going — not back in
+   * the column it came from before jumping across. Null when nothing is dragged.
+   */
+  const [preview, setPreview] = React.useState<Record<string, string[]> | null>(null)
+
+  const taskById = React.useMemo(
+    () => new Map(board.tasks.map((task) => [task.id, task])),
+    [board.tasks]
+  )
+
+  /** Which column an id (a card, a column, or a column's drop zone) belongs to. */
+  const containerOf = (id: string, layout: Record<string, string[]>): string | null => {
+    if (id.startsWith('drop:')) return id.slice(5)
+    if (id in layout) return id
+    return Object.keys(layout).find((columnId) => layout[columnId].includes(id)) ?? null
+  }
+
   const sensors = useSensors(
     // A small activation distance so a click on a card is a click, not a drag.
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -92,12 +114,57 @@ export function KanbanBoard({
     }
 
     const task = board.tasks.find((t) => t.id === event.active.id)
-    if (task && canMove(task)) setDragging({ type: 'task', task })
+    if (task && canMove(task)) {
+      setDragging({ type: 'task', task })
+      setPreview(
+        Object.fromEntries(
+          board.columns.map((column) => [
+            column.id,
+            (board.tasksByColumn.get(column.id) ?? []).map((t) => t.id),
+          ])
+        )
+      )
+    }
+  }
+
+  /** A card crossing into another column: move it there in the preview. */
+  function onDragOver(event: DragOverEvent) {
+    const { active, over } = event
+    if (dragging?.type !== 'task' || !over || over.id === active.id) return
+
+    setPreview((layout) => {
+      if (!layout) return layout
+      const activeId = String(active.id)
+      const from = containerOf(activeId, layout)
+      const to = containerOf(String(over.id), layout)
+      // Reordering WITHIN a column is animated by the sortable strategy alone.
+      if (!from || !to || from === to) return layout
+
+      const target = layout[to]
+      const overIndex = target.indexOf(String(over.id))
+      // Over a card: take its slot, or the one after it when the pointer is
+      // already past its middle. Over the column itself: the end.
+      let index = target.length
+      if (overIndex !== -1) {
+        const below =
+          active.rect.current.translated &&
+          active.rect.current.translated.top > over.rect.top + over.rect.height / 2
+        index = overIndex + (below ? 1 : 0)
+      }
+
+      return {
+        ...layout,
+        [from]: layout[from].filter((id) => id !== activeId),
+        [to]: [...target.slice(0, index), activeId, ...target.slice(index)],
+      }
+    })
   }
 
   async function onDragEnd(event: DragEndEvent) {
     const active = dragging
+    const layout = preview
     setDragging(null)
+    setPreview(null)
 
     const { over } = event
     if (!over || !active) return
@@ -120,12 +187,24 @@ export function KanbanBoard({
     }
 
     const task = active.task
-    if (!canMove(task)) return
+    if (!canMove(task) || !layout) return
 
-    // Dropped ON a card: land in that card's place. Dropped on the column's
-    // empty area: land at the end.
-    const overTask = overData?.type === 'task' ? board.tasks.find((t) => t.id === over.id) : null
-    await board.moveTask(task.id, targetColumn, overTask ? overTask.id : null)
+    // The preview already holds the card in the column it crossed into; a drop
+    // onto another card of that column is the final reorder within it. Moving
+    // DOWN onto a card lands after it and moving up lands before it — the same
+    // arrayMove the sortable animation showed, so the card stays where it was
+    // dropped instead of snapping back.
+    const column = containerOf(task.id, layout)
+    if (!column) return
+    let order = layout[column]
+    const from = order.indexOf(task.id)
+    const to = order.indexOf(String(over.id))
+    if (to !== -1 && from !== -1 && from !== to) order = arrayMove(order, from, to)
+
+    const next = order[order.indexOf(task.id) + 1] ?? null
+    // Not awaited: the optimistic update inside moveTask lands in this same
+    // render as the cleared preview, so there is no frame showing the old spot.
+    void board.moveTask(task.id, column, next)
   }
 
   if (!board.columns.length) {
@@ -143,8 +222,12 @@ export function KanbanBoard({
       sensors={sensors}
       collisionDetection={closestCorners}
       onDragStart={onDragStart}
+      onDragOver={onDragOver}
       onDragEnd={onDragEnd}
-      onDragCancel={() => setDragging(null)}
+      onDragCancel={() => {
+        setDragging(null)
+        setPreview(null)
+      }}
     >
       {/*
         A FIXED height, not one that grows with the tallest column: a busy
@@ -165,7 +248,11 @@ export function KanbanBoard({
             <Column
               key={column.id}
               column={column}
-              tasks={board.tasksByColumn.get(column.id) ?? []}
+              tasks={
+                preview
+                  ? (preview[column.id] ?? []).flatMap((id) => taskById.get(id) ?? [])
+                  : board.tasksByColumn.get(column.id) ?? []
+              }
               canManage={canManage}
               canMove={canMove}
               savingTaskIds={board.savingTaskIds}
@@ -243,7 +330,9 @@ function Column({
       ref={setSortRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        'flex min-h-0 w-[300px] shrink-0 flex-col rounded-xl border border-line bg-page/70 transition',
+        // transition-colors, not transition: the latter also animates transform,
+        // which fights the transform dnd-kit sets on every frame of a drag.
+        'flex min-h-0 w-[300px] shrink-0 flex-col rounded-xl border border-line bg-page/70 transition-colors',
         isOver && 'border-brand-200 bg-brand-50/50',
         isDragging && 'opacity-40'
       )}

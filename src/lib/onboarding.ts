@@ -16,7 +16,8 @@ import {
   NON_VISA_STATUSES, PAY_FREQUENCIES, PAY_TYPES, PRONOUNS, WORK_AUTH_STATUSES,
   ONBOARDING_STEP_SCHEMAS, ID_PROOF_BY_COUNTRY, workAuthOptions, type AdditionalDoc,
 } from '@/lib/schemas'
-import { COUNTRY_CODES, countryName } from '@/lib/geo'
+import { COUNTRY_CODES, countryName, phonePlaceholderFor } from '@/lib/geo'
+import { currencyForCountry } from '@/lib/currencies'
 
 export type { AdditionalDoc }
 
@@ -60,6 +61,8 @@ export interface OnboardingDraft {
   // Step 4
   payType: string
   payRate: string
+  /** ISO code the pay rate is in (045). '' until chosen — see `resolvePayCurrency`. */
+  payCurrency: string
   payFrequency: string
   employmentType: string
   bankName: string
@@ -123,6 +126,7 @@ export const DRAFT_COLUMNS: Record<DraftFieldKey, string> = {
   reportingManagerId: 'reporting_manager_id',
   payType: 'pay_type',
   payRate: 'pay_rate',
+  payCurrency: 'pay_currency',
   payFrequency: 'pay_frequency',
   employmentType: 'employment_type',
   bankName: 'bank_name',
@@ -472,6 +476,9 @@ export function localizeField(field: FieldDef, country: string): FieldDef {
   if (field.key === 'idProofType' && ID_PROOF_BY_COUNTRY[country]) {
     return { ...localized, options: ID_PROOF_BY_COUNTRY[country] }
   }
+  if (field.type === 'tel' && country) {
+    return { ...localized, placeholder: phonePlaceholderFor(country) }
+  }
   if (field.key === 'visaType' && country && country !== 'US') {
     return { ...localized, label: 'Visa / permit type', placeholder: 'Employment visa' }
   }
@@ -617,6 +624,18 @@ export function draftDisplayName(
   return name || draft.personalEmail || 'Unnamed draft'
 }
 
+/**
+ * The currency a draft's pay is in: what the org picked, else the usual one for
+ * the employee's country (an Indian employee defaults to INR), else the
+ * workspace's own. Only a default — the pay field lets the org change it.
+ */
+export function resolvePayCurrency(
+  draft: Pick<OnboardingDraft, 'payCurrency' | 'country'>,
+  workspaceCurrency: string
+): string {
+  return draft.payCurrency || currencyForCountry(draft.country) || workspaceCurrency || 'USD'
+}
+
 /** "Hourly rate" vs "Annual salary" — the label follows the pay type. */
 export function payRateLabel(payType: string): string {
   return payType === 'Hourly' ? 'Hourly rate' : payType === 'Salaried' ? 'Annual salary' : 'Pay rate'
@@ -668,6 +687,7 @@ export const ORG_ONLY_FIELDS: ReadonlySet<DraftFieldKey> = new Set<DraftFieldKey
   'reportingManagerId',
   'payType',
   'payRate',
+  'payCurrency',
   'payFrequency',
   'employmentType',
 ])

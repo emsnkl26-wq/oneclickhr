@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
-import { withErrorHandler, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
+import { withErrorHandler, jsonOk, jsonError, friendlyDbError, uuidSchema, parseBody } from '@/lib/api'
+import { generatedDocumentUpdateSchema } from '@/lib/schemas'
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { keyBelongsToTenant, deleteObject } from '@/lib/r2'
@@ -67,3 +68,73 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
 }
 
 export const DELETE = withErrorHandler(handleDELETE)
+
+/**
+ * Save an edited letter. The browser has already rendered and uploaded the new
+ * PDF (same pipeline as a new letter); this points the row at it and then
+ * removes the superseded library entry and object — row first, for the same
+ * reason as DELETE above.
+ */
+async function handlePATCH(request: NextRequest, { params }: Params) {
+  const gate = await apiRequireOrg()
+  if (!gate.ok) return gate.response
+  const { ctx } = gate
+
+  const id = uuidSchema.parse((await params).id)
+  const input = await parseBody(request, generatedDocumentUpdateSchema)
+
+  if (!keyBelongsToTenant(input.key, ctx.tenantId)) {
+    return jsonError('That file does not belong to this workspace.', 403)
+  }
+
+  const supabase = await createSupabaseServerClient()
+  const { data: letter } = await supabase
+    .from('generated_documents')
+    .select('id, file_url, document_id, employee_id')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!letter) return jsonError('That document was not found.', 404)
+
+  const { error } = await supabase
+    .from('generated_documents')
+    .update({
+      recipient_name: input.recipientName,
+      recipient_email: input.recipientEmail || null,
+      doc_type: input.docType,
+      title: input.title,
+      file_url: input.key,
+      file_name: input.fileName,
+      document_id: input.documentId ?? null,
+      payload: input.payload,
+    })
+    .eq('id', id)
+
+  if (error) return jsonError(friendlyDbError(error), 400)
+
+  if (letter.document_id && letter.document_id !== input.documentId) {
+    await supabase.from('documents').delete().eq('id', letter.document_id)
+  }
+  if (letter.file_url !== input.key && keyBelongsToTenant(letter.file_url, ctx.tenantId)) {
+    try {
+      await deleteObject(letter.file_url)
+    } catch (err) {
+      console.error('[letters] could not remove the superseded object', err)
+    }
+  }
+
+  await audit({
+    tenantId: ctx.tenantId,
+    actorId: ctx.userId,
+    actorEmail: ctx.email,
+    action: 'document.updated',
+    entity: 'generated_documents',
+    entityId: id,
+    meta: { docType: input.docType, employeeId: letter.employee_id },
+    request,
+  })
+
+  return jsonOk({ id })
+}
+
+export const PATCH = withErrorHandler(handlePATCH)

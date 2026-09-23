@@ -7,6 +7,7 @@ import { toColumns, OnboardingPatchError } from '@/lib/onboarding-server'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { assertTenantScope } from '@/lib/supabase/admin'
 import { audit } from '@/lib/audit'
+import { deleteEmployeePermanently } from '@/lib/employee-delete'
 
 export const dynamic = 'force-dynamic'
 
@@ -118,20 +119,35 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
     .maybeSingle()
 
   if (!existing) return jsonError('That draft was not found.', 404)
+
   /*
-   * Anything that produced an account is undeletable, not just a completed one:
-   * an `invited` row belongs to a real person who can already sign in, and
-   * deleting the row would strand them in front of a form that no longer
-   * exists. The RLS delete policy in 014 refuses these too — this is the
-   * message, that is the guarantee.
+   * An onboarding that already produced an account (invited, submitted,
+   * completed) belongs to a real person who can sign in, so discarding just the
+   * row would strand them in front of a form that no longer exists. Deleting it
+   * therefore deletes the EMPLOYEE — sign-in, profile and this record together
+   * — which the UI only offers behind a typed confirmation.
    */
+  if (existing.employee_profile_id) {
+    const result = await deleteEmployeePermanently(existing.employee_profile_id, ctx.tenantId)
+    if (!result.ok) return jsonError(result.error, result.status)
+
+    await audit({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      actorEmail: ctx.email,
+      action: 'employee.deleted',
+      entity: 'profiles',
+      entityId: existing.employee_profile_id,
+      meta: { email: result.email, fromOnboarding: draftId, status: existing.status },
+      request,
+    })
+    return jsonOk({ ok: true, deleted: true })
+  }
+
+  // The RLS delete policy only allows plain drafts; anything else without an
+  // account is a state this route does not expect.
   if (existing.status !== 'draft') {
-    return jsonError(
-      existing.status === 'completed'
-        ? 'This onboarding is complete. Deactivate the employee instead.'
-        : 'An account already exists for this onboarding. Deactivate the employee instead.',
-      409
-    )
+    return jsonError('This onboarding cannot be deleted in its current state.', 409)
   }
 
   const { error } = await supabase.from('employee_onboarding').delete().eq('id', draftId)

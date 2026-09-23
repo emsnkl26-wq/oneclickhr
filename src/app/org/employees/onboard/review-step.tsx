@@ -19,15 +19,16 @@ import * as React from 'react'
 import { AlertCircle, Check, Lock, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  countryLabel, payRateLabel, visibleSections,
+  countryLabel, payRateLabel, resolvePayCurrency, visibleSections,
   ONBOARDING_STEPS, type FieldDef, type OnboardingDraft, type StepDef,
 } from '@/lib/onboarding'
 import type { Person } from './step-fields'
+import { currencySymbol } from '@/lib/currencies'
 
 export interface ReviewContext {
   departments: { id: string; name: string }[]
   managers: Person[]
-  currencySymbol: string
+  defaultCurrency: string
   accountLast4: string | null
 }
 
@@ -154,8 +155,11 @@ function displayValue(
     }
     case 'country':
       return draft.country ? countryLabel(draft.country) : ''
-    case 'payRate':
-      return draft.payRate ? `${ctx.currencySymbol}${draft.payRate}` : ''
+    case 'payRate': {
+      if (!draft.payRate) return ''
+      const currency = resolvePayCurrency(draft, ctx.defaultCurrency)
+      return `${currencySymbol(currency)}${draft.payRate} ${currency}`
+    }
     case 'accountNumber':
       return draft.accountNumber
         ? draft.accountNumber

@@ -126,14 +126,7 @@ export function checkPresignClaims(
       return { ok: false, error: 'Attach a PDF or an image of the payment confirmation.' }
     }
   }
-  // A receipt is the same story as a payment confirmation: far more often a
-  // photo of a piece of paper than a PDF, and refusing that would push the
-  // whole feature back onto somebody's camera roll.
-  if (purpose === 'expense_receipt') {
-    const type = contentType.toLowerCase()
-    if (type !== 'application/pdf' && !type.startsWith('image/')) {
-      return { ok: false, error: 'Attach a PDF or an image of the receipt.' }
-    }
-  }
+  // A receipt may be any format — photo, PDF, DOCX, spreadsheet. Only the
+  // dangerous-MIME denylist above applies, and finalize re-checks the bytes.
   return { ok: true }
 }

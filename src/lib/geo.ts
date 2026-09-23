@@ -220,3 +220,34 @@ export function mailingAddressLines(parts: {
     .map((line) => line?.trim() ?? '')
     .filter(Boolean)
 }
+
+/** International dialling codes for the countries above. */
+const DIAL_CODES: Record<string, string> = {
+  US: '+1', CA: '+1', GB: '+44', IE: '+353', IN: '+91', AU: '+61', NZ: '+64',
+  DE: '+49', FR: '+33', ES: '+34', IT: '+39', NL: '+31', SE: '+46', AE: '+971',
+  SG: '+65', PH: '+63', ZA: '+27', MX: '+52', BR: '+55', JP: '+81',
+}
+
+/** A sample number written the way that country writes one, for placeholders. */
+const PHONE_EXAMPLES: Record<string, string> = {
+  US: '+1 (484) 803-2090', CA: '+1 (416) 555-0142', GB: '+44 20 7946 0958',
+  IN: '+91 98765 43210', AU: '+61 2 9876 5432', AE: '+971 50 123 4567',
+  SG: '+65 6123 4567',
+}
+
+/** "+91" for India (code or printed name); '' for a country not on the list. */
+export function dialCodeFor(stored: string | null | undefined): string {
+  return DIAL_CODES[countryCodeOf(stored)] ?? ''
+}
+
+/**
+ * A phone placeholder in the org's own country's format, so an Indian
+ * workspace is not shown a US number as the example. Falls back to the dial
+ * code alone, then to the US sample the forms always used.
+ */
+export function phonePlaceholderFor(stored: string | null | undefined): string {
+  const code = countryCodeOf(stored)
+  if (PHONE_EXAMPLES[code]) return PHONE_EXAMPLES[code]
+  if (DIAL_CODES[code]) return `${DIAL_CODES[code]} …`
+  return PHONE_EXAMPLES.US
+}

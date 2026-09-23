@@ -50,6 +50,7 @@ export type NotificationEvent =
   | 'task.assigned'
   | 'task.commented'
   | 'visa.expiring'
+  | 'meeting.invited'
   | 'generic'
 
 interface EventSpec {
@@ -144,6 +145,15 @@ const CATALOG: Record<NotificationEvent, EventSpec> = {
   'visa.expiring': {
     importance: 'important',
     path: employeeOrOrg(EMPLOYEE_ROUTES.profile, ORG_ROUTES.visa),
+  },
+
+  // An invitation carries the time and the join link, and the invitee has to
+  // turn up. Emailed, because it is the only copy of the link most people get
+  // when the workspace has no Google Calendar sending invites for it.
+  'meeting.invited': {
+    importance: 'important',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.meetings, ORG_ROUTES.meetings),
+    tag: (targetId) => (targetId ? `meeting:${targetId}` : undefined),
   },
 
   /*

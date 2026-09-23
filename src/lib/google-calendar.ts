@@ -320,6 +320,10 @@ export function meetingToEvent(meeting: MeetingForEvent): GoogleEvent {
  * while Google-owned ones did. The `requestId` is the idempotency key: a retry
  * carrying the same one attaches the same room rather than minting a second.
  *
+ * `sendUpdates=all` is what makes Google EMAIL the attendees. Omitted, it
+ * defaults to sending nothing: the event lands on the organiser's calendar and
+ * the invitees never hear about it — or about the Meet link in it.
+ *
  * `withMeetLink` is the organiser's choice from the create form. When false we
  * send no `conferenceData` at all — an in-person meeting should not arrive in
  * everyone's invite with a video room attached to it.
@@ -341,7 +345,7 @@ export async function createEvent(
   const body: GoogleEvent = { ...event, conferenceData }
   return callCalendar<GoogleEvent>(
     accessToken,
-    `/calendars/${CALENDAR_ID}/events?conferenceDataVersion=1`,
+    `/calendars/${CALENDAR_ID}/events?conferenceDataVersion=1&sendUpdates=all`,
     { method: 'POST', body: JSON.stringify(body) }
   )
 }
@@ -349,7 +353,8 @@ export async function createEvent(
 export async function patchEvent(accessToken: string, eventId: string, event: GoogleEvent) {
   return callCalendar<GoogleEvent>(
     accessToken,
-    `/calendars/${CALENDAR_ID}/events/${encodeURIComponent(eventId)}`,
+    // sendUpdates=all: without it Google changes the event but emails nobody.
+    `/calendars/${CALENDAR_ID}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
     { method: 'PATCH', body: JSON.stringify(event) }
   )
 }
@@ -357,7 +362,7 @@ export async function patchEvent(accessToken: string, eventId: string, event: Go
 export async function deleteEvent(accessToken: string, eventId: string) {
   return callCalendar<unknown>(
     accessToken,
-    `/calendars/${CALENDAR_ID}/events/${encodeURIComponent(eventId)}`,
+    `/calendars/${CALENDAR_ID}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
     { method: 'DELETE' }
   )
 }

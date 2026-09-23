@@ -10,20 +10,14 @@ import 'server-only'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { OrgContext } from '@/lib/auth/guards'
 import type { Person } from './step-fields'
-import { currencySymbol } from '@/lib/currencies'
+import { currencyForCountry } from '@/lib/currencies'
 
 export interface WizardBootstrap {
   departments: { id: string; name: string }[]
   managers: Person[]
-  currencySymbol: string
+  /** ISO code for pay when the draft names none and its country implies none. */
+  defaultCurrency: string
 }
-
-/**
- * The org has no currency setting yet (invoices carry their own), so pay is
- * labelled with a plain dollar sign. When a workspace currency lands in
- * settings, this is the single place that has to change.
- */
-const DEFAULT_CURRENCY_SYMBOL = '$'
 
 export async function loadWizardData(ctx: OrgContext): Promise<WizardBootstrap> {
   const supabase = await createSupabaseServerClient()
@@ -39,15 +33,24 @@ export async function loadWizardData(ctx: OrgContext): Promise<WizardBootstrap> 
       .in('role', ['org', 'employee'])
       .eq('is_active', true)
       .order('full_name'),
-    supabase.from('tenants').select('default_currency').eq('id', ctx.tenantId).maybeSingle(),
+    supabase
+      .from('tenants')
+      .select('default_currency, country')
+      .eq('id', ctx.tenantId)
+      .maybeSingle(),
   ])
+
+  // `default_currency` is NOT NULL DEFAULT 'USD' (033), so a workspace that never
+  // chose one reads as USD. Where it is still that untouched default, the
+  // workspace's country is the better guess (an Indian org → INR).
+  const chosen = (tenant?.default_currency as string | null) ?? null
+  const fromCountry = currencyForCountry(tenant?.country as string | null)
+  const defaultCurrency =
+    chosen && chosen !== 'USD' ? chosen : fromCountry ?? chosen ?? 'USD'
 
   return {
     departments: departments ?? [],
     managers: managers ?? [],
-    // The workspace's own currency (Settings → Company), `$` until one is set.
-    currencySymbol: tenant?.default_currency
-      ? currencySymbol(tenant.default_currency as string)
-      : DEFAULT_CURRENCY_SYMBOL,
+    defaultCurrency,
   }
 }
