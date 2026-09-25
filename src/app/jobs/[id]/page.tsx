@@ -1,14 +1,15 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, MapPin, Clock, Wallet, Users, CalendarClock, Building2 } from 'lucide-react'
+import { ArrowLeft, MapPin } from 'lucide-react'
 import { getPublicJob } from '@/lib/jobs-public'
-import { loadContext } from '@/lib/auth/context'
-import { JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS, experienceLabel, isExpired } from '@/lib/jobs'
-import { formatDateLabel } from '@/lib/time'
+import { loadJobViewer } from '@/lib/job-viewer-server'
+import { JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS, isExpired } from '@/lib/jobs'
+import { formatInstantLabel } from '@/lib/time'
 import { appUrl } from '@/lib/env'
-import { CompanyMark } from '../job-card'
-import { ApplyForm } from './apply-form'
+import { CompanyMark } from '../company-mark'
+import { JobDescription, JobSummary, RecruiterContact } from '../job-details'
+import { JobApplyPanel } from './job-apply-panel'
 import type { PublicJob } from '@/types/db'
 
 export const dynamic = 'force-dynamic'
@@ -49,28 +50,16 @@ export default async function PublicJobPage({ params }: Params) {
   // able to tell a withdrawn posting from one that was never there.
   if (!job) notFound()
 
-  /*
-   * Opportunistic, never a gate. A signed-in employee gets their own details
-   * filled in; everyone else sees the same form. `super_admin` is excluded —
-   * prefilling a platform administrator's address into a job application is
-   * never what they meant to do.
-   */
-  const ctx = await loadContext()
-  const prefill =
-    ctx && ctx.role === 'employee'
-      ? { fullName: ctx.fullName ?? '', email: ctx.email, phone: '' }
-      : undefined
-
-  const experience = experienceLabel(job.experienceMin, job.experienceMax)
+  const viewer = await loadJobViewer()
   const closed = isExpired(job.closesAt)
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
       <script
         type="application/ld+json"
-        // Built from values this page already renders, serialized by
-        // JSON.stringify — no interpolation of raw strings into the script body.
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jobPostingLd(job)) }}
+        // Built from values this page already renders, serialized by JSON.stringify.
+        // `<` is escaped too, so a description holding "</script>" cannot end this tag.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jobPostingLd(job)).replace(/</g, '\\u003c') }}
       />
 
       <Link
@@ -82,13 +71,21 @@ export default async function PublicJobPage({ params }: Params) {
       </Link>
 
       <header className="card-surface p-5 sm:p-6">
-        <div className="flex items-start gap-4">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
           <CompanyMark company={job.company} size="lg" />
           <div className="min-w-0 flex-1">
-            <h1 className="text-[24px] font-bold leading-tight tracking-[-0.02em] text-ink">
+            <div className="flex flex-wrap gap-1.5">
+              <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">
+                {JOB_TYPE_LABELS[job.employmentType]}
+              </span>
+              <span className="rounded-full bg-page px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink ring-1 ring-inset ring-line">
+                {JOB_WORKPLACE_LABELS[job.workplace]}
+              </span>
+            </div>
+            <h1 className="mt-2 text-[26px] font-bold leading-tight tracking-[-0.02em] text-ink">
               {job.title}
             </h1>
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-[15px] text-ink-muted">
+            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] text-ink-muted">
               {job.company.slug ? (
                 <Link
                   href={`/jobs/company/${job.company.slug}`}
@@ -99,116 +96,30 @@ export default async function PublicJobPage({ params }: Params) {
               ) : (
                 <span className="font-medium text-ink">{job.company.name}</span>
               )}
-              {job.company.isPlatform ? (
-                <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
-                  Hiring for Oneclickhr
+              {job.location ? (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin className="size-4" aria-hidden />
+                  {job.location}
                 </span>
               ) : null}
+              {job.publishedAt ? <span>Posted {formatInstantLabel(job.publishedAt)}</span> : null}
             </p>
           </div>
+          <div className="sm:w-80">
+            <JobApplyPanel job={job} viewer={viewer} closed={closed} />
+          </div>
         </div>
-
-        <dl className="mt-5 grid gap-x-6 gap-y-3 border-t border-line pt-5 sm:grid-cols-2 lg:grid-cols-3">
-          <Fact icon={Clock} label="Employment" value={JOB_TYPE_LABELS[job.employmentType]} />
-          <Fact
-            icon={MapPin}
-            label="Location"
-            value={`${job.location || '—'}${
-              job.location ? ` · ${JOB_WORKPLACE_LABELS[job.workplace]}` : JOB_WORKPLACE_LABELS[job.workplace]
-            }`}
-          />
-          {experience ? <Fact icon={Building2} label="Experience" value={experience} /> : null}
-          {job.salaryLabel ? <Fact icon={Wallet} label="Salary" value={job.salaryLabel} /> : null}
-          <Fact
-            icon={Users}
-            label="Openings"
-            value={String(job.openings)}
-          />
-          {job.closesAt ? (
-            <Fact
-              icon={CalendarClock}
-              label="Applications close"
-              value={formatDateLabel(job.closesAt)}
-            />
-          ) : null}
-        </dl>
       </header>
 
-      <article className="card-surface space-y-6 p-5 sm:p-6">
-        <Section title="About the role" body={job.description} />
-        {job.responsibilities ? (
-          <Section title="Responsibilities" body={job.responsibilities} />
-        ) : null}
-        {job.requirements ? <Section title="Requirements" body={job.requirements} /> : null}
-
-        {job.skills.length ? (
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
-              Skills
-            </h2>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {job.skills.map((skill) => (
-                <span
-                  key={skill}
-                  className="rounded-full bg-page px-3 py-1 text-xs font-medium text-ink ring-1 ring-inset ring-line"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </article>
-
-      {closed ? (
-        <div className="card-surface p-8 text-center">
-          <h2 className="text-lg font-semibold text-ink">Applications have closed</h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-muted">
-            This role stopped accepting applications on {formatDateLabel(job.closesAt)}. There may
-            be something else that suits you.
-          </p>
-          <Link
-            href="/jobs"
-            className="mt-4 inline-block text-sm font-medium text-brand-600 hover:underline"
-          >
-            Browse open roles
-          </Link>
-        </div>
-      ) : (
-        <ApplyForm jobId={job.id} jobTitle={job.title} prefill={prefill} />
-      )}
-    </div>
-  )
-}
-
-function Fact({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Clock
-  label: string
-  value: string
-}) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <Icon className="mt-0.5 size-4 shrink-0 text-ink-muted" aria-hidden />
-      <div className="min-w-0">
-        <dt className="text-xs text-ink-muted">{label}</dt>
-        {/* Wraps rather than truncates. A salary range or a long location is
-            worth a second line — half a number is worse than none. */}
-        <dd className="break-words text-sm font-medium text-ink">{value}</dd>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <article className="card-surface p-5 sm:p-6">
+          <JobDescription job={job} />
+        </article>
+        <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+          <JobSummary job={job} />
+          <RecruiterContact job={job} />
+        </aside>
       </div>
-    </div>
-  )
-}
-
-/** Plain text with line breaks preserved. Never markup — see the portal notes. */
-function Section({ title, body }: { title: string; body: string }) {
-  return (
-    <div>
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">{title}</h2>
-      <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed text-ink">{body}</p>
     </div>
   )
 }

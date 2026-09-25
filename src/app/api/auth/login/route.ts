@@ -87,7 +87,12 @@ async function handlePOST(request: NextRequest) {
   // is registered AND which kind of account it is. The failure is also recorded
   // like any other, so probing one door with the other's credentials still
   // spends the lockout budget.
-  const allowedRoles = portal === 'employee' ? ['employee'] : ['org', 'super_admin']
+  const allowedRoles =
+    portal === 'employee'
+      ? ['employee']
+      : portal === 'candidate'
+        ? ['candidate']
+        : ['org', 'super_admin']
   if (!allowedRoles.includes(profile.role)) {
     await supabase.auth.signOut()
     await recordLoginFailure(email)
@@ -105,7 +110,11 @@ async function handlePOST(request: NextRequest) {
     await supabase.auth.signOut()
     return jsonError('This account has been deactivated. Please contact your administrator.', 403)
   }
-  if (profile.role !== 'super_admin' && profile.tenant_status === 'suspended') {
+  if (
+    profile.role !== 'super_admin' &&
+    profile.role !== 'candidate' &&
+    profile.tenant_status === 'suspended'
+  ) {
     await supabase.auth.signOut()
     return jsonError('This workspace is suspended. Please contact support.', 403)
   }

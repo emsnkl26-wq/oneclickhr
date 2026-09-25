@@ -21,6 +21,10 @@ interface EmployeeFormState {
   timezone: string
   isActive: boolean
   trackingMode: string
+  /** '' = automatic. */
+  paySchedule: string
+  /** What automatic currently resolves to, for the hint. */
+  automaticPaySchedule: string
 }
 
 export function EmployeeEditForm({
@@ -55,6 +59,7 @@ export function EmployeeEditForm({
         timezone: form.timezone,
         isActive: form.isActive,
         trackingMode: form.trackingMode,
+        paySchedule: form.paySchedule,
       })
       toast.success('Employee updated')
       router.refresh()
@@ -146,6 +151,18 @@ export function EmployeeEditForm({
               <option value="clock_in">Clock in and out</option>
               <option value="timesheet">Weekly timesheet</option>
               <option value="none">Neither</option>
+            </Select>
+          </FormField>
+
+          <FormField
+            label="Pay schedule"
+            error={fields.paySchedule}
+            hint="Decides how many payment confirmations they upload each month. US employees are usually paid twice a month; India monthly."
+          >
+            <Select value={form.paySchedule} onChange={(e) => set('paySchedule', e.target.value)}>
+              <option value="">Automatic — {form.automaticPaySchedule}</option>
+              <option value="monthly">Monthly</option>
+              <option value="semi_monthly">Twice a month (1st–15th, 16th–end)</option>
             </Select>
           </FormField>
 

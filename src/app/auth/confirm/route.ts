@@ -107,9 +107,13 @@ async function handleGET(request: NextRequest) {
     request,
   })
 
-  return toLogin(
-    `message=${encodeURIComponent('Your email is confirmed. Please sign in to continue.')}`
-  )
+  const confirmed = `message=${encodeURIComponent('Your email is confirmed. Please sign in to continue.')}`
+  // A job seeker (052) signs in at the job portal's door, not the org one. The
+  // metadata only picks the page to land on; the login route decides access.
+  if (user.user_metadata?.signup_as === 'candidate') {
+    return NextResponse.redirect(`${origin}/jobs/login?${confirmed}`)
+  }
+  return toLogin(confirmed)
 }
 
 export const GET = withErrorHandler(handleGET)

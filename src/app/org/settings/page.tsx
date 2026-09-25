@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { SettingsForm } from './settings-form'
 import { CompanyForm } from './company-form'
 import { DepartmentManager } from './department-manager'
+import { OvertimeForm } from './overtime-form'
 import type { CompanyDetails } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Settings' }
@@ -24,7 +25,7 @@ export default async function SettingsPage() {
     // only what every page needs, and these are read on this one screen.
     supabase
       .from('tenants')
-      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details')
+      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details, overtime_weekly_threshold')
       .eq('id', ctx.tenantId)
       .single(),
   ])
@@ -57,7 +58,7 @@ export default async function SettingsPage() {
         description="Branding, working hours, departments and the details your documents are issued on."
       />
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid items-start gap-5 lg:grid-cols-2">
         <SettingsForm
           tenant={{
             name: ctx.tenant.name,
@@ -71,6 +72,12 @@ export default async function SettingsPage() {
 
         <div className="space-y-5">
           <DepartmentManager departments={departments ?? []} />
+
+          <OvertimeForm
+            threshold={
+              tenant?.overtime_weekly_threshold == null ? null : Number(tenant.overtime_weekly_threshold)
+            }
+          />
 
           <Card>
             <CardHeader>

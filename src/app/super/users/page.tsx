@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: 'Users' }
 export const dynamic = 'force-dynamic'
 
 const PER_PAGE = 50
-const ROLES: UserRole[] = ['org', 'employee', 'super_admin']
+const ROLES: UserRole[] = ['org', 'employee', 'candidate', 'super_admin']
 const STATUSES = ['active', 'inactive'] as const
 
 /**
@@ -63,7 +63,11 @@ export default async function PlatformUsersPage({
 
   const rows = (profiles ?? []).map((profile) => ({
     ...profile,
-    tenantName: profile.tenant_id ? (tenantName.get(profile.tenant_id) ?? '—') : 'Platform',
+    tenantName: profile.tenant_id
+      ? (tenantName.get(profile.tenant_id) ?? '—')
+      : profile.role === 'candidate'
+        ? 'Job portal'
+        : 'Platform',
   }))
 
   return (

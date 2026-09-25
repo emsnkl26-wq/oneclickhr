@@ -80,19 +80,27 @@ async function handlePOST(request: NextRequest) {
     const admin = createAdminClient()
     const keys = stale.map((obj) => obj.key)
 
-    const { data, error } = await admin
-      .from('job_applications')
-      .select('resume_key')
-      .in('resume_key', keys)
+    /*
+     * Two tables hold résumé keys: applications, and — since 052 — a job
+     * seeker's saved CV on their candidate profile, which every application
+     * they send may point at. An object is only garbage when NEITHER does.
+     */
+    const [applications, candidates] = await Promise.all([
+      admin.from('job_applications').select('resume_key').in('resume_key', keys),
+      admin.from('candidate_profiles').select('resume_key').in('resume_key', keys),
+    ])
 
-    if (error) {
-      summary.errors.push(`reference lookup failed: ${error.message}`)
+    const lookupError = applications.error ?? candidates.error
+    if (lookupError) {
+      summary.errors.push(`reference lookup failed: ${lookupError.message}`)
       await recordCronRun('jobs-gc', false, Date.now() - startedAt, summary)
       return jsonOk({ ok: false, ...summary })
     }
 
     const referenced = new Set(
-      ((data ?? []) as Array<{ resume_key: string | null }>)
+      ([...(applications.data ?? []), ...(candidates.data ?? [])] as Array<{
+        resume_key: string | null
+      }>)
         .map((row) => row.resume_key)
         .filter((key): key is string => !!key)
     )

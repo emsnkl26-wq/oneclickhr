@@ -3,6 +3,7 @@ import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
 import { PayrollReview, type ConfirmationRow, type EmployeeRow } from './payroll-review'
+import { effectivePaySchedule } from '@/lib/pay-schedule'
 
 export const metadata: Metadata = { title: 'Payroll' }
 export const dynamic = 'force-dynamic'
@@ -35,18 +36,34 @@ export default async function PayrollPage({
   const [{ data: employees }, { data: confirmations }] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, full_name, email, photo_url, employee_code, designation')
+      .select(
+        'id, full_name, email, photo_url, employee_code, designation, pay_schedule, pay_frequency, country'
+      )
       .eq('role', 'employee')
       .eq('is_active', true)
       .order('full_name'),
     supabase
       .from('payment_confirmations')
       .select(
-        'id, employee_id, month, year, amount, currency, paid_on, file_url, file_name, note, status, review_note, verified_at'
+        'id, employee_id, month, year, period, amount, currency, paid_on, file_url, file_name, note, status, review_note, verified_at'
       )
       .eq('month', month)
       .eq('year', year),
   ])
+
+  // Each person's schedule decides whether the month is one row or two (050).
+  const people: EmployeeRow[] = (
+    (employees ?? []) as unknown as Array<
+      Omit<EmployeeRow, 'schedule'> & {
+        pay_schedule: string | null
+        pay_frequency: string | null
+        country: string | null
+      }
+    >
+  ).map(({ pay_schedule, pay_frequency, country, ...person }) => ({
+    ...person,
+    schedule: effectivePaySchedule({ pay_schedule, pay_frequency, country }),
+  }))
 
   return (
     <div className="space-y-6">
@@ -55,7 +72,7 @@ export default async function PayrollPage({
         description="Salaries are paid by your payroll provider. This is where employees confirm they received them."
       />
       <PayrollReview
-        employees={(employees ?? []) as unknown as EmployeeRow[]}
+        employees={people}
         confirmations={(confirmations ?? []) as unknown as ConfirmationRow[]}
         month={month}
         year={year}

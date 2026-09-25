@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { effectivePaySchedule } from '@/lib/pay-schedule'
 import {
   ArrowLeft, ArrowRight, ClipboardList, Download, FileText, FileSignature, FilePlus2,
   Eye, Briefcase, Timer, Building2, Pencil,
@@ -44,7 +45,7 @@ export default async function EmployeeDetailPage({
   const { data: employee, error: employeeError } = await supabase
     .from('profiles')
     .select(
-      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, must_change_password, created_at, skills, tracking_mode'
+      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, must_change_password, created_at, skills, tracking_mode, pay_schedule, pay_frequency, country'
     )
     .eq('id', id)
     .eq('role', 'employee')
@@ -394,7 +395,7 @@ export default async function EmployeeDetailPage({
         />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid items-start gap-5 lg:grid-cols-2">
         <EmployeeEditForm
           employee={{
             id: employee.id,
@@ -407,6 +408,14 @@ export default async function EmployeeDetailPage({
             timezone: employee.timezone,
             isActive: employee.is_active,
             trackingMode: employee.tracking_mode ?? '',
+            paySchedule: employee.pay_schedule ?? '',
+            automaticPaySchedule:
+              effectivePaySchedule({
+                pay_frequency: employee.pay_frequency,
+                country: employee.country,
+              }) === 'semi_monthly'
+                ? 'twice a month'
+                : 'monthly',
           }}
           departments={departments ?? []}
         />
@@ -521,7 +530,7 @@ export default async function EmployeeDetailPage({
         with `readOnly` set — so what an org admin reads here is exactly what the
         person entered, with no second renderer to drift out of step.
       */}
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid items-start gap-5 lg:grid-cols-2">
         <div className="space-y-5">
           <ExperienceSection items={(experience ?? []) as unknown as ExperienceItem[]} readOnly />
           <EducationSection items={(education ?? []) as unknown as EducationItem[]} readOnly />

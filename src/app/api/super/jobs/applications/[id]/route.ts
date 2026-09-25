@@ -4,6 +4,7 @@ import { apiRequireSuperAdmin } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { applicationReviewSchema } from '@/lib/schemas'
 import { audit } from '@/lib/audit'
+import { emailApplicantStatus } from '@/lib/jobs'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,6 +42,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
 
   if (!existing) return jsonError('That application was not found.', 404)
   const row = existing as { id: string; job_id: string; tenant_id: string | null; status: string }
+  const statusBefore = row.status
 
   if (row.tenant_id) {
     return jsonError(
@@ -54,6 +56,9 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     patch.status = input.status
     patch.reviewed_by = ctx.userId
     patch.reviewed_at = new Date().toISOString()
+    // Shown to the applicant on their timeline (052); cleared when there is
+    // none, so an old message never rides along with a later stage.
+    patch.candidate_message = input.message ?? null
   }
   if (input.notes !== undefined) patch.org_notes = input.notes
 
@@ -72,6 +77,11 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     meta: { jobId: row.job_id, from: row.status, to: input.status ?? row.status, platform: true },
     request,
   })
+
+  // A real stage change is worth an email to someone following it (052).
+  if (input.status && input.status !== statusBefore) {
+    await emailApplicantStatus(createAdminClient(), id, input.message ?? null)
+  }
 
   return jsonOk({ ok: true })
 }

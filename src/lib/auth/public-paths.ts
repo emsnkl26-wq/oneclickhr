@@ -21,6 +21,9 @@ export const PUBLIC_HUMAN_PATHS = [
   '/auth/confirm',
   '/api/auth/login',
   '/api/auth/signup',
+  // A job seeker's account (052). Its pages (/jobs/login, /jobs/signup) are
+  // already public through the /jobs entry below.
+  '/api/auth/candidate-signup',
   '/api/auth/forgot-password',
   '/api/auth/signout',
   /*

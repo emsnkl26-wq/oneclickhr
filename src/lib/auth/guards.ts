@@ -81,6 +81,13 @@ export async function requireEmployee(): Promise<OrgContext> {
   return ctx as OrgContext
 }
 
+/** An ACTIVE job seeker (052). Candidates have no tenant by design. */
+export async function requireCandidate(): Promise<AppContext> {
+  const ctx = await requireUser()
+  if (ctx.role !== 'candidate') redirect(homeFor(ctx.role))
+  return ctx
+}
+
 export async function requireSuperAdmin(): Promise<AppContext> {
   const ctx = await requireUser()
   if (ctx.role !== 'super_admin') redirect(homeFor(ctx.role))
@@ -167,6 +174,13 @@ export async function apiRequireTenantUser(): Promise<Gate<OrgContext>> {
   if (!gate.ok) return gate
   if (!gate.ctx.tenantId || !gate.ctx.tenant) return deny('Workspace access required', 403)
   return { ok: true, ctx: gate.ctx as OrgContext }
+}
+
+export async function apiRequireCandidate(): Promise<Gate<AppContext>> {
+  const gate = await apiRequireUser()
+  if (!gate.ok) return gate
+  if (gate.ctx.role !== 'candidate') return deny('Job seeker account required', 403)
+  return { ok: true, ctx: gate.ctx }
 }
 
 export async function apiRequireSuperAdmin(): Promise<Gate<AppContext>> {

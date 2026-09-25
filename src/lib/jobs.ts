@@ -16,7 +16,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { headObject, getObjectHead, deleteObject } from '@/lib/r2'
 import { sniffMime } from '@/lib/upload'
 import { SNIFF_BYTES } from '@/lib/upload-policy'
-import type { Job, JobType, JobWorkplace, PublicJob, SalaryPeriod } from '@/types/db'
+import { sendApplicationStatusUpdate } from '@/lib/email'
+import type { Job, PublicJob, SalaryPeriod } from '@/types/db'
+import type { JobInput } from '@/lib/schemas'
 
 // ---------------------------------------------------------------------------
 // Résumé policy
@@ -68,13 +70,27 @@ const RESUME_MIMES = new Set([
  * which checks the application against the caller's tenant first. Moving these
  * objects under a tenant prefix would silently hand them to `/api/files/view`.
  *
- * The basename is a fresh uuid every time, so an anonymous caller can never
- * propose a path, overwrite an existing object, or learn one by guessing.
+ * The basename is a fresh uuid every time, so a caller can never propose a
+ * path, overwrite an existing object, or learn one by guessing.
+ *
+ * NAMESPACED BY UPLOADER (052). Uploading now needs an account, so the key
+ * carries the uploader's profile id: `applications/resumes/<userId>/<uuid>`.
+ * `ownsResumeKey()` is what the apply and profile routes check before they
+ * attach — or delete — a key a request names, so nobody can attach another
+ * person's CV, or get it deleted, by quoting its key. Keys from before 052
+ * have no owner segment and are simply never accepted from a request again.
  */
-export function resumeKey(ext: string): string {
+export function resumeKey(ext: string, ownerId: string): string {
   const clean = (/^[a-z0-9]+/.exec((ext || '').toLowerCase())?.[0] ?? '').slice(0, 8)
+  const owner = /^[0-9a-f-]{36}$/i.test(ownerId) ? ownerId.toLowerCase() : 'unknown'
   const base = randomUUID()
-  return `applications/resumes/${clean ? `${base}.${clean}` : base}`
+  return `applications/resumes/${owner}/${clean ? `${base}.${clean}` : base}`
+}
+
+/** Was this key minted for this user by `resumeKey()`? */
+export function ownsResumeKey(key: string | null | undefined, userId: string): boolean {
+  if (!isResumeKey(key) || !/^[0-9a-f-]{36}$/i.test(userId)) return false
+  return key!.startsWith(`applications/resumes/${userId.toLowerCase()}/`)
 }
 
 /** Is this an object this feature is willing to talk about at all? */
@@ -142,19 +158,9 @@ export async function validateResumeObject(key: string): Promise<ResumeCheck> {
 // Presentation
 // ---------------------------------------------------------------------------
 
-export const JOB_TYPE_LABELS: Record<JobType, string> = {
-  full_time: 'Full time',
-  part_time: 'Part time',
-  contract: 'Contract',
-  internship: 'Internship',
-  temporary: 'Temporary',
-}
-
-export const JOB_WORKPLACE_LABELS: Record<JobWorkplace, string> = {
-  onsite: 'On site',
-  remote: 'Remote',
-  hybrid: 'Hybrid',
-}
+import { APPLICATION_STATUS_LABELS } from '@/lib/job-form'
+export { APPLICATION_STATUS_LABELS }
+export { JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS } from '@/lib/job-form'
 
 const PERIOD_LABELS: Record<SalaryPeriod, string> = {
   hour: 'hour',
@@ -205,45 +211,11 @@ export function salaryLabel(job: {
   return `${amount} / ${per}`
 }
 
-/** "2–5 years", "5+ years", "Entry level" — or null when unspecified. */
-export function experienceLabel(min: number | null, max: number | null): string | null {
-  if (min === null && max === null) return null
-  if (min !== null && max !== null) {
-    if (min === max) return min === 0 ? 'Entry level' : `${min} years`
-    return `${min}–${max} years`
-  }
-  if (min !== null) return min === 0 ? 'Entry level' : `${min}+ years`
-  return `Up to ${max} years`
-}
+export { experienceLabel } from '@/lib/job-form'
 
-/**
- * The portal's experience filter, as bands of years. `max: null` is open-ended.
- *
- * A band matches a posting whose own range OVERLAPS it, not one that sits
- * inside it: a "2–6 years" role is a real option for someone with 5, and
- * hiding it from the "5–10" band because it starts at 2 would hide most jobs
- * from most people. A posting that states no experience at all is open to
- * everyone, so it matches every band.
- */
-export const EXPERIENCE_BANDS = {
-  '0-1': { label: 'Entry level (0–1 yr)', min: 0, max: 1 },
-  '1-3': { label: '1–3 years', min: 1, max: 3 },
-  '3-5': { label: '3–5 years', min: 3, max: 5 },
-  '5-10': { label: '5–10 years', min: 5, max: 10 },
-  '10+': { label: '10+ years', min: 10, max: null },
-} as const satisfies Record<string, { label: string; min: number; max: number | null }>
-
-export type ExperienceBand = keyof typeof EXPERIENCE_BANDS
-
-/** "Posted within" windows for the portal feed, in hours. */
-export const POSTED_WITHIN = {
-  '24h': { label: 'Last 24 hours', hours: 24 },
-  '3d': { label: 'Last 3 days', hours: 72 },
-  '7d': { label: 'Last week', hours: 24 * 7 },
-  '30d': { label: 'Last month', hours: 24 * 30 },
-} as const
-
-export type PostedWithin = keyof typeof POSTED_WITHIN
+export {
+  EXPERIENCE_BANDS, POSTED_WITHIN, type ExperienceBand, type PostedWithin,
+} from '@/lib/job-form'
 
 /** Whether a posting has passed its own closing date. */
 export function isExpired(closesAt: string | null): boolean {
@@ -269,7 +241,28 @@ export const JOB_COLUMNS =
   'department_id, employment_type, workplace, location, country, state, city, address, ' +
   'experience_min, experience_max, ' +
   'salary_min, salary_max, salary_currency, salary_period, salary_disclosed, openings, ' +
-  'skills, status, published_at, closes_at, application_count, created_at, updated_at'
+  'skills, status, published_at, closes_at, application_count, created_at, updated_at, ' +
+  // 052 — public once the job is published; see PublicRecruiter.
+  'recruiter_name, recruiter_title, recruiter_email, recruiter_phone, recruiter_linkedin_url, ' +
+  'company_linkedin_url, client_name, duration, start_date_label, work_authorization'
+
+/**
+ * The recruiter block, or null when the org entered none of it — so the page can
+ * leave the card out instead of rendering a column of dashes. Links are only
+ * ever passed through when they are https (052 enforces it in the database too).
+ */
+function toRecruiter(row: Job): PublicJob['recruiter'] {
+  const https = (v: string | null | undefined) => (v && /^https:\/\//i.test(v) ? v : null)
+  const recruiter = {
+    name: row.recruiter_name ?? null,
+    title: row.recruiter_title ?? null,
+    email: row.recruiter_email ?? null,
+    phone: row.recruiter_phone ?? null,
+    linkedinUrl: https(row.recruiter_linkedin_url),
+    companyLinkedinUrl: https(row.company_linkedin_url),
+  }
+  return Object.values(recruiter).some(Boolean) ? recruiter : null
+}
 
 /** Map a `jobs` row to the public shape, resolving the salary rule on the way. */
 export function toPublicJob(
@@ -292,6 +285,12 @@ export function toPublicJob(
     skills: toSkills(row.skills),
     publishedAt: row.published_at,
     closesAt: row.closes_at,
+    country: row.country,
+    clientName: row.client_name ?? null,
+    duration: row.duration ?? null,
+    startDate: row.start_date_label ?? null,
+    workAuthorization: row.work_authorization ?? null,
+    recruiter: toRecruiter(row),
     company,
   }
 }
@@ -327,4 +326,79 @@ export async function jobNotificationRecipients(
   return (data ?? [])
     .map((row) => (row as { email: string | null }).email)
     .filter((email): email is string => !!email)
+}
+
+/**
+ * The 052 columns — recruiter contact and engagement details — from a parsed
+ * `jobSchema`. One mapping for the four routes that create and edit jobs, so a
+ * field cannot be saved by one console and silently dropped by another.
+ */
+export function engagementColumns(input: JobInput) {
+  return {
+    recruiter_name: input.recruiterName,
+    recruiter_title: input.recruiterTitle,
+    recruiter_email: input.recruiterEmail,
+    recruiter_phone: input.recruiterPhone,
+    recruiter_linkedin_url: input.recruiterLinkedinUrl,
+    company_linkedin_url: input.companyLinkedinUrl,
+    client_name: input.clientName,
+    duration: input.duration,
+    start_date_label: input.startDateLabel,
+    work_authorization: input.workAuthorization,
+  }
+}
+
+/**
+ * Email an applicant that their application changed stage (052).
+ *
+ * Only for applications made from an account — applying requires one now, and
+ * older anonymous ones get nothing new. Never throws: the stage change is
+ * already saved, and a mail outage must not turn it into an error.
+ */
+export async function emailApplicantStatus(
+  admin: SupabaseClient,
+  applicationId: string,
+  message: string | null
+): Promise<void> {
+  try {
+    const { data } = await admin
+      .from('job_applications')
+      .select('full_name, email, status, applicant_profile_id, job:jobs(title, tenant_id)')
+      .eq('id', applicationId)
+      .maybeSingle()
+    const row = data as {
+      full_name: string
+      email: string
+      status: keyof typeof APPLICATION_STATUS_LABELS
+      applicant_profile_id: string | null
+      job: { title: string; tenant_id: string | null } | null
+    } | null
+    if (!row?.applicant_profile_id || !row.job) return
+
+    let companyName = 'Oneclickhr'
+    let brandColor: string | undefined
+    if (row.job.tenant_id) {
+      const { data: tenant } = await admin
+        .from('tenants')
+        .select('name, primary_color')
+        .eq('id', row.job.tenant_id)
+        .maybeSingle()
+      if (tenant) {
+        companyName = (tenant as { name: string }).name
+        brandColor = (tenant as { primary_color: string }).primary_color
+      }
+    }
+
+    await sendApplicationStatusUpdate({
+      to: row.email,
+      applicantName: row.full_name,
+      jobTitle: row.job.title,
+      companyName,
+      statusLabel: APPLICATION_STATUS_LABELS[row.status] ?? row.status,
+      message,
+      brandColor,
+    })
+  } catch (err) {
+    console.warn('[jobs] could not email the applicant a status update', err)
+  }
 }

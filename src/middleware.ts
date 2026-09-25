@@ -39,12 +39,14 @@ const ROLE_HOME: Record<string, string> = {
   super_admin: '/super',
   org: '/org',
   employee: '/employee',
+  candidate: '/candidate',
 }
 
 const ROLE_PREFIX: Record<string, string> = {
   super_admin: '/super',
   org: '/org',
   employee: '/employee',
+  candidate: '/candidate',
 }
 
 /**
@@ -181,7 +183,9 @@ export async function middleware(request: NextRequest) {
     // sign-in, which would refuse the only password they have.
     const door = pathname === '/employee' || pathname.startsWith('/employee/')
       ? '/employee-login'
-      : '/login'
+      : pathname === '/candidate' || pathname.startsWith('/candidate/')
+        ? '/jobs/login'
+        : '/login'
     const redirectUrl = new URL(door, request.url)
     // Preserve the destination so sign-in can return the user to it.
     if (pathname !== '/') redirectUrl.searchParams.set('next', pathname)
@@ -192,7 +196,7 @@ export async function middleware(request: NextRequest) {
   const home = (role && ROLE_HOME[role]) || '/employee'
 
   // --- Signed in, on an auth page -> go home -------------------------------
-  const AUTH_PAGES = ['/', '/login', '/employee-login', '/signup']
+  const AUTH_PAGES = ['/', '/login', '/employee-login', '/signup', '/jobs/login', '/jobs/signup']
   if (AUTH_PAGES.includes(pathname)) {
     return NextResponse.redirect(new URL(home, request.url))
   }

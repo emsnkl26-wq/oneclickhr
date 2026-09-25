@@ -46,7 +46,7 @@ export const dynamic = 'force-dynamic'
  */
 
 interface SendEmailHookPayload {
-  user: { email?: string }
+  user: { email?: string; user_metadata?: Record<string, unknown> }
   email_data: {
     token_hash: string
     email_action_type: string
@@ -196,7 +196,12 @@ async function handlePOST(request: NextRequest) {
   const result = await (async () => {
     switch (actionType) {
       case 'signup':
-        return sendSignupConfirmationEmail({ to: email, confirmUrl: link('signup') })
+        return sendSignupConfirmationEmail({
+          to: email,
+          confirmUrl: link('signup'),
+          // Copy only — a job seeker (052) is not activating a workspace.
+          candidate: payload.user?.user_metadata?.signup_as === 'candidate',
+        })
       case 'recovery':
         return sendPasswordResetEmail({ to: email, resetUrl: link('recovery') })
       default:

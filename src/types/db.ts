@@ -7,7 +7,8 @@
  * and pass `Database` as the generic to the clients in src/lib/supabase/.
  */
 
-export type UserRole = 'super_admin' | 'org' | 'employee'
+/** 052: `candidate` is a job seeker from the public portal — no workspace. */
+export type UserRole = 'super_admin' | 'org' | 'employee' | 'candidate'
 export type TenantStatus = 'active' | 'suspended'
 export type LeaveStatus = 'pending' | 'approved' | 'rejected'
 export type NotificationTarget = 'all' | 'department' | 'employee'
@@ -49,6 +50,8 @@ export interface Tenant {
 
   /** Null until an org chooses. Null means no restriction — see 025. */
   default_tracking_mode: TrackingMode | null
+  /** Weekly billable hours above which hours are overtime (049). Null = off. */
+  overtime_weekly_threshold: number | null
   onboarded_at: string | null
   /**
    * The company website this workspace claims — bare host, already normalized
@@ -84,6 +87,8 @@ export interface Profile extends Partial<ProfileOnboardingFields> {
 
   /** Null until an org assigns one. Null means no restriction — see 025. */
   tracking_mode: TrackingMode | null
+  /** How often they are paid (050). Null = automatic, by country. */
+  pay_schedule: 'monthly' | 'semi_monthly' | null
   /** True for the one profile per tenant that created the workspace (027). */
   is_owner: boolean
   /** Free-text skill tags, editable by the employee (012_profiles_and_letters). */
@@ -433,6 +438,8 @@ export interface Meeting {
   attendees: MeetingAttendee[]
   source: MeetingSource
   read_only: boolean
+  /** 048. A Google all-day event: the times are UTC midnights standing for dates. */
+  all_day: boolean
   cancelled_at: string | null
   created_at: string
   updated_at: string
@@ -693,6 +700,12 @@ export interface Timesheet {
   pay_rate_snapshot: number | null
   pay_amount: number | null
   pay_currency: string | null
+  /** Billable hours above the weekly threshold, computed from the grid (049). */
+  overtime_hours: number
+  /** How much of the overtime the reviewer approved. Null until reviewed, or when overtime did not apply. */
+  approved_overtime_hours: number | null
+  /** The overtime share of pay_amount (049). */
+  overtime_pay_amount: number | null
   /** Set once the week has been billed (024). Bills exactly once. */
   invoice_id: string | null
   invoiced_at: string | null
@@ -857,7 +870,10 @@ export interface CompanyDetails {
 // Jobs & applications (015_jobs.sql)
 // ---------------------------------------------------------------------------
 
-export type JobType = 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary'
+export type JobType =
+  | 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary'
+  // 051: the US staffing engagement types.
+  | 'contract_to_hire' | 'c2c' | 'w2'
 export type JobWorkplace = 'onsite' | 'remote' | 'hybrid'
 export type JobStatus = 'draft' | 'published' | 'closed'
 export type SalaryPeriod = 'hour' | 'day' | 'month' | 'year'
@@ -908,6 +924,17 @@ export interface Job {
   published_at: string | null
   closes_at: string | null
   application_count: number
+  /** 052 — who a candidate talks to, and the engagement details. All public once published. */
+  recruiter_name: string | null
+  recruiter_title: string | null
+  recruiter_email: string | null
+  recruiter_phone: string | null
+  recruiter_linkedin_url: string | null
+  company_linkedin_url: string | null
+  client_name: string | null
+  duration: string | null
+  start_date_label: string | null
+  work_authorization: string | null
   created_at: string
   updated_at: string
 }
@@ -974,7 +1001,25 @@ export interface PublicJob {
   skills: string[]
   publishedAt: string | null
   closesAt: string | null
+  /** ISO 3166-1 alpha-2, or null for a posting with no country. */
+  country: string | null
+  /** 052: engagement details and the recruiter's contact. */
+  clientName: string | null
+  duration: string | null
+  startDate: string | null
+  workAuthorization: string | null
+  recruiter: PublicRecruiter | null
   company: PublicCompany
+}
+
+/** Who to contact about a posting (052). Everything here is on the public page. */
+export interface PublicRecruiter {
+  name: string | null
+  title: string | null
+  email: string | null
+  phone: string | null
+  linkedinUrl: string | null
+  companyLinkedinUrl: string | null
 }
 
 /** The employer behind a posting. `slug` is null for Oneclickhr's own jobs. */
@@ -1063,6 +1108,10 @@ export interface EmployeeAssignment {
   is_primary: boolean
   status: AssignmentStatus
   notes: string | null
+  /** 049: hourly overtime — whether it is owed, and at what multiples. */
+  overtime_eligible: boolean
+  overtime_pay_multiplier: number
+  overtime_bill_multiplier: number
   created_by: string | null
   created_at: string
   updated_at: string
@@ -1091,6 +1140,8 @@ export interface MyAssignment {
   end_date: string | null
   is_primary: boolean
   status: AssignmentStatus
+  overtime_eligible: boolean
+  overtime_pay_multiplier: number
 }
 
 /** An assignment with its parties' names resolved, for org-side lists. */

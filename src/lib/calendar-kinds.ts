@@ -13,6 +13,8 @@
  * reason, as src/lib/job-form.ts.
  */
 
+import { localDate } from '@/lib/time'
+
 export type CalendarEventKind =
   | 'meeting'
   | 'leave'
@@ -34,6 +36,35 @@ export interface CalendarEvent {
   href: string | null
   /** Extra line under the title. */
   detail?: string | null
+  /**
+   * The meeting itself, for `meeting` entries — so clicking one opens its
+   * details (and, for an org, edit/delete) right on the calendar instead of
+   * sending the person to another page.
+   */
+  meeting?: CalendarMeeting
+}
+
+export interface CalendarMeetingAttendee {
+  email: string
+  name?: string
+  responseStatus?: string
+}
+
+/** The columns of a meeting the calendar's dialogs read. */
+export interface CalendarMeeting {
+  id: string
+  title: string
+  description: string | null
+  location: string | null
+  meet_link: string | null
+  start_time: string
+  end_time: string
+  attendees: CalendarMeetingAttendee[]
+  source: 'app' | 'google'
+  read_only: boolean
+  all_day: boolean
+  google_event_id: string | null
+  organizer_name: string | null
 }
 
 /**
@@ -52,4 +83,30 @@ export const EVENT_STYLES: Record<CalendarEventKind, { dot: string; chip: string
   },
   task: { dot: 'bg-sky-500', chip: 'bg-sky-50 text-sky-700', label: 'Task due dates' },
   timesheet: { dot: 'bg-orange-500', chip: 'bg-orange-50 text-orange-700', label: 'Timesheets' },
+}
+
+/**
+ * The first and last calendar day an event covers, in `timezone` — the
+ * VIEWER's zone, which decides which cell of the grid a meeting sits in.
+ *
+ * All-day entries already are dates and are never converted. A timed one ends
+ * on the day its LAST moment falls on: a meeting that runs until exactly
+ * midnight does not spill onto the next day, so the end is nudged back one
+ * millisecond before converting.
+ */
+export function eventDays(
+  event: Pick<CalendarEvent, 'start' | 'end' | 'allDay'>,
+  timezone: string
+): { first: string; last: string } {
+  if (event.allDay) {
+    const first = event.start.slice(0, 10)
+    const end = event.end ? event.end.slice(0, 10) : first
+    return { first, last: end > first ? end : first }
+  }
+  const first = localDate(event.start, timezone)
+  if (!event.end) return { first, last: first }
+  const endMs = new Date(event.end).getTime() - 1
+  if (!Number.isFinite(endMs)) return { first, last: first }
+  const last = localDate(new Date(endMs), timezone)
+  return { first, last: last > first ? last : first }
 }

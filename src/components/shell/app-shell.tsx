@@ -78,7 +78,12 @@ export function AppShell({
   }
 
   const brand: ShellBrand = {
-    name: ctx.role === 'super_admin' ? 'Oneclickhr' : (ctx.tenant?.name ?? 'Workspace'),
+    name:
+      ctx.role === 'super_admin'
+        ? 'Oneclickhr'
+        : ctx.role === 'candidate'
+          ? 'Oneclickhr Jobs'
+          : (ctx.tenant?.name ?? 'Workspace'),
     logoUrl: ctx.tenant?.logoUrl
       ? `/api/files/view?key=${encodeURIComponent(ctx.tenant.logoUrl)}`
       : null,
@@ -86,7 +91,8 @@ export function AppShell({
 
   // The platform console always wears Oneclickhr crimson — it is our product,
   // not a customer's workspace.
-  const css = ctx.role === 'super_admin' ? null : brandCss(ctx.tenant?.primaryColor)
+  const css =
+    ctx.role === 'super_admin' || ctx.role === 'candidate' ? null : brandCss(ctx.tenant?.primaryColor)
 
   /*
    * Only the ORG owner sees the domain prompt. An employee cannot act on it —
@@ -123,7 +129,7 @@ export function AppShell({
         org and employee alike — gets it, because "something is broken" is not a
         thought only administrators have.
       */}
-      {ctx.role !== 'super_admin' ? <SupportButton /> : null}
+      {ctx.role === 'org' || ctx.role === 'employee' ? <SupportButton /> : null}
 
       {/*
         Renders nothing. Keeps this browser’s push registration current on every
@@ -134,7 +140,8 @@ export function AppShell({
         the public job portal would be registering one for somebody who has no
         notifications to receive.
       */}
-      <PushBootstrap />
+      {/* Push lives on workspace notifications; a job seeker (052) has none. */}
+      {ctx.tenant ? <PushBootstrap /> : null}
     </div>
   )
 }

@@ -27,7 +27,13 @@ export interface BillableWeek {
   code: string
   weekStart: string
   weekEnd: string
+  /**
+   * The hours billed at the ordinary rate. For a week with overtime (049) this
+   * is the REGULAR part only — see `splitHours`.
+   */
   billableHours: number
+  /** Approved overtime hours, billed on their own line at the overtime rate. */
+  overtimeHours?: number
   employeeName: string
 }
 
@@ -148,9 +154,9 @@ export function serviceLines(
   weeks: BillableWeek[],
   billRate: number,
   unit: RateUnit,
-  opts: { role: string | null; withName: boolean }
+  opts: { role: string | null; withName: boolean; overtimeMultiplier?: number }
 ): ServiceLine[] {
-  const billable = weeks.filter((week) => week.billableHours > 0)
+  const billable = weeks.filter((week) => week.billableHours > 0 || (week.overtimeHours ?? 0) > 0)
   if (!billable.length) return []
 
   if (unit !== 'hour' && unit !== 'day') {
@@ -162,17 +168,31 @@ export function serviceLines(
   const quantity = round2(billable.reduce((sum, w) => sum + unitsFor(w.billableHours, unit), 0))
   const role = opts.role?.trim() || 'Consulting'
   const prefix = opts.withName ? `${billable[0].employeeName} — ` : ''
+  const period = `Service Period : ( ${longDate(start)} - ${longDate(end)} )`
+  const overtime = round2(billable.reduce((sum, w) => sum + (w.overtimeHours ?? 0), 0))
 
-  return [
-    {
+  const lines: ServiceLine[] = []
+  if (quantity > 0) {
+    lines.push({
       description:
-        `${prefix}${role} Services rendered for ${servicePeriodLabel(start, end)}.\n\n` +
-        `Service Period : ( ${longDate(start)} - ${longDate(end)} )`,
+        `${prefix}${role} Services rendered for ${servicePeriodLabel(start, end)}.\n\n` + period,
       quantity,
       rate: billRate,
       unit,
-    },
-  ]
+    })
+  }
+  // Overtime only exists on hourly placements (049). It gets its own line so
+  // the client sees the hours and the premium rate, not a blended average.
+  if (overtime > 0 && unit === 'hour') {
+    lines.push({
+      description:
+        `${prefix}${role} Overtime hours for ${servicePeriodLabel(start, end)}.\n\n` + period,
+      quantity: overtime,
+      rate: overtimeRate(billRate, opts.overtimeMultiplier ?? 1.5),
+      unit,
+    })
+  }
+  return lines
 }
 
 /**
@@ -208,4 +228,105 @@ export function monthServiceDescription(role: string | null, month: string): str
     `${role?.trim() || 'Consulting'} Services rendered for ${servicePeriodLabel(start, end)}.\n\n` +
     `Service Period : ( ${longDate(start)} - ${longDate(end)} )`
   )
+}
+
+/* ------------------------------------------------------------------ Overtime */
+
+/**
+ * Overtime only means something for an HOURLY placement whose person is owed
+ * it (049). A day-, month- or year-rate placement has no hourly rate to
+ * multiply, and an exempt employee is paid the same whatever the hours.
+ */
+export function overtimeApplies(unit: RateUnit, eligible: boolean): boolean {
+  return unit === 'hour' && eligible
+}
+
+/** An overtime rate, rounded to the cent so `hours × rate` prints exactly. */
+export function overtimeRate(rate: number, multiplier: number): number {
+  const m = Number.isFinite(multiplier) && multiplier >= 1 ? multiplier : 1
+  return round2(rate * m)
+}
+
+/**
+ * How a week's billable hours divide once the manager has decided on its
+ * overtime.
+ *
+ *   approvedOvertimeHours === null  → overtime was not in play (no overtime on
+ *                                     the week, or it did not apply to this
+ *                                     placement): every billable hour is
+ *                                     regular, exactly as before 049.
+ *   otherwise                       → the week's overtime hours come off the
+ *                                     regular pile; the approved part of them
+ *                                     is paid/billed at the overtime rate and
+ *                                     the declined part not at all.
+ *
+ * Pay and invoice both read the split from here, so an hour can never be paid
+ * as overtime and billed as regular.
+ */
+export function splitHours(
+  billableHours: number,
+  overtimeHours: number,
+  approvedOvertimeHours: number | null
+): { regular: number; overtime: number; declined: number } {
+  const billable = Math.max(0, billableHours || 0)
+  if (approvedOvertimeHours === null) return { regular: round2(billable), overtime: 0, declined: 0 }
+  const ot = Math.min(billable, Math.max(0, overtimeHours || 0))
+  const approved = Math.min(ot, Math.max(0, approvedOvertimeHours))
+  return {
+    regular: round2(billable - ot),
+    overtime: round2(approved),
+    declined: round2(ot - approved),
+  }
+}
+
+/**
+ * The approved-overtime figure to record when a week is approved: null when
+ * overtime does not apply, else the reviewer's choice clamped to what the week
+ * actually has (defaulting to all of it).
+ */
+export function decideOvertime(
+  overtimeHours: number,
+  requested: number | null | undefined,
+  applies: boolean
+): number | null {
+  const ot = Math.max(0, overtimeHours || 0)
+  if (!applies || ot <= 0) return null
+  if (requested === null || requested === undefined || !Number.isFinite(requested)) return round2(ot)
+  return round2(Math.min(ot, Math.max(0, requested)))
+}
+
+export interface WeekPay {
+  regularHours: number
+  overtimeHours: number
+  regularPay: number
+  overtimePay: number
+  total: number
+}
+
+/**
+ * What the employee earns from an approved week, overtime included. Null when
+ * the placement carries no pay rate — see `payForWeek`.
+ */
+export function payWithOvertime(args: {
+  billableHours: number
+  overtimeHours: number
+  approvedOvertimeHours: number | null
+  payRate: number | null
+  unit: RateUnit
+  payMultiplier: number
+}): WeekPay | null {
+  const { payRate, unit } = args
+  if (payRate === null || !Number.isFinite(payRate)) return null
+  const split = splitHours(args.billableHours, args.overtimeHours, args.approvedOvertimeHours)
+  const regularPay = lineAmount(unitsFor(split.regular, unit), payRate)
+  const overtimePay = split.overtime
+    ? lineAmount(split.overtime, overtimeRate(payRate, args.payMultiplier))
+    : 0
+  return {
+    regularHours: split.regular,
+    overtimeHours: split.overtime,
+    regularPay,
+    overtimePay,
+    total: round2(regularPay + overtimePay),
+  }
 }

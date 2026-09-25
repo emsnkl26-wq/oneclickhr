@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withErrorHandler, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { splitHours } from '@/lib/billing'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,7 +27,7 @@ async function handleGET(request: NextRequest, { params }: Params) {
   const { data, error } = await supabase
     .from('timesheets')
     .select(
-      'id, code, week_start, week_end, billable_hours, employee:profiles!timesheets_employee_id_fkey(full_name, email)'
+      'id, code, week_start, week_end, billable_hours, overtime_hours, approved_overtime_hours, employee:profiles!timesheets_employee_id_fkey(full_name, email)'
     )
     .eq('invoice_id', id)
     .eq('tenant_id', ctx.tenantId)
@@ -40,18 +41,29 @@ async function handleGET(request: NextRequest, { params }: Params) {
     week_start: string
     week_end: string
     billable_hours: number | string
+    overtime_hours: number | string | null
+    approved_overtime_hours: number | string | null
     employee: { full_name: string | null; email: string | null } | null
   }>
 
   return jsonOk({
-    timesheets: rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      weekStart: row.week_start,
-      weekEnd: row.week_end,
-      billableHours: Number(row.billable_hours),
-      employeeName: row.employee?.full_name || row.employee?.email || 'Employee',
-    })),
+    // The same regular / overtime split the invoice lines were built from (049).
+    timesheets: rows.map((row) => {
+      const split = splitHours(
+        Number(row.billable_hours),
+        Number(row.overtime_hours ?? 0),
+        row.approved_overtime_hours == null ? null : Number(row.approved_overtime_hours)
+      )
+      return {
+        id: row.id,
+        code: row.code,
+        weekStart: row.week_start,
+        weekEnd: row.week_end,
+        billableHours: split.regular,
+        overtimeHours: split.overtime,
+        employeeName: row.employee?.full_name || row.employee?.email || 'Employee',
+      }
+    }),
   })
 }
 

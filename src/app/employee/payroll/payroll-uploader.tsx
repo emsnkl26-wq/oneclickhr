@@ -27,11 +27,14 @@ import {
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
 import { apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
+import { periodLabel, type PayPeriod } from '@/lib/pay-schedule'
 
 export interface ConfirmationRow {
   id: string
   month: number
   year: number
+  /** 0 the whole month, 1 the 1st–15th, 2 the 16th–end (050). */
+  period: number
   amount: number | string | null
   currency: string | null
   paid_on: string | null
@@ -59,16 +62,26 @@ const MONTHS = [
 
 const label = (month: number, year: number) => `${MONTHS[month - 1]} ${year}`
 
+/** One pay period — a whole month, or half of one for someone paid twice monthly. */
+interface Slot {
+  month: number
+  year: number
+  period: PayPeriod
+}
+
+const slotKey = (s: { year: number; month: number; period: number }) =>
+  `${s.year}-${s.month}-${s.period}`
+
 export function PayrollUploader({
   periods, confirmations, payslips,
 }: {
-  periods: Array<{ month: number; year: number }>
+  periods: Slot[]
   confirmations: ConfirmationRow[]
   payslips: PayslipRow[]
 }) {
-  const [uploading, setUploading] = React.useState<{ month: number; year: number } | null>(null)
+  const [uploading, setUploading] = React.useState<Slot | null>(null)
 
-  const byPeriod = new Map(confirmations.map((row) => [`${row.year}-${row.month}`, row]))
+  const byPeriod = new Map(confirmations.map((row) => [slotKey(row), row]))
 
   return (
     <div className="space-y-6">
@@ -78,17 +91,17 @@ export function PayrollUploader({
         </CardHeader>
         <CardContent className="p-0">
           <ul className="divide-y divide-line">
-            {periods.map(({ month, year }) => {
-              const row = byPeriod.get(`${year}-${month}`)
+            {periods.map((slot) => {
+              const row = byPeriod.get(slotKey(slot))
               const done = row?.status === 'verified'
 
               return (
                 <li
-                  key={`${year}-${month}`}
+                  key={slotKey(slot)}
                   className="flex flex-wrap items-center gap-3 px-5 py-3.5"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium">{label(month, year)}</p>
+                    <p className="font-medium">{periodLabel(slot.year, slot.month, slot.period)}</p>
                     <p className="text-[13px] text-ink-muted">
                       {row?.status === 'verified'
                         ? 'Confirmed by your organization'
@@ -119,8 +132,8 @@ export function PayrollUploader({
                     size="sm"
                     variant={row?.file_url ? 'secondary' : 'default'}
                     disabled={done}
-                    onClick={() => setUploading({ month, year })}
-                    title={done ? 'This month has been confirmed and is now locked.' : undefined}
+                    onClick={() => setUploading(slot)}
+                    title={done ? 'This pay period has been confirmed and is now locked.' : undefined}
                   >
                     <FileUp />
                     {row?.file_url ? 'Replace' : 'Upload'}
@@ -162,7 +175,7 @@ export function PayrollUploader({
 
       <UploadDialog
         period={uploading}
-        existing={uploading ? byPeriod.get(`${uploading.year}-${uploading.month}`) ?? null : null}
+        existing={uploading ? byPeriod.get(slotKey(uploading)) ?? null : null}
         onClose={() => setUploading(null)}
       />
     </div>
@@ -200,7 +213,7 @@ function PaymentStatus({ status }: { status: ConfirmationRow['status'] }) {
 function UploadDialog({
   period, existing, onClose,
 }: {
-  period: { month: number; year: number } | null
+  period: Slot | null
   existing: ConfirmationRow | null
   onClose: () => void
 }) {
@@ -247,6 +260,7 @@ function UploadDialog({
       await apiPost('/api/employee/payments', {
         month: period.month,
         year: period.year,
+        period: period.period,
         amount: amount === '' ? '' : Number(amount),
         currency: currency || '',
         paidOn: paidOn || null,
@@ -255,7 +269,7 @@ function UploadDialog({
         note: note || undefined,
       })
 
-      toast.success(`${label(period.month, period.year)} confirmed`)
+      toast.success(`${periodLabel(period.year, period.month, period.period)} confirmed`)
       onClose()
       router.refresh()
     } catch (err) {
@@ -273,11 +287,11 @@ function UploadDialog({
         <form onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>
-              {period ? label(period.month, period.year) : 'Payment'} confirmation
+              {period ? periodLabel(period.year, period.month, period.period) : 'Payment'} confirmation
             </DialogTitle>
             <DialogDescription>
               Upload the payment advice, bank statement line or screenshot showing you received
-              this month&rsquo;s salary.
+              the salary for {period?.period ? 'this half of the month' : 'this month'}.
             </DialogDescription>
           </DialogHeader>
 

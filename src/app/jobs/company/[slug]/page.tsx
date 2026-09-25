@@ -2,13 +2,31 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Globe, MapPin } from 'lucide-react'
-import { getPublicCompany, listPublicJobs } from '@/lib/jobs-public'
+import { getPublicCompany, listPublicJobs, FEED_PER_PAGE } from '@/lib/jobs-public'
+import { loadJobViewer } from '@/lib/job-viewer-server'
 import { appUrl } from '@/lib/env'
-import { CompanyMark, JobCard } from '../../job-card'
+import { CompanyMark } from '../../company-mark'
+import { JobBoard } from '../../job-board'
 
 export const dynamic = 'force-dynamic'
 
 type Params = { params: Promise<{ slug: string }> }
+
+/**
+ * A company's website as a safe link: `https://` added to a bare host (which
+ * is how a workspace's claimed domain is stored), and anything that is not an
+ * http(s) URL dropped rather than rendered as an href.
+ */
+function websiteHref(value: string | null): string | null {
+  if (!value) return null
+  const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`
+  try {
+    const url = new URL(candidate)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * One organization's openings — the link an org puts on its own careers page.
@@ -23,7 +41,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   return {
     title: `Jobs at ${company.name}`,
-    description: `Open roles at ${company.name}. Browse and apply — no account needed.`,
+    description: `Open roles at ${company.name}. Browse and apply with a free Oneclickhr Jobs account.`,
     alternates: { canonical: `${appUrl()}/jobs/company/${(await params).slug}` },
   }
 }
@@ -42,10 +60,11 @@ export default async function CompanyJobsPage({
   if (!company) notFound()
 
   const page = Math.max(1, parseInt(rawPage ?? '', 10) || 1)
-  const feed = await listPublicJobs({ company: slug, page })
+  const [feed, viewer] = await Promise.all([listPublicJobs({ company: slug, page }), loadJobViewer()])
+  const website = websiteHref(company.website)
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full max-w-7xl space-y-8 px-4 py-10 sm:px-6">
       <Link
         href="/jobs"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted transition hover:text-ink"
@@ -61,18 +80,15 @@ export default async function CompanyJobsPage({
             Jobs at {company.name}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
-            <span>
-              {feed.total} open {feed.total === 1 ? 'role' : 'roles'}
-            </span>
             {company.location ? (
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="size-3.5" aria-hidden />
                 {company.location}
               </span>
             ) : null}
-            {company.website ? (
+            {website ? (
               <a
-                href={company.website}
+                href={website}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
                 className="inline-flex items-center gap-1.5 hover:text-ink"
@@ -85,12 +101,15 @@ export default async function CompanyJobsPage({
         </div>
       </header>
 
-      <div className="space-y-3">
-        {feed.jobs.map((job) => (
-          // The company is the page — repeating it on every card is noise.
-          <JobCard key={job.id} job={job} showCompany={false} />
-        ))}
-      </div>
+      <JobBoard
+        jobs={feed.jobs}
+        total={feed.total}
+        page={feed.page}
+        perPage={FEED_PER_PAGE}
+        filters={{ q: '', types: [], workplaces: [], experience: [], sort: 'newest' }}
+        viewer={viewer}
+        showFilters={false}
+      />
     </div>
   )
 }

@@ -103,6 +103,7 @@ export async function syncTenantCalendar(connection: Connection): Promise<Tenant
           meet_link: fields.meet_link,
           start_time: fields.start_time,
           end_time: fields.end_time,
+          all_day: fields.all_day,
           attendees: fields.attendees,
           source: 'google',
           // Google owns this row's content; the app must not push it back.

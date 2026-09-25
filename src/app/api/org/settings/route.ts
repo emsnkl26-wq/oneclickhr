@@ -32,6 +32,7 @@ const BRANDING_COLUMNS = {
   timezone: 'timezone',
   workStartTime: 'work_start_time',
   defaultTrackingMode: 'default_tracking_mode',
+  overtimeWeeklyThreshold: 'overtime_weekly_threshold',
 } as const
 
 const COMPANY_COLUMNS = {

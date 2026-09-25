@@ -2,7 +2,9 @@ import { NextRequest } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
 import { apiRequireSuperAdmin } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { userActivationSchema } from '@/lib/schemas'
+import { deleteUserSchema, userActivationSchema } from '@/lib/schemas'
+import { verifyOwnPassword } from '@/lib/auth/reauth'
+import { deletePersonPermanently } from '@/lib/platform-delete'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -75,4 +77,54 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   return jsonOk({ ok: true })
 }
 
+/**
+ * PERMANENTLY delete one employee or job seeker, from any organization (053).
+ *
+ * The operator types the person's email and re-enters their own password.
+ * Organization admins are refused (see deletePersonPermanently) — they go with
+ * their organization.
+ */
+async function handleDELETE(request: NextRequest, { params }: Params) {
+  const gate = await apiRequireSuperAdmin()
+  if (!gate.ok) return gate.response
+  const { ctx } = gate
+
+  const userId = uuidSchema.parse((await params).id)
+  const input = await parseBody(request, deleteUserSchema)
+
+  if (userId === ctx.userId) return jsonError('You cannot delete your own account.', 400)
+
+  const admin = createAdminClient()
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('id, email, role, tenant_id')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (!profile) return jsonError('That account was not found.', 404)
+  if (String(profile.email ?? '').toLowerCase() !== input.confirmEmail.toLowerCase()) {
+    return jsonError('The email you typed does not match this account.', 400)
+  }
+
+  const reauth = await verifyOwnPassword(ctx.userId, ctx.email, input.password)
+  if (!reauth.ok) return jsonError(reauth.error, reauth.status)
+
+  const result = await deletePersonPermanently(userId)
+  if (!result.ok) return jsonError(result.error, result.status)
+
+  await audit({
+    tenantId: profile.tenant_id ?? null,
+    actorId: ctx.userId,
+    actorEmail: ctx.email,
+    action: 'user.deleted_by_platform',
+    entity: 'profiles',
+    entityId: userId,
+    meta: { email: result.email, role: result.role, reason: input.reason, filesRemoved: result.filesRemoved },
+    request,
+  })
+
+  return jsonOk({ ok: true })
+}
+
 export const PATCH = withErrorHandler(handlePATCH)
+export const DELETE = withErrorHandler(handleDELETE)

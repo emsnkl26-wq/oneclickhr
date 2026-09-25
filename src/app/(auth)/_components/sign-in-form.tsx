@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { FormField, FormError, FormSuccess } from '@/components/ui/form-field'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
 
-export type Portal = 'org' | 'employee'
+export type Portal = 'org' | 'employee' | 'candidate'
 
 interface SignInFormProps {
   /**
@@ -77,12 +77,12 @@ export function SignInForm({ portal, title, subtitle, footer }: SignInFormProps)
         {notice ? <FormSuccess message={notice} /> : null}
         <FormError message={error ?? linkError} />
 
-        <FormField label="Work email" error={fields.email} required>
+        <FormField label={portal === 'candidate' ? 'Email' : 'Work email'} error={fields.email} required>
           <Input
             type="email"
             name="email"
             autoComplete="username"
-            placeholder="you@company.com"
+            placeholder={portal === 'candidate' ? 'you@example.com' : 'you@company.com'}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required

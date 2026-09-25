@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, CalendarCheck, CalendarOff, Wallet, FileText, Bell,
-  Building2, ShieldCheck, Activity, Settings, KanbanSquare, CalendarDays,
+  Building2, ShieldCheck, Activity, Settings, KanbanSquare,
   BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
   LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send, Network,
   CalendarRange, MessageSquare, TrendingDown, ChartLine,
@@ -34,6 +34,8 @@ const SUPER_NAV: NavSection[] = [
       { href: '/super', label: 'Overview', icon: LayoutDashboard },
       { href: '/super/organizations', label: 'Organizations', icon: Building2, prefix: true },
       { href: '/super/users', label: 'Users', icon: Users },
+      // Every employee with their work authorization, plus job seekers (053).
+      { href: '/super/talent', label: 'Talent', icon: BadgeCheck, prefix: true },
       { href: '/super/jobs', label: 'Jobs', icon: BriefcaseBusiness, prefix: true },
     ],
   },
@@ -87,7 +89,6 @@ const ORG_NAV: NavSection[] = [
     items: [
       { href: '/org/board', label: 'Task boards', icon: KanbanSquare },
       { href: '/org/calendar', label: 'Calendar', icon: CalendarRange },
-      { href: '/org/meetings', label: 'Meetings', icon: CalendarDays },
       { href: '/org/helpdesk', label: 'Help desk', icon: LifeBuoy, prefix: true },
       { href: '/org/notifications', label: 'Notifications', icon: Bell },
       { href: '/org/documents', label: 'Documents', icon: FileText },
@@ -124,7 +125,6 @@ const EMPLOYEE_NAV: NavSection[] = [
       { href: '/employee/leaves', label: 'Leaves', icon: CalendarOff },
       { href: '/employee/tasks', label: 'My tasks', icon: ClipboardList },
       { href: '/employee/calendar', label: 'Calendar', icon: CalendarRange },
-      { href: '/employee/meetings', label: 'Meetings', icon: CalendarDays },
     ],
   },
   {
@@ -149,6 +149,24 @@ const EMPLOYEE_NAV: NavSection[] = [
       { href: '/jobs', label: 'Job board', icon: BriefcaseBusiness },
       { href: '/employee/applications', label: 'My applications', icon: Send },
     ],
+  },
+]
+
+/*
+ * A job seeker (052). They belong to no workspace, so their whole portal is
+ * their applications, their profile, and the way back to the job board.
+ */
+const CANDIDATE_NAV: NavSection[] = [
+  {
+    label: 'Job search',
+    items: [
+      { href: '/candidate', label: 'My applications', icon: Send },
+      { href: '/jobs', label: 'Browse jobs', icon: BriefcaseBusiness },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [{ href: '/candidate/profile', label: 'My profile', icon: UserRound }],
   },
 ]
 
@@ -184,6 +202,8 @@ export function navFor(role: UserRole, options: NavOptions = {}): NavSection[] {
       return SUPER_NAV
     case 'org':
       return ORG_NAV
+    case 'candidate':
+      return CANDIDATE_NAV
     default:
       return employeeNav(options.trackingMode ?? null)
   }

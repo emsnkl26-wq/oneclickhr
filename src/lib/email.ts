@@ -513,3 +513,47 @@ export async function sendNotificationEmail(args: NotificationEmailArgs): Promis
 
   return sendEmail({ to: args.to, subject: `${args.orgName}: ${args.title}`, html })
 }
+
+export interface ApplicationStatusArgs {
+  to: string
+  applicantName: string
+  jobTitle: string
+  companyName: string
+  /** Human label of the new stage, e.g. "Interviewing". */
+  statusLabel: string
+  /** What the hiring team chose to tell the applicant, if anything. */
+  message?: string | null
+  brandColor?: string
+}
+
+/**
+ * An application moved to a new stage (052).
+ *
+ * Sent to the address on a verified job-seeker account — applying needs one
+ * now — so it can say which role and what happened. It still carries nothing
+ * from the application itself; the full history is behind the sign-in at
+ * /candidate.
+ */
+export async function sendApplicationStatusUpdate(args: ApplicationStatusArgs): Promise<SendResult> {
+  const subject = `Update on your application — ${args.jobTitle}`
+
+  const html = layout(
+    `
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">Your application has moved</h1>
+    <p style="margin:0 0 8px;">Hi ${esc(args.applicantName || 'there')},</p>
+    <p style="margin:0 0 18px;">Your application for <strong>${esc(args.jobTitle)}</strong> at
+      <strong>${esc(args.companyName)}</strong> is now: <strong>${esc(args.statusLabel)}</strong>.</p>
+    ${
+      args.message
+        ? `<div style="margin:0 0 18px;padding:12px 14px;border-radius:10px;background:#F6F7F9;white-space:pre-line;">${esc(
+            args.message
+          )}</div>`
+        : ''
+    }
+    ${button(`${appUrl()}/candidate`, 'View my applications', args.brandColor || '#C41E33')}
+  `,
+    { brandName: args.companyName, brandColor: args.brandColor, preheader: subject }
+  )
+
+  return sendEmail({ to: args.to, subject, html })
+}

@@ -29,6 +29,7 @@ import {
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { MONTH_NAMES } from '@/lib/time'
 import { initials, formatMoney } from '@/lib/utils'
+import { periodLabel, periodsOf, type PayPeriod, type PaySchedule } from '@/lib/pay-schedule'
 
 export interface EmployeeRow {
   id: string
@@ -37,6 +38,8 @@ export interface EmployeeRow {
   photo_url: string | null
   employee_code: string | null
   designation: string | null
+  /** Monthly, or twice a month (050) — decides one row or two per month. */
+  schedule: PaySchedule
 }
 
 export interface ConfirmationRow {
@@ -44,6 +47,8 @@ export interface ConfirmationRow {
   employee_id: string
   month: number
   year: number
+  /** 0 whole month, 1 the 1st–15th, 2 the 16th–end (050). */
+  period: number
   amount: number | string | null
   currency: string | null
   paid_on: string | null
@@ -55,9 +60,19 @@ export interface ConfirmationRow {
   verified_at: string | null
 }
 
-/** An employee joined to their confirmation for the selected month, if any. */
+/**
+ * One pay period of one employee, joined to its confirmation if any. Somebody
+ * paid twice a month contributes two rows to a month (050).
+ */
 interface Row extends EmployeeRow {
+  period: PayPeriod
   confirmation: ConfirmationRow | null
+}
+
+const PERIOD_SHORT: Record<PayPeriod, string> = {
+  0: 'Whole month',
+  1: '1st – 15th',
+  2: '16th – end',
 }
 
 export function PayrollReview({
@@ -72,8 +87,8 @@ export function PayrollReview({
   const [query, setQuery] = React.useState('')
   const [reviewing, setReviewing] = React.useState<Row | null>(null)
 
-  const byEmployee = React.useMemo(
-    () => new Map(confirmations.map((row) => [row.employee_id, row])),
+  const byEmployeePeriod = React.useMemo(
+    () => new Map(confirmations.map((row) => [`${row.employee_id}:${row.period}`, row])),
     [confirmations]
   )
 
@@ -87,8 +102,25 @@ export function PayrollReview({
             .filter(Boolean)
             .some((field) => field!.toLowerCase().includes(q))
       )
-      .map((person) => ({ ...person, confirmation: byEmployee.get(person.id) ?? null }))
-  }, [employees, byEmployee, query])
+      .flatMap((person) => {
+        /*
+         * The periods their schedule expects — plus any they actually uploaded
+         * under a schedule they have since been moved off, so a confirmation
+         * never silently drops out of the review.
+         */
+        const periods = new Set<PayPeriod>(periodsOf(person.schedule))
+        for (const row of confirmations) {
+          if (row.employee_id === person.id) periods.add(row.period as PayPeriod)
+        }
+        return Array.from(periods)
+          .sort((a, b) => a - b)
+          .map((period) => ({
+            ...person,
+            period,
+            confirmation: byEmployeePeriod.get(`${person.id}:${period}`) ?? null,
+          }))
+      })
+  }, [employees, byEmployeePeriod, query])
 
   const years = React.useMemo(() => {
     const current = new Date().getFullYear()
@@ -125,6 +157,20 @@ export function PayrollReview({
       key: 'code',
       header: 'Code',
       cell: (row) => <span className="tabular text-ink-muted">{row.employee_code || '—'}</span>,
+    },
+    {
+      key: 'period',
+      header: 'Pay period',
+      cell: (row) => (
+        <span className="whitespace-nowrap text-[13px]">
+          {PERIOD_SHORT[row.period]}
+          {row.schedule === 'semi_monthly' ? (
+            <span className="ml-1.5 rounded-full bg-page px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+              2× / month
+            </span>
+          ) : null}
+        </span>
+      ),
     },
     {
       key: 'amount',
@@ -219,7 +265,7 @@ export function PayrollReview({
       <DataTable
         columns={columns}
         rows={rows}
-        rowKey={(row) => row.id}
+        rowKey={(row) => `${row.id}:${row.period}`}
         empty={
           <EmptyState
             icon={Wallet}
@@ -308,7 +354,7 @@ function ReviewDialog({ row, onClose }: { row: Row | null; onClose: () => void }
           <DialogTitle>{row?.full_name || row?.email}</DialogTitle>
           <DialogDescription>
             {confirmation
-              ? `${MONTH_NAMES[confirmation.month - 1]} ${confirmation.year} payment confirmation`
+              ? `${periodLabel(confirmation.year, confirmation.month, confirmation.period)} payment confirmation`
               : ''}
           </DialogDescription>
         </DialogHeader>

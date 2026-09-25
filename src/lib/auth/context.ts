@@ -216,6 +216,8 @@ export function homeFor(role: UserRole): string {
       return '/super'
     case 'org':
       return '/org'
+    case 'candidate':
+      return '/candidate'
     default:
       return '/employee'
   }
@@ -228,6 +230,8 @@ export function homeFor(role: UserRole): string {
  */
 export function isUsable(ctx: AppContext): boolean {
   if (!ctx.isActive) return false
-  if (ctx.role !== 'super_admin' && ctx.tenant?.status !== 'active') return false
+  // Neither the platform nor a job seeker (052) belongs to a workspace.
+  if (ctx.role === 'super_admin' || ctx.role === 'candidate') return true
+  if (ctx.tenant?.status !== 'active') return false
   return true
 }

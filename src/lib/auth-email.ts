@@ -14,9 +14,12 @@ export interface SignupConfirmationArgs {
   to: string
   confirmUrl: string
   orgName?: string
+  /** A job seeker signing up on the portal (052), not an organization. */
+  candidate?: boolean
 }
 
 export async function sendSignupConfirmationEmail(args: SignupConfirmationArgs): Promise<SendResult> {
+  if (args.candidate) return sendCandidateConfirmationEmail(args)
   const org = args.orgName?.trim()
 
   const html = layout(
@@ -42,6 +45,33 @@ export async function sendSignupConfirmationEmail(args: SignupConfirmationArgs):
     </p>
   `,
     { brandName: org || 'Oneclickhr', preheader: 'Confirm your email to activate your workspace' }
+  )
+
+  return sendEmail({ to: args.to, subject: 'Confirm your email address', html })
+}
+
+/** The job-seeker variant: same link, no talk of workspaces. */
+async function sendCandidateConfirmationEmail(args: SignupConfirmationArgs): Promise<SendResult> {
+  const html = layout(
+    `
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">Confirm your email</h1>
+    <p style="margin:0 0 18px;">
+      Thanks for creating your Oneclickhr Jobs account. Click below to confirm your email
+      address — then sign in to apply for roles and follow every application.
+    </p>
+
+    ${button(args.confirmUrl, 'Confirm my email')}
+
+    <p style="margin:18px 0 0;font-size:13px;color:#6B7280;">
+      This link works on any device and expires in 24 hours. If you did not create this
+      account, you can safely ignore this email.
+    </p>
+
+    <p style="margin:18px 0 0;font-size:12px;color:#9CA3AF;word-break:break-all;">
+      Button not working? Paste this into your browser:<br>${esc(args.confirmUrl)}
+    </p>
+  `,
+    { brandName: 'Oneclickhr Jobs', preheader: 'Confirm your email to start applying' }
   )
 
   return sendEmail({ to: args.to, subject: 'Confirm your email address', html })

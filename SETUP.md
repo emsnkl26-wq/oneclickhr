@@ -93,6 +93,18 @@ Run, confirm it succeeds, then move to the next.
 | 12 | `012_profiles_and_letters.sql` | Employee work history/education/skills, the company letterhead fields on `tenants`, and `generated_documents` |
 | 13 | `013_domain_verification.sql` | **Required.** One company website, one workspace: the `domain` claim, the partial unique index over *verified* domains, the tenants column guard, and the two fields `current_profile()` now returns |
 
+Later migrations run the same way, in number order. The most recent batch:
+
+| # | File | What it does |
+|---|---|---|
+| 47 | `047_composite_set_null_fix.sql` | **Required.** Deleting a placement, vendor, client, project or invoice that something still referenced failed ("Something went wrong") — composite `ON DELETE SET NULL` keys tried to null `tenant_id` too. Rebuilds every such key to null only its own column |
+| 48 | `048_meeting_all_day.sql` | `meetings.all_day`, and repairs Google all-day events already synced (they showed a day early in the Americas and a day too long) |
+| 49 | `049_overtime.sql` | Weekly overtime: the workspace threshold (default 40h), per-placement overtime multipliers, the timesheet's overtime columns — and a hardened timesheet guard that recomputes totals from the grid and stops an employee writing pay figures on their own week |
+| 50 | `050_pay_schedule.sql` | Monthly vs twice-monthly pay: `profiles.pay_schedule` and the half-month `period` on payment confirmations. Also fixes re-uploading a confirmation the org had returned |
+| 51 | `051_candidate_role_enum.sql` | **Run on its own, before 52.** Adds the `candidate` role and the C2C / W2 / contract-to-hire job types. Postgres cannot use a new enum value in the transaction that added it |
+| 52 | `052_job_portal_candidates.sql` | Job-seeker accounts, candidate profiles, recruiter contact on jobs, and the application history applicants can follow |
+| 53 | `053_super_admin_talent_and_purge.sql` | The platform console's talent directory view (service role only) and `purge_tenant()` for permanently deleting an organization |
+
 `009` is not optional either — `/org/documents` and `/super/organizations` call
 `search_documents()` and `platform_tenant_stats()`, and both pages error without
 them. It changes no permissions: the policies keep the predicates `002` wrote,

@@ -1,58 +1,10 @@
-import type { Metadata } from 'next'
-import { requireOrg } from '@/lib/auth/guards'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { PageHeader } from '@/components/ui/patterns'
-import { MeetingsWorkspace, type Teammate } from './meetings-workspace'
-import type { Meeting } from '@/types/db'
+import { redirect } from 'next/navigation'
 
-export const metadata: Metadata = { title: 'Meetings' }
-export const dynamic = 'force-dynamic'
-
-export default async function MeetingsPage() {
-  const ctx = await requireOrg()
-  const supabase = await createSupabaseServerClient()
-
-  /*
-   * A 30-day window, forwards. `google_event_id`, `cancelled_at` and the
-   * timestamps are not named because nothing on this screen renders them — and
-   * on `calendar_connections` the explicit columns are load-bearing rather than
-   * tidy, since the encrypted token column is not readable by the
-   * `authenticated` role at all and `select('*')` there would fail outright.
-   */
-  const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
-
-  const [{ data: meetings }, { data: connection }, { data: teammates }] = await Promise.all([
-    supabase
-      .from('meetings')
-      .select(
-        'id, title, description, location, meet_link, start_time, end_time, organizer_id, attendees, source, read_only'
-      )
-      .gte('start_time', since)
-      .order('start_time', { ascending: true })
-      .limit(300),
-    supabase.from('calendar_connections').select('id, status, google_email').maybeSingle(),
-    // The attendee picker needs everyone who can actually be invited, so only
-    // active people with an address to invite.
-    supabase
-      .from('profiles')
-      .select('id, full_name, email, photo_url')
-      .eq('is_active', true)
-      .not('email', 'is', null)
-      .order('full_name'),
-  ])
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Meetings"
-        description="Everything on the workspace calendar, in sync with Google both ways."
-      />
-      <MeetingsWorkspace
-        meetings={(meetings ?? []) as Meeting[]}
-        connected={connection?.status === 'connected'}
-        timezone={ctx.tenant.timezone}
-        teammates={(teammates ?? []) as Teammate[]}
-      />
-    </div>
-  )
+/**
+ * Meetings live on the calendar now — scheduled, opened and joined there. This
+ * address is kept so bookmarks and notifications sent before the move still
+ * land somewhere useful.
+ */
+export default function MeetingsRedirect() {
+  redirect('/org/calendar')
 }

@@ -3,22 +3,8 @@
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Select } from '@/components/ui/input'
 import { useProgressRouter } from '@/lib/use-progress-router'
-import type { JobType, JobWorkplace } from '@/types/db'
+import { JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS } from '@/lib/job-form'
 
-// A client copy — `@/lib/jobs` is server-only (same reason job-dialog keeps one).
-const JOB_TYPE_LABELS: Record<JobType, string> = {
-  full_time: 'Full time',
-  part_time: 'Part time',
-  contract: 'Contract',
-  internship: 'Internship',
-  temporary: 'Temporary',
-}
-
-const JOB_WORKPLACE_LABELS: Record<JobWorkplace, string> = {
-  onsite: 'On site',
-  remote: 'Remote',
-  hybrid: 'Hybrid',
-}
 
 /**
  * Employment-type and workplace filters beside the search box.

@@ -6,7 +6,7 @@ import { Check, X, Download, FileText, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/input'
+import { Input, Textarea } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -28,6 +28,14 @@ export interface ReviewTimesheet {
   reviewNote: string | null
   reviewedAt: string | null
   employeeName: string
+  /** Billable hours above the weekly threshold, computed by the database (049). */
+  overtimeHours: number
+  /** False for a salaried/day-rate or overtime-exempt placement. */
+  overtimePayable: boolean
+  /** The placement's overtime pay multiplier, when there is a placement. */
+  overtimeMultiplier: number | null
+  /** The workspace's weekly threshold; null when overtime is switched off. */
+  overtimeThreshold: number | null
 }
 
 /**
@@ -52,6 +60,17 @@ export function TimesheetReview({
   const [note, setNote] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
+  // Overtime to approve, as typed — all of it unless the reviewer says less.
+  const [approvedOvertime, setApprovedOvertime] = React.useState(String(timesheet.overtimeHours))
+
+  const reviewsOvertime = timesheet.overtimeHours > 0 && timesheet.overtimePayable
+  const approvedOvertimeValue = Number(approvedOvertime)
+  const overtimeInvalid =
+    reviewsOvertime &&
+    (approvedOvertime.trim() === '' ||
+      !Number.isFinite(approvedOvertimeValue) ||
+      approvedOvertimeValue < 0 ||
+      approvedOvertimeValue > timesheet.overtimeHours)
 
   const days = React.useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(timesheet.weekStart, index)),
@@ -68,6 +87,9 @@ export function TimesheetReview({
       await apiPatch(`/api/timesheets/${timesheet.id}/review`, {
         status: decision,
         note: note.trim() || undefined,
+        ...(decision === 'approved' && reviewsOvertime
+          ? { approvedOvertimeHours: Math.round(approvedOvertimeValue * 100) / 100 }
+          : {}),
       })
       toast.success(decision === 'approved' ? 'Timesheet approved' : 'Timesheet returned')
       setDecision(null)
@@ -160,7 +182,9 @@ export function TimesheetReview({
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-card px-5 py-4 shadow-sm">
         <p className="text-sm text-ink-muted">
           {pending
-            ? 'Approving adds these hours to the projects they were logged against.'
+            ? reviewsOvertime
+              ? `Includes ${timesheet.overtimeHours} h of overtime for you to approve. Approving adds these hours to the projects they were logged against.`
+              : 'Approving adds these hours to the projects they were logged against.'
             : `This timesheet has already been ${timesheet.status}.`}
         </p>
 
@@ -215,14 +239,46 @@ export function TimesheetReview({
                 />
               </FormField>
             ) : (
-              <FormField label="Note" hint="Optional — the employee sees it on their timesheet.">
-                <Textarea
-                  rows={3}
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  placeholder="Thanks — approved for invoicing."
-                />
-              </FormField>
+              <>
+                {reviewsOvertime ? (
+                  <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3.5 dark:border-amber-500/30 dark:bg-amber-500/10">
+                    <p className="text-sm text-amber-900 dark:text-amber-200">
+                      <span className="font-semibold">{timesheet.overtimeHours} h overtime</span>{' '}
+                      this week
+                      {timesheet.overtimeThreshold != null
+                        ? ` — billable hours above ${timesheet.overtimeThreshold} h.`
+                        : '.'}
+                      {timesheet.overtimeMultiplier != null
+                        ? ` Approved overtime is paid at ${timesheet.overtimeMultiplier}× the rate.`
+                        : ''}
+                    </p>
+                    <FormField
+                      label="Overtime hours to approve"
+                      hint={`Between 0 and ${timesheet.overtimeHours}. Overtime you don't approve is not paid or billed.`}
+                      error={overtimeInvalid ? `Enter 0 to ${timesheet.overtimeHours}` : undefined}
+                    >
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        max={timesheet.overtimeHours}
+                        step={0.25}
+                        value={approvedOvertime}
+                        onChange={(event) => setApprovedOvertime(event.target.value)}
+                        aria-invalid={overtimeInvalid}
+                      />
+                    </FormField>
+                  </div>
+                ) : null}
+                <FormField label="Note" hint="Optional — the employee sees it on their timesheet.">
+                  <Textarea
+                    rows={3}
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="Thanks — approved for invoicing."
+                  />
+                </FormField>
+              </>
             )}
           </DialogBody>
 
@@ -233,7 +289,7 @@ export function TimesheetReview({
             <Button
               variant={decision === 'rejected' ? 'danger' : 'default'}
               loading={busy}
-              disabled={decision === 'rejected' && !note.trim()}
+              disabled={(decision === 'rejected' && !note.trim()) || (decision === 'approved' && overtimeInvalid)}
               onClick={submitDecision}
             >
               {decision === 'approved' ? 'Approve' : 'Return to employee'}

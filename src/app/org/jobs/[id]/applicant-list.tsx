@@ -11,6 +11,11 @@ import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatInstantLabel } from '@/lib/time'
 import { APPLICATION_STATUSES } from '@/lib/schemas'
 import { cn, initials } from '@/lib/utils'
+import { APPLICATION_STATUS_LABELS } from '@/lib/job-form'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
+} from '@/components/ui/primitives'
+import { FormField } from '@/components/ui/form-field'
 import type { ApplicationStatus } from '@/types/db'
 
 export interface ApplicantRow {
@@ -78,6 +83,11 @@ export function ApplicantList({
   const [openId, setOpenId] = React.useState<string | null>(initialOpenId ?? null)
   const [busyId, setBusyId] = React.useState<string | null>(null)
   const [notes, setNotes] = React.useState<Record<string, string>>({})
+  // A stage change waiting on its optional message to the applicant (052).
+  const [moving, setMoving] = React.useState<{ row: ApplicantRow; status: ApplicationStatus } | null>(
+    null
+  )
+  const [message, setMessage] = React.useState('')
 
   const [query, setQuery] = React.useState('')
   const term = query.trim().toLowerCase()
@@ -90,18 +100,35 @@ export function ApplicantList({
           .some((v) => String(v).toLowerCase().includes(term)))
   )
 
-  async function save(row: ApplicantRow, patch: { status?: ApplicationStatus; notes?: string }) {
+  async function save(
+    row: ApplicantRow,
+    patch: { status?: ApplicationStatus; notes?: string; message?: string }
+  ): Promise<boolean> {
     setBusyId(row.id)
     try {
       await apiPatch(`${endpoint}/${row.id}`, patch)
       toast.success(patch.status ? `Moved to ${STATUS_LABELS[patch.status]}` : 'Note saved')
       router.refresh()
+      return true
     } catch (err) {
       toast.error(
         err instanceof ApiClientError ? err.message : 'Something went wrong. Please try again.'
       )
+      return false
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function confirmMove() {
+    if (!moving) return
+    const ok = await save(moving.row, {
+      status: moving.status,
+      message: message.trim() || undefined,
+    })
+    if (ok) {
+      setMoving(null)
+      setMessage('')
     }
   }
 
@@ -300,7 +327,13 @@ export function ApplicantList({
                         id={`status-${row.id}`}
                         value={row.status}
                         disabled={busyId === row.id}
-                        onChange={(e) => save(row, { status: e.target.value as ApplicationStatus })}
+                        onChange={(e) => {
+                          const next = e.target.value as ApplicationStatus
+                          if (next !== row.status) {
+                            setMessage('')
+                            setMoving({ row, status: next })
+                          }
+                        }}
                       >
                         {APPLICATION_STATUSES.map((status) => (
                           <option key={status} value={status}>
@@ -352,6 +385,52 @@ export function ApplicantList({
           )
         })}
       </div>
+
+      <Dialog
+        open={!!moving}
+        onOpenChange={(open) => {
+          if (!open && busyId === null) setMoving(null)
+        }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>
+              Move to {moving ? STATUS_LABELS[moving.status] : ''}?
+            </DialogTitle>
+            <DialogDescription>
+              Applicants with an account see the new stage
+              {moving ? ` (“${APPLICATION_STATUS_LABELS[moving.status]}”)` : ''} on their
+              applications page and get an email about it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <FormField
+              label="Message to the applicant"
+              hint="Optional. They see exactly this — keep private notes in the notes box."
+            >
+              <Textarea
+                rows={3}
+                maxLength={2000}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="We would like to schedule an interview next week…"
+              />
+            </FormField>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              onClick={() => setMoving(null)}
+              disabled={busyId !== null}
+            >
+              Cancel
+            </Button>
+            <Button loading={busyId !== null} onClick={confirmMove}>
+              Update stage
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {!visible.length ? (
         <p className={cn('py-6 text-center text-sm text-ink-muted')}>

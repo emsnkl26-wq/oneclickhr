@@ -5,6 +5,10 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { paymentConfirmationSchema } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { audit } from '@/lib/audit'
+import { todayIn } from '@/lib/time'
+import {
+  effectivePaySchedule, isPeriodOf, periodHasStarted, periodLabel,
+} from '@/lib/pay-schedule'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,15 +38,33 @@ async function handlePOST(request: NextRequest) {
     return jsonError('That file does not belong to this workspace.', 403)
   }
 
-  // A confirmation for a month that has not happened yet is a mistake, not a
-  // plan. Compared against the ORG's calendar, since that is whose payroll it is.
-  const now = new Date()
-  const currentPeriod = now.getUTCFullYear() * 12 + now.getUTCMonth() + 1
-  if (input.year * 12 + input.month > currentPeriod) {
-    return jsonError('That pay period has not happened yet.', 400)
+  const supabase = await createSupabaseServerClient()
+
+  /*
+   * THE PERIOD HAS TO BE ONE THIS PERSON IS PAID IN (050). Someone paid
+   * monthly confirms whole months; someone paid twice a month confirms each
+   * half. Read from their own profile, which their session can see.
+   */
+  const { data: me } = await supabase
+    .from('profiles')
+    .select('pay_schedule, pay_frequency, country')
+    .eq('id', ctx.userId)
+    .maybeSingle()
+  const schedule = effectivePaySchedule(me ?? {})
+  if (!isPeriodOf(schedule, input.period)) {
+    return jsonError(
+      schedule === 'semi_monthly'
+        ? 'You are paid twice a month — confirm the 1st–15th and the 16th–end separately.'
+        : 'You are paid monthly — confirm the whole month.',
+      400
+    )
   }
 
-  const supabase = await createSupabaseServerClient()
+  // A confirmation for a period that has not begun yet is a mistake, not a
+  // plan. Compared against the ORG's calendar, since that is whose payroll it is.
+  if (!periodHasStarted(input.year, input.month, input.period, todayIn(ctx.tenant.timezone))) {
+    return jsonError('That pay period has not happened yet.', 400)
+  }
 
   const { data, error } = await supabase
     .from('payment_confirmations')
@@ -52,6 +74,7 @@ async function handlePOST(request: NextRequest) {
         employee_id: ctx.userId,
         month: input.month,
         year: input.year,
+        period: input.period,
         amount: input.amount,
         currency: input.currency,
         paid_on: input.paidOn ?? null,
@@ -66,7 +89,7 @@ async function handlePOST(request: NextRequest) {
         verified_at: null,
         uploaded_by: ctx.userId,
       },
-      { onConflict: 'tenant_id,employee_id,year,month' }
+      { onConflict: 'tenant_id,employee_id,year,month,period' }
     )
     .select('id')
     .single()
@@ -76,7 +99,13 @@ async function handlePOST(request: NextRequest) {
     // uploading over a month the org has already verified.
     if (/already been verified/i.test(error.message)) {
       return jsonError(
-        'This month has already been verified by your organization and can no longer be changed.',
+        'This pay period has already been verified by your organization and can no longer be changed.',
+        409
+      )
+    }
+    if (/different pay schedule/i.test(error.message)) {
+      return jsonError(
+        `${periodLabel(input.year, input.month, input.period)} overlaps a confirmation already uploaded for that month on your previous pay schedule.`,
         409
       )
     }
@@ -90,7 +119,7 @@ async function handlePOST(request: NextRequest) {
     action: 'payment.confirmed',
     entity: 'payment_confirmations',
     entityId: data.id,
-    meta: { month: input.month, year: input.year },
+    meta: { month: input.month, year: input.year, period: input.period },
     request,
   })
 

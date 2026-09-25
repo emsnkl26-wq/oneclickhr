@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, ShieldAlert } from 'lucide-react'
+import { Users, ShieldAlert, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,14 @@ import {
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatLocal } from '@/lib/time'
 import type { UserRole } from '@/types/db'
+import { DeleteUserDialog, type DeletableUser } from '../delete-user-dialog'
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: 'Platform',
+  org: 'Owner',
+  employee: 'Employee',
+  candidate: 'Job seeker',
+}
 
 interface UserRow {
   id: string
@@ -50,6 +58,7 @@ export function PlatformUserList({
   const [pending, setPending] = React.useState<UserRow | null>(null)
   const [reason, setReason] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const [deleting, setDeleting] = React.useState<DeletableUser | null>(null)
 
   async function toggleActive() {
     if (!pending) return
@@ -93,7 +102,7 @@ export function PlatformUserList({
         <StatusChip
           status={row.role === 'super_admin' ? 'brand' : row.role === 'org' ? 'info' : 'neutral'}
           tone={row.role === 'super_admin' ? 'brand' : row.role === 'org' ? 'info' : 'neutral'}
-          label={row.role === 'super_admin' ? 'Platform' : row.role === 'org' ? 'Owner' : 'Employee'}
+          label={ROLE_LABELS[row.role]}
         />
       ),
     },
@@ -121,15 +130,34 @@ export function PlatformUserList({
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
-      className: 'w-32',
+      className: 'w-44',
       cell: (row) =>
         row.role === 'super_admin' ? (
           <span className="block text-right text-xs text-ink-muted">Managed in Supabase</span>
         ) : (
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-1">
             <Button size="sm" variant="ghost" onClick={() => setPending(row)}>
               {row.is_active ? 'Deactivate' : 'Reactivate'}
             </Button>
+            {(row.role === 'employee' || row.role === 'candidate') && row.email ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={`Delete ${row.full_name || row.email} permanently`}
+                className="text-red-600 hover:text-red-700"
+                onClick={() =>
+                  setDeleting({
+                    id: row.id,
+                    name: row.full_name,
+                    email: row.email!,
+                    role: row.role as 'employee' | 'candidate',
+                    organization: row.tenant_id ? row.tenantName : null,
+                  })
+                }
+              >
+                <Trash2 />
+              </Button>
+            ) : null}
           </div>
         ),
     },
@@ -147,6 +175,7 @@ export function PlatformUserList({
             { value: '', label: 'All roles' },
             { value: 'org', label: 'Owners' },
             { value: 'employee', label: 'Employees' },
+            { value: 'candidate', label: 'Job seekers' },
             { value: 'super_admin', label: 'Platform' },
           ]}
         />
@@ -180,6 +209,8 @@ export function PlatformUserList({
       />
 
       <Pagination page={page} perPage={perPage} total={total} />
+
+      <DeleteUserDialog user={deleting} onClose={() => setDeleting(null)} />
 
       <Dialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
         <DialogContent size="sm">

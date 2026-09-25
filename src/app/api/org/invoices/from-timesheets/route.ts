@@ -4,7 +4,7 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { invoiceFromTimesheetsSchema } from '@/lib/schemas'
 import { billToAddressText, computeTotals, normalizeItems, suggestInvoiceNumber } from '@/lib/invoice'
-import { serviceLines, type BillableWeek } from '@/lib/billing'
+import { serviceLines, splitHours, type BillableWeek } from '@/lib/billing'
 import { addDays } from '@/lib/time'
 import { audit } from '@/lib/audit'
 import type { RateUnit } from '@/types/db'
@@ -56,7 +56,7 @@ async function handlePOST(request: NextRequest) {
   const { data: sheets, error: loadError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, week_start, week_end, status, billable_hours, pay_amount, pay_currency, invoice_id, vendor_id, client_id, assignment_id, employee_id, employee:profiles!timesheets_employee_id_fkey(full_name, email, designation)'
+      'id, code, week_start, week_end, status, billable_hours, overtime_hours, approved_overtime_hours, pay_amount, pay_currency, invoice_id, vendor_id, client_id, assignment_id, employee_id, employee:profiles!timesheets_employee_id_fkey(full_name, email, designation)'
     )
     .in('id', ids)
     .eq('tenant_id', ctx.tenantId)
@@ -70,6 +70,8 @@ async function handlePOST(request: NextRequest) {
     week_end: string
     status: string
     billable_hours: number | string
+    overtime_hours: number | string | null
+    approved_overtime_hours: number | string | null
     pay_amount: number | string | null
     pay_currency: string | null
     invoice_id: string | null
@@ -132,7 +134,7 @@ async function handlePOST(request: NextRequest) {
   const assignmentIds = Array.from(new Set(rows.map((row) => row.assignment_id!)))
   const { data: assignments, error: rateError } = await supabase
     .from('employee_assignments')
-    .select('id, bill_rate, bill_currency, rate_unit')
+    .select('id, bill_rate, bill_currency, rate_unit, overtime_bill_multiplier')
     .in('id', assignmentIds)
     .eq('tenant_id', ctx.tenantId)
 
@@ -145,6 +147,7 @@ async function handlePOST(request: NextRequest) {
         billRate: row.bill_rate == null ? null : Number(row.bill_rate),
         currency: row.bill_currency as string,
         unit: row.rate_unit as RateUnit,
+        overtimeMultiplier: Number(row.overtime_bill_multiplier ?? 1.5),
       },
     ])
   )
@@ -179,17 +182,38 @@ async function handlePOST(request: NextRequest) {
   const items = assignmentIds.flatMap((assignmentId) => {
     const rate = rateById.get(assignmentId)!
     const group = rows.filter((row) => row.assignment_id === assignmentId)
-    const weeks: BillableWeek[] = group.map((row) => ({
-      id: row.id,
-      code: row.code,
-      weekStart: row.week_start,
-      weekEnd: row.week_end,
-      billableHours: Number(row.billable_hours),
-      employeeName: row.employee?.full_name || row.employee?.email || 'Employee',
-    }))
+    /*
+     * Overtime (049): the regular hours bill at the rate, the APPROVED overtime
+     * on a line of its own at rate × the placement's overtime multiplier, and
+     * overtime the reviewer declined is not billed — the same split the pay
+     * was fixed from at approval (`splitHours`).
+     *
+     * Whether overtime applied is read from the DECISION recorded at approval
+     * (`approved_overtime_hours` is null when it did not), not re-derived from
+     * the placement's eligibility today — an eligibility toggled since must not
+     * bill a week differently from how it was paid.
+     */
+    const applies = rate.unit === 'hour'
+    const weeks: BillableWeek[] = group.map((row) => {
+      const split = splitHours(
+        Number(row.billable_hours),
+        Number(row.overtime_hours ?? 0),
+        applies && row.approved_overtime_hours != null ? Number(row.approved_overtime_hours) : null
+      )
+      return {
+        id: row.id,
+        code: row.code,
+        weekStart: row.week_start,
+        weekEnd: row.week_end,
+        billableHours: split.regular,
+        overtimeHours: split.overtime,
+        employeeName: row.employee?.full_name || row.employee?.email || 'Employee',
+      }
+    })
     return serviceLines(weeks, rate.billRate!, rate.unit, {
       role: group[0].employee?.designation ?? null,
       withName: employeeIds.size > 1,
+      overtimeMultiplier: rate.overtimeMultiplier,
     })
   })
 

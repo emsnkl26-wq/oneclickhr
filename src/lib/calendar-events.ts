@@ -20,9 +20,11 @@ import 'server-only'
  * DATES, NOT INSTANTS, for anything all-day. Leave, holidays and birthdays are
  * calendar facts: a birthday is the 14th everywhere on earth, and converting it
  * through a timezone would move it for somebody. Meetings are the opposite —
- * genuine instants, stored as `timestamptz` and rendered in the workspace zone.
+ * genuine instants, stored as `timestamptz` and placed on the grid by the day
+ * they fall on in the VIEWER's zone (see calendar-view.tsx).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { startOfLocalDay, endOfLocalDay } from '@/lib/time'
 
 /*
  * The shared vocabulary lives in a directive-free module so the client grid can
@@ -31,12 +33,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * Imported AND re-exported: `export … from` alone forwards the names without
  * binding them locally, and this file builds `CalendarEvent[]` itself.
  */
-import type { CalendarEvent } from '@/lib/calendar-kinds'
+import type { CalendarEvent, CalendarMeeting } from '@/lib/calendar-kinds'
 
 export {
   EVENT_STYLES,
   type CalendarEvent,
   type CalendarEventKind,
+  type CalendarMeeting,
 } from '@/lib/calendar-kinds'
 
 export interface CalendarRange {
@@ -65,36 +68,94 @@ function annualOccurrences(monthDay: string, range: CalendarRange): string[] {
   return out
 }
 
+interface MeetingRow {
+  id: string
+  title: string
+  description: string | null
+  location: string | null
+  meet_link: string | null
+  start_time: string
+  end_time: string
+  attendees: CalendarMeeting['attendees'] | null
+  source: 'app' | 'google'
+  read_only: boolean
+  all_day: boolean | null
+  google_event_id: string | null
+  organizer: { full_name: string | null } | null
+}
+
+/** The columns every meeting surface reads — the grid, the agenda and the dialogs. */
+export const MEETING_COLUMNS =
+  'id, title, description, location, meet_link, start_time, end_time, attendees, source, read_only, all_day, google_event_id, ' +
+  'organizer:profiles!meetings_organizer_id_fkey(full_name)'
+
+/** A `meetings` row, as selected with `MEETING_COLUMNS`, in the calendar's shape. */
+export function toCalendarMeeting(raw: unknown): CalendarMeeting {
+  const row = raw as MeetingRow
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    location: row.location,
+    meet_link: row.meet_link,
+    start_time: row.start_time,
+    end_time: row.end_time,
+    attendees: Array.isArray(row.attendees) ? row.attendees : [],
+    source: row.source,
+    read_only: row.read_only,
+    all_day: !!row.all_day,
+    google_event_id: row.google_event_id,
+    organizer_name: row.organizer?.full_name ?? null,
+  }
+}
+
 export async function loadCalendarEvents(
   supabase: SupabaseClient,
   range: CalendarRange,
-  options: { portal: 'org' | 'employee' }
+  options: {
+    portal: 'org' | 'employee'
+    /**
+     * The zone the grid is drawn in — the VIEWER's. The range is a run of
+     * calendar days in this zone, so the timed query is bounded by this zone's
+     * midnights, not UTC's.
+     */
+    timezone: string
+  }
 ): Promise<CalendarEvent[]> {
   const base = options.portal === 'org' ? '/org' : '/employee'
 
   /*
-   * The instant bounds for the timed queries. A meeting late on the last day of
-   * the range starts before `to`+1 day, so the upper bound is exclusive on the
-   * following midnight rather than inclusive on `to` — otherwise the last day
-   * of every month would silently lose its afternoon.
+   * The instant bounds for the meeting query: the first visible day's midnight
+   * and the midnight AFTER the last visible day, both in the viewer's zone.
+   *
+   * These used to be UTC midnights, which for anyone west of Greenwich dropped
+   * the evening of the last visible day. One extra day is fetched on each side
+   * so an all-day Google event (stored on a UTC midnight, 048) is never lost at
+   * an edge — the grid places every row by its own date and ignores whatever
+   * falls off screen.
    */
-  const fromInstant = `${range.from}T00:00:00.000Z`
-  const toInstant = `${range.to}T23:59:59.999Z`
+  const fromInstant = startOfLocalDay(range.from, options.timezone)
+  fromInstant.setUTCDate(fromInstant.getUTCDate() - 1)
+  const toInstant = endOfLocalDay(range.to, options.timezone)
+  toInstant.setUTCDate(toInstant.getUTCDate() + 1)
 
   /*
    * NO HOLIDAYS SOURCE. This product has no holiday calendar table, and a query
    * against one that does not exist would fail on every calendar load — a
    * pointless round trip and a permanent error in the logs. When holidays are
-   * added, this is the one place that needs a sixth query and a `holiday` kind
+   * added, this is the one place that needs another query and a `holiday` kind
    * (already defined in `EVENT_STYLES`, ready for it).
    */
   const [meetings, leaves, people, tasks] = await Promise.all([
     supabase
       .from('meetings')
-      .select('id, title, start_time, end_time, location, cancelled_at')
-      .gte('start_time', fromInstant)
-      .lte('start_time', toInstant)
+      .select(MEETING_COLUMNS)
+      // OVERLAPPING the window rather than starting in it, so an event that
+      // began before the first visible day still shows on the days it covers.
+      .lt('start_time', toInstant.toISOString())
+      .gte('end_time', fromInstant.toISOString())
       .is('cancelled_at', null)
+      .order('start_time', { ascending: true })
       .limit(500),
     supabase
       .from('leaves')
@@ -118,16 +179,21 @@ export async function loadCalendarEvents(
 
   const events: CalendarEvent[] = []
 
-  for (const row of meetings.data ?? []) {
+  for (const raw of meetings.data ?? []) {
+    const meeting = toCalendarMeeting(raw)
     events.push({
-      id: `meeting-${row.id}`,
+      id: `meeting-${meeting.id}`,
       kind: 'meeting',
-      title: row.title,
-      start: row.start_time,
-      end: row.end_time,
-      allDay: false,
-      href: `${base}/meetings`,
-      detail: row.location ?? null,
+      title: meeting.title,
+      // An all-day Google event is a pair of DATES written as UTC midnights, so
+      // the date half is read straight off and never converted (048).
+      start: meeting.all_day ? meeting.start_time.slice(0, 10) : meeting.start_time,
+      end: meeting.all_day ? meeting.end_time.slice(0, 10) : meeting.end_time,
+      allDay: meeting.all_day,
+      // Opened in a dialog on the calendar itself, not by navigating away.
+      href: null,
+      detail: meeting.location ?? null,
+      meeting,
     })
   }
 
@@ -209,4 +275,44 @@ export async function loadCalendarEvents(
   }
 
   return events
+}
+
+/**
+ * The next meetings from now — the agenda beside the grid, independent of the
+ * month on screen. Still running counts as upcoming, so a meeting in progress
+ * keeps its Join button.
+ */
+export async function loadUpcomingMeetings(
+  supabase: SupabaseClient,
+  limit = 12
+): Promise<CalendarMeeting[]> {
+  const { data } = await supabase
+    .from('meetings')
+    .select(MEETING_COLUMNS)
+    .is('cancelled_at', null)
+    .gte('end_time', new Date().toISOString())
+    .order('start_time', { ascending: true })
+    .limit(limit)
+  return (data ?? []).map(toCalendarMeeting)
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * One meeting by id, for `?meeting=` — where a notification lands. Read on the
+ * caller's client, so RLS decides whether they may see it; anything malformed
+ * or out of reach is simply null.
+ */
+export async function loadMeetingById(
+  supabase: SupabaseClient,
+  id: string | undefined
+): Promise<CalendarMeeting | null> {
+  if (!id || !UUID_RE.test(id)) return null
+  const { data } = await supabase
+    .from('meetings')
+    .select(MEETING_COLUMNS)
+    .eq('id', id)
+    .is('cancelled_at', null)
+    .maybeSingle()
+  return data ? toCalendarMeeting(data) : null
 }

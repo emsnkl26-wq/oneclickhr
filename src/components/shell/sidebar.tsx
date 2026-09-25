@@ -276,7 +276,15 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
           <DropdownMenuContent align="start" side="top" className="w-56">
             <DropdownMenuLabel>Signed in</DropdownMenuLabel>
             <DropdownMenuItem asChild>
-              <Link href={user.role === 'employee' ? '/employee/profile' : '/org/settings'}>
+              <Link
+                href={
+                  user.role === 'employee'
+                    ? '/employee/profile'
+                    : user.role === 'candidate'
+                      ? '/candidate/profile'
+                      : '/org/settings'
+                }
+              >
                 Account settings
               </Link>
             </DropdownMenuItem>

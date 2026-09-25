@@ -22,7 +22,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { effectiveInvoiceStatus } from '@/components/invoice/invoice-status'
 import type { InvoiceStatus } from '@/types/db'
 
-export interface InvoiceSummary {
+export interface CurrencyTotals {
+  currency: string
   earned: number
   paidCount: number
   pending: number
@@ -30,12 +31,53 @@ export interface InvoiceSummary {
   drafts: number
   overdue: number
   overdueCount: number
+  /** Every non-cancelled invoice in this currency. */
+  count: number
+}
+
+export interface InvoiceSummary extends Omit<CurrencyTotals, 'currency' | 'count'> {
+  /** Invoices in any other currency — see `others`. */
   excluded: number
+  /**
+   * The same totals for every OTHER currency, each in its own money and never
+   * converted into the workspace's. Largest first, so the currency with the
+   * most invoices leads.
+   */
+  others: CurrencyTotals[]
 }
 
 const PAGE = 1000
 const MAX_PAGES = 20
 const cents = (value: unknown) => Math.round((Number(value) || 0) * 100)
+
+interface Bucket {
+  earned: number
+  pending: number
+  drafts: number
+  overdue: number
+  paid: number
+  pendingCount: number
+  overdueCount: number
+  count: number
+}
+
+const emptyBucket = (): Bucket => ({
+  earned: 0, pending: 0, drafts: 0, overdue: 0, paid: 0, pendingCount: 0, overdueCount: 0, count: 0,
+})
+
+function totals(currency: string, b: Bucket): CurrencyTotals {
+  return {
+    currency,
+    earned: b.earned / 100,
+    paidCount: b.paid,
+    pending: b.pending / 100,
+    pendingCount: b.pendingCount,
+    drafts: b.drafts / 100,
+    overdue: b.overdue / 100,
+    overdueCount: b.overdueCount,
+    count: b.count,
+  }
+}
 
 export async function invoiceSummary(
   supabase: SupabaseClient,
@@ -66,43 +108,53 @@ export async function invoiceSummary(
     if (data.length < PAGE) break
   }
 
-  const sum = { earned: 0, pending: 0, drafts: 0, overdue: 0 }
-  const count = { paid: 0, pending: 0, overdue: 0, excluded: 0 }
-
+  // One bucket per currency; a row with no currency belongs to the workspace's.
+  const buckets = new Map<string, Bucket>()
   for (const row of rows) {
-    if (row.currency && row.currency !== currency) {
-      count.excluded += 1
-      continue
+    const code = row.currency || currency
+    let b = buckets.get(code)
+    if (!b) {
+      b = emptyBucket()
+      buckets.set(code, b)
     }
+    b.count += 1
+
     if (row.status === 'paid') {
       // A paid invoice counts its total even if an older row never had
       // `amount_paid` filled in.
-      sum.earned += cents(row.total)
-      count.paid += 1
+      b.earned += cents(row.total)
+      b.paid += 1
       continue
     }
 
-    sum.earned += cents(row.amount_paid)
+    b.earned += cents(row.amount_paid)
     const owed = Math.max(0, cents(row.total) - cents(row.amount_paid))
     if (owed === 0) continue
 
-    sum.pending += owed
-    count.pending += 1
-    if (row.status === 'draft') sum.drafts += owed
+    b.pending += owed
+    b.pendingCount += 1
+    if (row.status === 'draft') b.drafts += owed
     if (effectiveInvoiceStatus(row, today) === 'overdue') {
-      sum.overdue += owed
-      count.overdue += 1
+      b.overdue += owed
+      b.overdueCount += 1
     }
   }
 
+  const own = totals(currency, buckets.get(currency) ?? emptyBucket())
+  const others = Array.from(buckets.entries())
+    .filter(([code]) => code !== currency)
+    .map(([code, b]) => totals(code, b))
+    .sort((a, b) => b.count - a.count || a.currency.localeCompare(b.currency))
+
   return {
-    earned: sum.earned / 100,
-    paidCount: count.paid,
-    pending: sum.pending / 100,
-    pendingCount: count.pending,
-    drafts: sum.drafts / 100,
-    overdue: sum.overdue / 100,
-    overdueCount: count.overdue,
-    excluded: count.excluded,
+    earned: own.earned,
+    paidCount: own.paidCount,
+    pending: own.pending,
+    pendingCount: own.pendingCount,
+    drafts: own.drafts,
+    overdue: own.overdue,
+    overdueCount: own.overdueCount,
+    excluded: others.reduce((sum, o) => sum + o.count, 0),
+    others,
   }
 }

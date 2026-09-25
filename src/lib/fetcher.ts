@@ -80,8 +80,18 @@ export function apiPatch<T>(url: string, body?: unknown): Promise<T> {
   })
 }
 
-export function apiDelete<T>(url: string): Promise<T> {
-  return request<T>(url, { method: 'DELETE' })
+/** A body is optional — the platform's permanent deletions carry a confirmation. */
+export function apiDelete<T>(url: string, body?: unknown): Promise<T> {
+  return request<T>(
+    url,
+    body === undefined
+      ? { method: 'DELETE' }
+      : {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+  )
 }
 
 /**
@@ -174,9 +184,13 @@ export async function uploadFile(
  * An upload that is never submitted is therefore just an orphan, collected by
  * the nightly sweep at /api/cron/jobs-gc.
  */
+/**
+ * Upload a CV. With a `jobId` it is for an application to that job; without
+ * one it is a job seeker saving the CV on their own profile (052).
+ */
 export async function uploadResume(
   file: File,
-  jobId: string
+  jobId?: string
 ): Promise<{ key: string; fileName: string }> {
   const presigned = await apiPost<{ url: string; key: string }>('/api/jobs/resume-presign', {
     jobId,

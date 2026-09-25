@@ -36,6 +36,9 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       is_primary: input.isPrimary,
       status: input.status,
       notes: input.notes,
+      overtime_eligible: input.overtimeEligible,
+      overtime_pay_multiplier: input.overtimePayMultiplier,
+      overtime_bill_multiplier: input.overtimeBillMultiplier,
     })
     .eq('id', id)
     .select('id, employee_id')

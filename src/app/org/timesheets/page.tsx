@@ -34,6 +34,7 @@ interface TimesheetWithEmployee {
   status: TimesheetStatus
   total_hours: number
   billable_hours: number
+  overtime_hours: number | null
   weekly_learnings: string | null
   review_note: string | null
   attachment_name: string | null
@@ -191,7 +192,7 @@ export default async function OrgTimesheetsPage({
   let query = supabase
     .from('timesheets')
     .select(
-      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, weekly_learnings, review_note, attachment_name, submitted_at, employee:profiles!timesheets_employee_id_fkey!inner(full_name, email, photo_url)',
+      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, overtime_hours, weekly_learnings, review_note, attachment_name, submitted_at, employee:profiles!timesheets_employee_id_fkey!inner(full_name, email, photo_url)',
       { count: 'exact' }
     )
     .order('week_start', { ascending: false })
@@ -222,6 +223,7 @@ export default async function OrgTimesheetsPage({
     status: sheet.status,
     totalHours: Number(sheet.total_hours),
     billableHours: Number(sheet.billable_hours),
+    overtimeHours: Number(sheet.overtime_hours ?? 0),
     weeklyLearnings: sheet.weekly_learnings,
     reviewNote: sheet.review_note,
     hasAttachment: !!sheet.attachment_name,

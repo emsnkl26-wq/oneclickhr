@@ -106,6 +106,13 @@ export const signupSchema = z.object({
 })
 export type SignupInput = z.infer<typeof signupSchema>
 
+/** A job seeker creating an account on the portal (052). No workspace fields. */
+export const candidateSignupSchema = z.object({
+  fullName: z.string().trim().min(2, 'Enter your name').max(120),
+  email: emailSchema,
+  password: passwordSchema,
+})
+
 /** Setting or correcting the claimed website from the verification page. */
 export const setDomainSchema = z.object({ domain: domainSchema })
 
@@ -116,7 +123,7 @@ export const loginSchema = z.object({
   // whose role does not belong to that portal. Defaulted so an older client (or
   // a curl) still works, and defaulted to the ADMIN door because that is the
   // stricter of the two — an employee cannot slip in by omitting the field.
-  portal: z.enum(['org', 'employee']).default('org'),
+  portal: z.enum(['org', 'employee', 'candidate']).default('org'),
 })
 
 export const forgotPasswordSchema = z.object({ email: emailSchema })
@@ -167,6 +174,15 @@ export const tenantSettingsSchema = z.object({
     .enum(['clock_in', 'timesheet', 'none', ''])
     .optional()
     .transform((v) => (v ? v : null)),
+  /**
+   * Weekly billable hours above which a timesheet's hours are overtime (049).
+   * Null switches overtime off for the workspace. 40 is the US FLSA figure.
+   */
+  overtimeWeeklyThreshold: z
+    .number({ invalid_type_error: 'Enter a number of hours' })
+    .min(1, 'Use at least 1 hour')
+    .max(168, 'A week only has 168 hours')
+    .nullable(),
 })
 
 export const onboardingSchema = z.object({
@@ -216,6 +232,14 @@ export const updateEmployeeSchema = employeeStep1Schema
      */
     trackingMode: z
       .enum(['clock_in', 'timesheet', 'none', ''])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v || null)),
+    /**
+     * How often they are paid (050): monthly, twice a month, or '' for
+     * automatic (by country — see src/lib/pay-schedule.ts). Org-set only.
+     */
+    paySchedule: z
+      .enum(['monthly', 'semi_monthly', ''])
       .optional()
       .transform((v) => (v === undefined ? undefined : v || null)),
   })
@@ -738,13 +762,25 @@ export const meetingSchema = z
     startTime: z.string().datetime({ offset: true }),
     endTime: z.string().datetime({ offset: true }),
     /*
-     * The zone the form's wall clock was on — the workspace's, not the
-     * browser's. The instants above are already absolute, so this is carried
-     * purely so Google renders the event on the same clock the organiser used;
-     * an invitee in another country then sees it converted, rather than seeing
-     * our server's idea of the time.
+     * The zone the form's wall clock was on — the organiser's own by default,
+     * or whichever they picked. The instants above are already absolute, so
+     * this is carried purely so Google renders the event on the same clock the
+     * organiser used and the invite notification names it. Must be a real IANA
+     * zone: it is handed to Google and to the date formatter verbatim.
      */
-    timezone: z.string().trim().max(64).optional(),
+    timezone: z
+      .string()
+      .trim()
+      .max(64)
+      .refine((tz) => {
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: tz })
+          return true
+        } catch {
+          return false
+        }
+      }, 'Pick a valid time zone')
+      .optional(),
     /*
      * Whether to ask Google to mint a Meet room. Defaults ON because that is
      * what nearly every meeting wants and what the product did before the
@@ -932,6 +968,27 @@ export const tenantStatusSchema = z.object({
 export const userActivationSchema = z.object({
   isActive: z.boolean(),
   reason: optionalText(500),
+})
+
+/**
+ * Permanently deleting an organization (053). Every field is a separate act of
+ * intent: the workspace's exact name, a typed phrase, the operator's own
+ * password, and a reason for the audit trail.
+ */
+export const deleteTenantSchema = z.object({
+  confirmName: z.string().trim().min(1, 'Type the organization name').max(200),
+  confirmPhrase: z.literal('DELETE', {
+    errorMap: () => ({ message: 'Type DELETE in capitals to confirm' }),
+  }),
+  password: z.string().min(1, 'Enter your password').max(128),
+  reason: z.string().trim().min(5, 'Say why, for the audit log').max(500),
+})
+
+/** Permanently deleting one employee or job seeker (053). */
+export const deleteUserSchema = z.object({
+  confirmEmail: emailSchema,
+  password: z.string().min(1, 'Enter your password').max(128),
+  reason: z.string().trim().min(5, 'Say why, for the audit log').max(500),
 })
 
 // ---------------------------------------------------------------------------
@@ -1123,6 +1180,12 @@ export const reviewTimesheetSchema = z
   .object({
     status: z.enum(['approved', 'rejected']),
     note: optionalText(2000),
+    /**
+     * How much of the week's overtime is approved (049). Omitted means all of
+     * it; the server clamps to what the week actually has, so this can only
+     * ever approve LESS than was worked, never more.
+     */
+    approvedOvertimeHours: z.number().min(0).max(168).optional(),
   })
   .refine((v) => v.status !== 'rejected' || !!v.note, {
     message: 'Tell them what needs changing',
@@ -1293,7 +1356,9 @@ export const generatedDocumentUpdateSchema = generatedDocumentSchema.omit({ empl
 // by sending one extra key.
 // ---------------------------------------------------------------------------
 
-export const JOB_TYPES = ['full_time', 'part_time', 'contract', 'internship', 'temporary'] as const
+export const JOB_TYPES = [
+  'full_time', 'part_time', 'contract', 'contract_to_hire', 'c2c', 'w2', 'internship', 'temporary',
+] as const
 export const JOB_WORKPLACES = ['onsite', 'remote', 'hybrid'] as const
 export const JOB_STATUSES = ['draft', 'published', 'closed'] as const
 export const SALARY_PERIODS = ['hour', 'day', 'month', 'year'] as const
@@ -1311,6 +1376,16 @@ export const APPLICATION_STATUSES = [
  * `salaryDisclosed`'s "you may not advertise a band you have not entered" check
  * then passed on a posting with no band in it.
  */
+/** An optional https:// link — '' clears it. Rendered as an href on public pages. */
+const httpsUrl = (message: string) =>
+  z
+    .string()
+    .trim()
+    .max(400)
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine((v) => v === null || /^https:\/\/\S+$/i.test(v), message)
+
 const optionalNumber = (max: number, message: string) =>
   z
     .union([z.literal(''), z.coerce.number()])
@@ -1362,6 +1437,24 @@ export const jobSchema = z
     openings: z.coerce.number().int().min(1, 'There is at least one opening').max(999).default(1),
     skills: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
     closesAt: isoDate.nullable().optional(),
+    /*
+     * The recruiter and the engagement (052). Public once the job is
+     * published, so links are https only — they become hrefs on a page the
+     * whole internet can load.
+     */
+    recruiterName: optionalText(120),
+    recruiterTitle: optionalText(120),
+    recruiterEmail: z
+      .union([z.literal(''), emailSchema])
+      .optional()
+      .transform((v) => v || null),
+    recruiterPhone: optionalText(40),
+    recruiterLinkedinUrl: httpsUrl('Paste the full LinkedIn address, starting with https://'),
+    companyLinkedinUrl: httpsUrl('Paste the full LinkedIn address, starting with https://'),
+    clientName: optionalText(160),
+    duration: optionalText(80),
+    startDateLabel: optionalText(80),
+    workAuthorization: optionalText(120),
   })
   .refine((v) => v.experienceMin === null || v.experienceMax === null || v.experienceMax >= v.experienceMin, {
     message: 'The maximum experience cannot be below the minimum',
@@ -1409,7 +1502,13 @@ const httpUrl = (message: string) =>
 export const jobApplicationSchema = z.object({
   jobId: uuid,
   fullName: z.string().trim().min(2, 'Enter your full name').max(120),
-  email: emailSchema,
+  /**
+   * Ignored by the server since 052: applying needs an account, and the
+   * address on file is the one used. Accepted so an older client still parses.
+   */
+  email: emailSchema.optional(),
+  /** Attach the CV saved on the candidate's profile instead of a new upload. */
+  useSavedResume: z.boolean().default(false),
   phone: optionalText(40),
   location: optionalText(160),
   linkedinUrl: httpUrl('Enter a full LinkedIn address starting with https://'),
@@ -1433,6 +1532,11 @@ export type JobApplicationInput = z.infer<typeof jobApplicationSchema>
 export const applicationReviewSchema = z.object({
   status: z.enum(APPLICATION_STATUSES).optional(),
   notes: optionalText(8000),
+  /**
+   * Shown to the APPLICANT with this stage change (052) — unlike `notes`,
+   * which stay private to the hiring team. Only meaningful with a `status`.
+   */
+  message: optionalText(2000),
 })
 
 /**
@@ -1443,7 +1547,11 @@ export const applicationReviewSchema = z.object({
  * and a `jobId` so an upload URL is only ever minted against a real posting.
  */
 export const resumePresignSchema = z.object({
-  jobId: uuid,
+  /**
+   * The posting being applied to. Omitted only for a job seeker uploading the
+   * CV saved on their own profile (052), which the route checks by role.
+   */
+  jobId: uuid.optional(),
   fileName: z.string().trim().min(1).max(255),
   contentType: z.string().trim().min(1).max(160),
   sizeBytes: z.number().int().positive().max(10 * 1024 * 1024, 'Keep your CV under 10MB'),
@@ -1546,6 +1654,22 @@ export const assignmentSchema = z
     isPrimary: z.boolean().default(false),
     status: z.enum(ASSIGNMENT_STATUSES).default('active'),
     notes: optionalText(4000),
+    /**
+     * Overtime (049). Only meaningful on an hourly placement; an exempt
+     * employee is simply not eligible. Multipliers are bounded to what any
+     * real contract uses — 1× (no premium) to 5×.
+     */
+    overtimeEligible: z.boolean().default(true),
+    overtimePayMultiplier: z.coerce
+      .number({ invalid_type_error: 'Enter a multiplier such as 1.5' })
+      .min(1, 'The multiplier cannot be below 1')
+      .max(5, 'The multiplier cannot be above 5')
+      .default(1.5),
+    overtimeBillMultiplier: z.coerce
+      .number({ invalid_type_error: 'Enter a multiplier such as 1.5' })
+      .min(1, 'The multiplier cannot be below 1')
+      .max(5, 'The multiplier cannot be above 5')
+      .default(1.5),
   })
   .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
     message: 'The end date cannot be before the start date',
@@ -1594,6 +1718,11 @@ export type InvoiceFromTimesheetsInput = z.infer<typeof invoiceFromTimesheetsSch
 export const paymentConfirmationSchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
   year: z.coerce.number().int().min(2000).max(2100),
+  /**
+   * Which part of the month (050): 0 whole month, 1 the 1st–15th, 2 the
+   * 16th–end. Checked against the employee's pay schedule by the route.
+   */
+  period: z.coerce.number().int().min(0).max(2).default(0),
   amount: optionalMoney('Enter an amount of 0 or more'),
   currency: z.union([currencyCode, z.literal('')]).optional().transform((v) => v || null),
   paidOn: isoDate.nullable().optional(),
@@ -1745,4 +1874,52 @@ export type PushSubscriptionInput = z.infer<typeof pushSubscriptionSchema>
 /** Unsubscribing needs only the endpoint, and never the keys. */
 export const pushUnsubscribeSchema = z.object({
   endpoint: z.string().trim().min(20).max(2000),
+})
+
+// ---------------------------------------------------------------------------
+// Job seeker profile (052)
+// ---------------------------------------------------------------------------
+
+export const candidateProfileSchema = z.object({
+  fullName: z.string().trim().min(2, 'Enter your name').max(120),
+  headline: optionalText(160),
+  phone: optionalText(40),
+  location: optionalText(160),
+  country: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/, 'Choose a country')
+    .nullish()
+    .or(z.literal(''))
+    .transform((v) => v || null),
+  linkedinUrl: z
+    .string()
+    .trim()
+    .max(400)
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine((v) => v === null || /^https?:\/\/\S+$/i.test(v), 'Enter a full address starting with https://'),
+  portfolioUrl: z
+    .string()
+    .trim()
+    .max(400)
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine((v) => v === null || /^https?:\/\/\S+$/i.test(v), 'Enter a full address starting with https://'),
+  yearsExperience: z
+    .union([z.literal(''), z.coerce.number()])
+    .optional()
+    .transform((v) => (v === '' || v === undefined || Number.isNaN(v) ? null : Number(v)))
+    .refine((v) => v === null || (v >= 0 && v <= 60), 'Enter years of experience between 0 and 60'),
+  currentCompany: optionalText(160),
+  noticePeriod: optionalText(80),
+  workAuthorization: optionalText(80),
+  summary: optionalText(4000),
+  skills: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
+  /** A CV just uploaded through /api/jobs/resume-presign (no jobId). */
+  resumeKey: optionalText(300),
+  resumeName: optionalText(255),
+  /** Remove the saved CV. Ignored when a new one is being set. */
+  removeResume: z.boolean().default(false),
 })

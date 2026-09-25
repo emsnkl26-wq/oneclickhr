@@ -7,15 +7,11 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { reviewPaymentSchema } from '@/lib/schemas'
 import { notifyEmployee } from '@/lib/notify'
 import { audit } from '@/lib/audit'
+import { periodLabel } from '@/lib/pay-schedule'
 
 export const dynamic = 'force-dynamic'
 
 type Params = { params: Promise<{ id: string }> }
-
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
 
 /**
  * Verify — or send back — a payment confirmation.
@@ -40,7 +36,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
 
   const { data: row } = await supabase
     .from('payment_confirmations')
-    .select('id, employee_id, month, year, status')
+    .select('id, employee_id, month, year, period, status')
     .eq('id', id)
     .maybeSingle()
 
@@ -70,7 +66,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   if (error) return jsonError(friendlyDbError(error), 400)
   if (!updated) return jsonError('This one has already been reviewed.', 409)
 
-  const period = `${MONTHS[row.month - 1]} ${row.year}`
+  const period = periodLabel(row.year, row.month, row.period ?? 0)
   await notifyEmployee(supabase, {
     tenantId: ctx.tenantId,
     employeeId: row.employee_id,
@@ -93,7 +89,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     action: `payment.${input.status}`,
     entity: 'payment_confirmations',
     entityId: id,
-    meta: { employeeId: row.employee_id, month: row.month, year: row.year },
+    meta: { employeeId: row.employee_id, month: row.month, year: row.year, period: row.period },
     request,
   })
 

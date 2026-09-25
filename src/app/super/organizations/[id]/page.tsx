@@ -8,6 +8,7 @@ import { PageHeader, StatCard, StatusChip, EmptyState } from '@/components/ui/pa
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatLocal, todayIn } from '@/lib/time'
+import { DeleteOrganization } from './delete-organization'
 
 export const metadata: Metadata = { title: 'Organization' }
 export const dynamic = 'force-dynamic'
@@ -36,7 +37,11 @@ export default async function OrganizationDetailPage({
    * a missing filter here would silently widen a "this organization" panel into
    * "the whole platform" — the filter IS the scope on this client.
    */
-  const [people, attendanceToday, invoices, workAuths, audit] = await Promise.all([
+  const count = (table: string) =>
+    admin.from(table).select('id', { count: 'exact', head: true }).eq('tenant_id', id)
+
+  const [people, attendanceToday, invoices, workAuths, audit, timesheets, jobs, documents] =
+    await Promise.all([
     admin
       .from('profiles')
       .select('id, full_name, email, role, is_active, created_at')
@@ -58,6 +63,9 @@ export default async function OrganizationDetailPage({
       .eq('tenant_id', id)
       .order('created_at', { ascending: false })
       .limit(12),
+    count('timesheets'),
+    count('jobs'),
+    count('documents'),
   ])
 
   const members = people.data ?? []
@@ -162,6 +170,20 @@ export default async function OrganizationDetailPage({
           )}
         </Card>
       </div>
+
+      <DeleteOrganization
+        tenantId={tenant.id}
+        name={tenant.name}
+        status={tenant.status as 'active' | 'suspended'}
+        impact={{
+          employees: employees.length,
+          admins: owners.length,
+          invoices: invoices.count ?? 0,
+          timesheets: timesheets.count ?? 0,
+          jobs: jobs.count ?? 0,
+          documents: documents.count ?? 0,
+        }}
+      />
 
       <p className="px-1 text-xs leading-relaxed text-ink-muted">
         Platform oversight covers account state and usage only. Payslips, visa documents and other

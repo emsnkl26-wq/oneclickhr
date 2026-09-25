@@ -235,5 +235,8 @@ export function cardPathFor(
     'ticket.status',
   ]
   if (event && DEEP_LINKABLE.includes(event)) return `${base}/${subjectId}`
+  // Meetings open as a dialog over the calendar rather than on a page of their
+  // own, so the id travels as a query the calendar reads (loadMeetingById).
+  if (event === 'meeting.invited') return `${base}?meeting=${encodeURIComponent(subjectId)}`
   return base
 }

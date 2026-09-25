@@ -15,7 +15,9 @@ import { JOB_TYPES, JOB_WORKPLACES, SALARY_PERIODS } from '@/lib/schemas'
 // The values live in a directive-free module so the two Server Components that
 // prepare them can import `toFormValues` without it becoming a client-reference
 // proxy. See the header of src/lib/job-form.ts.
-import { EMPTY_JOB_FORM as EMPTY, type JobFormValues } from '@/lib/job-form'
+import {
+  EMPTY_JOB_FORM as EMPTY, JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS, type JobFormValues,
+} from '@/lib/job-form'
 import { COUNTRY_CODES, countryName, divisionLabel, divisionsFor, formatLocation } from '@/lib/geo'
 import type { JobType, JobWorkplace, SalaryPeriod } from '@/types/db'
 
@@ -26,19 +28,8 @@ export interface DepartmentOption {
   name: string
 }
 
-const TYPE_LABELS: Record<JobType, string> = {
-  full_time: 'Full time',
-  part_time: 'Part time',
-  contract: 'Contract',
-  internship: 'Internship',
-  temporary: 'Temporary',
-}
-
-const WORKPLACE_LABELS: Record<JobWorkplace, string> = {
-  onsite: 'On site',
-  remote: 'Remote',
-  hybrid: 'Hybrid',
-}
+const TYPE_LABELS = JOB_TYPE_LABELS
+const WORKPLACE_LABELS = JOB_WORKPLACE_LABELS
 
 /**
  * Create or edit a posting. One dialog for both.
@@ -146,6 +137,16 @@ export function JobDialog({
       openings: values.openings || 1,
       skills: values.skills,
       closesAt: values.closesAt || null,
+      recruiterName: values.recruiterName,
+      recruiterTitle: values.recruiterTitle,
+      recruiterEmail: values.recruiterEmail.trim(),
+      recruiterPhone: values.recruiterPhone,
+      recruiterLinkedinUrl: values.recruiterLinkedinUrl.trim(),
+      companyLinkedinUrl: values.companyLinkedinUrl.trim(),
+      clientName: values.clientName,
+      duration: values.duration,
+      startDateLabel: values.startDateLabel,
+      workAuthorization: values.workAuthorization,
     }
 
     try {
@@ -421,6 +422,107 @@ export function JobDialog({
                 </span>
               </label>
             </div>
+
+            {/*
+              The engagement, as US staffing roles are advertised (052) — all
+              optional, and each shows on the posting's summary only when set.
+            */}
+            <fieldset className="space-y-4 rounded-lg border border-line p-4">
+              <legend className="px-1 text-sm font-semibold">Engagement details</legend>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="End client" error={fields.clientName} hint="Leave empty to hide it.">
+                  <Input
+                    value={values.clientName}
+                    onChange={(e) => set('clientName', e.target.value)}
+                    maxLength={160}
+                  />
+                </FormField>
+                <FormField label="Duration" error={fields.duration}>
+                  <Input
+                    value={values.duration}
+                    onChange={(e) => set('duration', e.target.value)}
+                    placeholder="12+ months"
+                    maxLength={80}
+                  />
+                </FormField>
+                <FormField label="Start date" error={fields.startDateLabel}>
+                  <Input
+                    value={values.startDateLabel}
+                    onChange={(e) => set('startDateLabel', e.target.value)}
+                    placeholder="Immediate"
+                    maxLength={80}
+                  />
+                </FormField>
+                <FormField label="Work authorization" error={fields.workAuthorization}>
+                  <Input
+                    value={values.workAuthorization}
+                    onChange={(e) => set('workAuthorization', e.target.value)}
+                    placeholder="All authorizations, US citizens / GC only…"
+                    maxLength={120}
+                  />
+                </FormField>
+              </div>
+            </fieldset>
+
+            {/*
+              Who candidates contact. Shown on the public posting, so only what
+              the recruiter is happy to publish.
+            */}
+            <fieldset className="space-y-4 rounded-lg border border-line p-4">
+              <legend className="px-1 text-sm font-semibold">Recruiter contact</legend>
+              <p className="-mt-2 text-xs text-ink-muted">
+                Shown to candidates on the posting. Leave a field empty to keep it off.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Recruiter name" error={fields.recruiterName}>
+                  <Input
+                    value={values.recruiterName}
+                    onChange={(e) => set('recruiterName', e.target.value)}
+                    maxLength={120}
+                  />
+                </FormField>
+                <FormField label="Title" error={fields.recruiterTitle}>
+                  <Input
+                    value={values.recruiterTitle}
+                    onChange={(e) => set('recruiterTitle', e.target.value)}
+                    placeholder="Hiring recruiter"
+                    maxLength={120}
+                  />
+                </FormField>
+                <FormField label="Email" error={fields.recruiterEmail}>
+                  <Input
+                    type="email"
+                    value={values.recruiterEmail}
+                    onChange={(e) => set('recruiterEmail', e.target.value)}
+                    placeholder="careers@company.com"
+                  />
+                </FormField>
+                <FormField label="Phone" error={fields.recruiterPhone}>
+                  <Input
+                    type="tel"
+                    value={values.recruiterPhone}
+                    onChange={(e) => set('recruiterPhone', e.target.value)}
+                    maxLength={40}
+                  />
+                </FormField>
+                <FormField label="Recruiter LinkedIn" error={fields.recruiterLinkedinUrl}>
+                  <Input
+                    type="url"
+                    value={values.recruiterLinkedinUrl}
+                    onChange={(e) => set('recruiterLinkedinUrl', e.target.value)}
+                    placeholder="https://www.linkedin.com/in/…"
+                  />
+                </FormField>
+                <FormField label="Company LinkedIn" error={fields.companyLinkedinUrl}>
+                  <Input
+                    type="url"
+                    value={values.companyLinkedinUrl}
+                    onChange={(e) => set('companyLinkedinUrl', e.target.value)}
+                    placeholder="https://www.linkedin.com/company/…"
+                  />
+                </FormField>
+              </div>
+            </fieldset>
           </DialogBody>
 
           <DialogFooter>

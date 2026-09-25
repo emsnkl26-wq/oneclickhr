@@ -55,6 +55,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   // (025) Set by the org, never by the employee — `tg_profiles_guard` refuses
   // a self-service change to this column.
   if (input.trackingMode !== undefined) patch.tracking_mode = input.trackingMode
+  // (050) Also org-only — the profile guard refuses a self-service change.
+  if (input.paySchedule !== undefined) patch.pay_schedule = input.paySchedule
 
   const { error } = await supabase.from('profiles').update(patch).eq('id', employeeId)
   if (error) return jsonError(friendlyDbError(error), 400)

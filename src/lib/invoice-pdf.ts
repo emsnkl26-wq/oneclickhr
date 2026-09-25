@@ -64,7 +64,10 @@ export interface TimesheetSummaryRow {
   employeeName: string
   weekStart: string
   weekEnd: string
+  /** Regular hours billed at the ordinary rate. */
   billableHours: number
+  /** Approved overtime hours, billed at the overtime rate (049). */
+  overtimeHours?: number
 }
 
 /**
@@ -111,42 +114,60 @@ function appendTimesheetSummaryPage(doc: JsPDF, rows: TimesheetSummaryRow[]): vo
   text('TIMESHEET SUMMARY', left, y, { bold: true, size: 13 })
   y += 20
 
-  const cols = [left, left + 90, right - 220, right - 90, right]
+  // An OVERTIME column only when some week has any (049); otherwise the page
+  // reads exactly as it always has.
+  const hasOvertime = rows.some((row) => (row.overtimeHours ?? 0) > 0)
+  const cols = hasOvertime
+    ? [left, left + 80, right - 260, right - 130, right - 60, right]
+    : [left, left + 90, right - 220, right - 90, right]
+  const end = cols[cols.length - 1]
+  const hoursCol = 3
   const rowHeight = 16
+  const round2 = (n: number) => Math.round(n * 100) / 100
 
   const drawHeader = (at: number) => {
     doc.setDrawColor(...INK)
     doc.setLineWidth(1.2)
-    doc.line(cols[0], at, cols[4], at)
+    doc.line(cols[0], at, end, at)
     doc.setLineWidth(0.6)
-    doc.line(cols[0], at + rowHeight, cols[4], at + rowHeight)
-    const labels = ['WEEK', 'EMPLOYEE', 'PERIOD', 'HOURS']
+    doc.line(cols[0], at + rowHeight, end, at + rowHeight)
+    const labels = hasOvertime
+      ? ['WEEK', 'EMPLOYEE', 'PERIOD', 'REGULAR', 'OVERTIME']
+      : ['WEEK', 'EMPLOYEE', 'PERIOD', 'HOURS']
     labels.forEach((label, i) => {
-      text(label, i === 3 ? cols[i] + 6 : cols[i] + 4, at + 11, { bold: true })
+      text(label, i >= hoursCol ? cols[i] + 6 : cols[i] + 4, at + 11, { bold: true })
     })
     return at + rowHeight
   }
 
   y = drawHeader(y)
   let totalHours = 0
+  let totalOvertime = 0
   for (const row of rows) {
     if (y + rowHeight > pageHeight - 56) {
-      doc.line(cols[0], y, cols[4], y)
+      doc.line(cols[0], y, end, y)
       doc.addPage()
       y = drawHeader(56)
     }
     text(row.code, cols[0] + 4, y + 11)
     text(row.employeeName, cols[1] + 4, y + 11)
     text(formatPeriod(row.weekStart, row.weekEnd), cols[2] + 4, y + 11)
-    text(String(row.billableHours), cols[3] + 6, y + 11)
+    text(String(row.billableHours), cols[hoursCol] + 6, y + 11)
+    if (hasOvertime) text(String(row.overtimeHours ?? 0), cols[hoursCol + 1] + 6, y + 11)
     totalHours += Number(row.billableHours) || 0
+    totalOvertime += Number(row.overtimeHours) || 0
     y += rowHeight
   }
   doc.setLineWidth(0.6)
-  doc.line(cols[0], y, cols[4], y)
+  doc.line(cols[0], y, end, y)
 
   y += 20
-  text(`TOTAL BILLABLE HOURS: ${totalHours}`, cols[3] + 6, y, { bold: true })
+  if (hasOvertime) {
+    text(`TOTAL REGULAR HOURS: ${round2(totalHours)}`, cols[2] + 4, y, { bold: true })
+    text(`TOTAL OVERTIME HOURS: ${round2(totalOvertime)}`, cols[2] + 4, y + 14, { bold: true })
+  } else {
+    text(`TOTAL BILLABLE HOURS: ${round2(totalHours)}`, cols[hoursCol] + 6, y, { bold: true })
+  }
 }
 
 export async function downloadInvoicePdf(

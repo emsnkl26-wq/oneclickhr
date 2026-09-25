@@ -6,6 +6,7 @@ import { limitAuthByIp, rateLimit, limitKey } from '@/lib/rate-limit'
 import { audit } from '@/lib/audit'
 import { appUrl } from '@/lib/env'
 import { findDomainOwner, ownerConflictMessage } from '@/lib/domain-registry'
+import { signupErrorResponse } from '@/lib/signup-errors'
 
 export const dynamic = 'force-dynamic'
 
@@ -105,90 +106,10 @@ async function handlePOST(request: NextRequest) {
   })
 
   if (error) {
-    // Real infrastructure failures still surface; only existence is hidden.
-    const message = (error.message || '').toLowerCase()
-    const isExistence =
-      message.includes('already registered') ||
-      message.includes('already been registered') ||
-      message.includes('user already exists')
-
-    if (!isExistence) {
-      // Log the machine-readable parts too. A bare message string is not enough
-      // to tell "Supabase throttled the confirmation email" apart from "the
-      // Send Email hook returned 500" from a production log line, and both of
-      // those used to arrive here as the same opaque 400.
-      console.error('[signup] failed', {
-        // Redacted so a support ticket can be matched to a log line without the
-        // log becoming an address list.
-        to: input.email.replace(/^(.).*(@.*)$/, '***'),
-        status: error.status,
-        code: error.code,
-        message: error.message,
-        hint:
-          typeof error.status === 'number' && error.status >= 500
-            ? 'GoTrue 5xx on signUp almost always means the Send Email hook returned ' +
-              'non-2xx — look for the [send-email-hook] line just after this one.'
-            : undefined,
-      })
-
-      if (message.includes('password')) {
-        return jsonError('Please choose a stronger password.', 400)
-      }
-
-      // Confirmation email could not be sent: the Send Email hook answered
-      // non-2xx, or Resend rejected the address/domain. The account was not
-      // created, so retrying is the right advice — but "try again" alone sends
-      // the user into a loop that cannot succeed until the sender is fixed.
-      if (
-        message.includes('error sending') ||
-        message.includes('sending confirmation') ||
-        message.includes('sending email') ||
-        message.includes('email hook') ||
-        message.includes('failed to send')
-      ) {
-        return jsonError(
-          'We could not send the confirmation email to that address. Please check the ' +
-            'address, or try again in a few minutes.',
-          503
-        )
-      }
-
-      // Supabase's own throttle (2 confirmation emails/hour on the built-in
-      // sender). Distinct from our per-IP limiter above, and a 400 here made it
-      // look like the form data was bad.
-      if (error.status === 429 || message.includes('rate limit') || message.includes('too many')) {
-        return jsonError(
-          'Too many sign-up emails have been sent recently. Please try again in a little while.',
-          429
-        )
-      }
-
-      if (message.includes('signups not allowed') || message.includes('signup is disabled')) {
-        return jsonError('Sign-ups are temporarily closed. Please contact support.', 503)
-      }
-
-      // A rejected address — Supabase and Resend both refuse some domains
-      // (including most disposable-mail ones).
-      if (message.includes('invalid') && message.includes('email')) {
-        return jsonError(
-          'That email address was rejected. Please use your work email address.',
-          400
-        )
-      }
-
-      // A 5xx from GoTrue is never the caller's fault, and its message is often
-      // empty (a failing Send Email hook surfaces as literally ' { }'). Answering
-      // 400 blamed the form for a server-side outage.
-      if (typeof error.status === 'number' && error.status >= 500) {
-        return jsonError(
-          'We could not send the confirmation email just now. Please try again in a few ' +
-            'minutes — your details were not saved.',
-          503
-        )
-      }
-
-      return jsonError('We could not complete your sign-up. Please try again.', 400)
-    }
+    // Real infrastructure failures surface; "already registered" is answered
+    // like a success so this endpoint is not an account-existence oracle.
+    const failure = signupErrorResponse(error, input.email, 'signup')
+    if (failure) return failure
   }
 
   await audit({

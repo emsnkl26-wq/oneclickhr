@@ -10,7 +10,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { formatPeriod, formatLocal } from '@/lib/time'
 import { initials } from '@/lib/utils'
 import { TimesheetReview } from './timesheet-review'
-import type { TimesheetStatus } from '@/types/db'
+import type { RateUnit, TimesheetStatus } from '@/types/db'
+import { overtimeApplies } from '@/lib/billing'
 import { timesheetAttachments } from '@/lib/timesheet-attachments'
 
 export const metadata: Metadata = { title: 'Timesheet review' }
@@ -51,7 +52,7 @@ export default async function OrgTimesheetDetailPage({
   const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, attachments, attachment_url, attachment_name, review_note, submitted_at, reviewed_at, employee:profiles!timesheets_employee_id_fkey(id, full_name, email, photo_url, designation)'
+      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, overtime_hours, approved_overtime_hours, assignment_id, weekly_learnings, attachments, attachment_url, attachment_name, review_note, submitted_at, reviewed_at, employee:profiles!timesheets_employee_id_fkey(id, full_name, email, photo_url, designation)'
     )
     .eq('id', id)
     .maybeSingle()
@@ -72,16 +73,38 @@ export default async function OrgTimesheetDetailPage({
     designation: string | null
   } | null
 
-  const [{ data: entries, error: entriesError }, { data: projects }] = await Promise.all([
-    supabase
-      .from('timesheet_entries')
-      .select(
-        'id, project_id, task_name, billable, position, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat'
-      )
-      .eq('timesheet_id', id)
-      .order('position'),
-    supabase.from('projects').select('id, code, name, client_name'),
-  ])
+  const [
+    { data: entries, error: entriesError },
+    { data: projects },
+    { data: placement },
+    { data: tenantRow },
+  ] =
+    await Promise.all([
+      supabase
+        .from('timesheet_entries')
+        .select(
+          'id, project_id, task_name, billable, position, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat'
+        )
+        .eq('timesheet_id', id)
+        .order('position'),
+      supabase.from('projects').select('id, code, name, client_name'),
+      // Whether overtime is payable on this week at all (049) — an org-only read.
+      sheet.assignment_id
+        ? supabase
+            .from('employee_assignments')
+            .select('rate_unit, overtime_eligible, overtime_pay_multiplier')
+            .eq('id', sheet.assignment_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      supabase.from('tenants').select('overtime_weekly_threshold').eq('id', ctx.tenantId).maybeSingle(),
+    ])
+
+  const overtimeHours = Number(sheet.overtime_hours ?? 0)
+  const overtimePayable = placement
+    ? overtimeApplies(placement.rate_unit as RateUnit, placement.overtime_eligible !== false)
+    : true
+  const regularHours =
+    Math.round((Number(sheet.billable_hours) - (overtimePayable ? overtimeHours : 0)) * 100) / 100
 
   /*
    * This is an APPROVAL screen, so a grid that renders empty because the query
@@ -146,6 +169,28 @@ export default async function OrgTimesheetDetailPage({
             <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">Billable</p>
             <p className="tabular text-[17px] font-semibold">{Number(sheet.billable_hours)}</p>
           </div>
+          {overtimeHours > 0 && overtimePayable ? (
+            <>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">Regular</p>
+                <p className="tabular text-[17px] font-semibold">{regularHours}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wider text-amber-600">
+                  Overtime
+                </p>
+                <p className="tabular text-[17px] font-semibold text-amber-600">
+                  {overtimeHours}
+                  {sheet.approved_overtime_hours != null &&
+                  Number(sheet.approved_overtime_hours) !== overtimeHours ? (
+                    <span className="ml-1 text-xs font-medium text-ink-muted">
+                      ({Number(sheet.approved_overtime_hours)} approved)
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+            </>
+          ) : null}
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">
               Non-billable
@@ -176,6 +221,11 @@ export default async function OrgTimesheetDetailPage({
           reviewNote: sheet.review_note,
           reviewedAt: sheet.reviewed_at,
           employeeName: employee?.full_name || employee?.email || 'Employee',
+          overtimeHours,
+          overtimePayable,
+          overtimeMultiplier: placement ? Number(placement.overtime_pay_multiplier ?? 1.5) : null,
+          overtimeThreshold:
+            tenantRow?.overtime_weekly_threshold == null ? null : Number(tenantRow.overtime_weekly_threshold),
         }}
         entries={((entries ?? []) as unknown as EntryRow[]).map((entry) => ({
           key: entry.id,

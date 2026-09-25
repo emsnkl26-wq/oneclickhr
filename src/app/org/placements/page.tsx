@@ -33,7 +33,7 @@ export default async function PlacementsPage({
         .from('employee_assignments')
         .select(
           'id, employee_id, vendor_id, client_id, bill_rate, bill_currency, pay_rate, pay_currency, ' +
-            'rate_unit, start_date, end_date, is_primary, status, notes, ' +
+            'rate_unit, start_date, end_date, is_primary, status, notes, overtime_eligible, overtime_pay_multiplier, overtime_bill_multiplier, ' +
             'employee:profiles!employee_assignments_employee_fk(id, full_name, email), ' +
             'vendor:vendors(id, name), client:clients(id, name)'
         )

@@ -59,6 +59,9 @@ interface Placement {
   is_primary: boolean
   status: string
   notes: string | null
+  overtime_eligible?: boolean
+  overtime_pay_multiplier?: number | string
+  overtime_bill_multiplier?: number | string
   employee: { id: string; full_name: string | null; email: string | null } | null
   vendor: { id: string; name: string } | null
   client: { id: string; name: string } | null
@@ -581,6 +584,9 @@ function PlacementDialog({
   const [isPrimary, setIsPrimary] = React.useState(true)
   const [status, setStatus] = React.useState('active')
   const [notes, setNotes] = React.useState('')
+  const [overtimeEligible, setOvertimeEligible] = React.useState(true)
+  const [otPay, setOtPay] = React.useState('1.5')
+  const [otBill, setOtBill] = React.useState('1.5')
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [busy, setBusy] = React.useState(false)
@@ -589,6 +595,9 @@ function PlacementDialog({
     if (!open) return
     setError(null)
     setFields({})
+    setOvertimeEligible(placement?.overtime_eligible ?? true)
+    setOtPay(String(placement?.overtime_pay_multiplier ?? 1.5))
+    setOtBill(String(placement?.overtime_bill_multiplier ?? 1.5))
     setEmployeeId(placement?.employee_id ?? defaultEmployeeId)
     setVendorId(placement?.vendor_id ?? '')
     setClientId(placement?.client_id ?? '')
@@ -634,6 +643,9 @@ function PlacementDialog({
       isPrimary,
       status,
       notes: notes || undefined,
+      overtimeEligible,
+      overtimePayMultiplier: otPay === '' ? 1.5 : Number(otPay),
+      overtimeBillMultiplier: otBill === '' ? 1.5 : Number(otBill),
     }
 
     try {
@@ -778,6 +790,62 @@ function PlacementDialog({
                 The pay rate is above the bill rate. That is allowed, but it is usually the two
                 figures the wrong way round — worth a second look.
               </p>
+            ) : null}
+
+            {/*
+              Overtime (049): hours above the workspace's weekly threshold on
+              an HOURLY placement. Paid and billed at these multiples once a
+              manager approves them on the timesheet.
+            */}
+            {rateUnit === 'hour' ? (
+              <div className="space-y-3 rounded-lg border border-line p-3.5">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <Checkbox
+                    checked={overtimeEligible}
+                    onChange={(e) => setOvertimeEligible(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[13px] leading-relaxed">
+                    <span className="font-medium text-ink">Eligible for overtime</span>
+                    <span className="mt-0.5 block text-ink-muted">
+                      Hours above the weekly threshold (Settings) are overtime, paid and billed at a
+                      premium once a manager approves them. Untick for an exempt employee.
+                    </span>
+                  </span>
+                </label>
+                {overtimeEligible ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                      label="Overtime pay ×"
+                      error={fields.overtimePayMultiplier}
+                      hint={payRate !== '' && otPay !== '' ? `= ${(Number(payRate) * Number(otPay)).toFixed(2)} ${payCurrency} / hour` : 'Usually 1.5'}
+                    >
+                      <Input
+                        type="number"
+                        min={1}
+                        max={5}
+                        step="0.05"
+                        value={otPay}
+                        onChange={(e) => setOtPay(e.target.value)}
+                      />
+                    </FormField>
+                    <FormField
+                      label="Overtime bill ×"
+                      error={fields.overtimeBillMultiplier}
+                      hint={billRate !== '' && otBill !== '' ? `= ${(Number(billRate) * Number(otBill)).toFixed(2)} ${billCurrency} / hour` : 'Usually 1.5'}
+                    >
+                      <Input
+                        type="number"
+                        min={1}
+                        max={5}
+                        step="0.05"
+                        value={otBill}
+                        onChange={(e) => setOtBill(e.target.value)}
+                      />
+                    </FormField>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
 
             <FormField label="Status">

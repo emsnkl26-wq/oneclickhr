@@ -35,14 +35,14 @@ import 'server-only'
  * `createSupabaseServerClient()` and let `jobs_select` do its job.
  */
 import { createAdminClient } from '@/lib/supabase/admin'
+import { JOB_COLUMNS, toPublicJob } from '@/lib/jobs'
 import {
   EXPERIENCE_BANDS,
-  JOB_COLUMNS,
   POSTED_WITHIN,
-  toPublicJob,
   type ExperienceBand,
+  type JobSort,
   type PostedWithin,
-} from '@/lib/jobs'
+} from '@/lib/job-form'
 import type { Job, PublicCompany, PublicJob } from '@/types/db'
 
 /** The columns the portal needs from `tenants`, and not the domain token. */
@@ -91,12 +91,17 @@ function toCompany(row: TenantRow | undefined | null): PublicCompany {
 
 export interface JobFeedFilters {
   q?: string
-  type?: string
-  workplace?: string
-  /** A key of EXPERIENCE_BANDS. Unknown values are ignored by the caller. */
-  experience?: ExperienceBand
+  /** Any of these employment types (OR). Unknown values are dropped by the caller. */
+  types?: string[]
+  /** Any of these workplaces (OR). */
+  workplaces?: string[]
+  /** Any of these bands (OR) — see EXPERIENCE_BANDS. */
+  experience?: ExperienceBand[]
   /** A key of POSTED_WITHIN — only postings published inside that window. */
   posted?: PostedWithin
+  /** ISO 3166-1 alpha-2. Absent means every country. */
+  country?: string
+  sort?: JobSort
   /** A tenant slug. A listing convenience — see rule 3 in the header. */
   company?: string
   page?: number
@@ -111,6 +116,19 @@ export interface JobFeed {
 }
 
 export const FEED_PER_PAGE = 20
+
+/**
+ * An experience band as a PostgREST condition: the posting's range OVERLAPS the
+ * band, with an unstated bound treated as open (see EXPERIENCE_BANDS). The
+ * numbers come from the constant table, never from the request.
+ */
+function experienceCondition(band: ExperienceBand): string {
+  const { min, max } = EXPERIENCE_BANDS[band]
+  const upper = `or(experience_max.is.null,experience_max.gte.${min})`
+  return max === null
+    ? upper
+    : `and(or(experience_min.is.null,experience_min.lte.${max}),${upper})`
+}
 
 /**
  * The portal feed: published jobs, newest first.
@@ -147,17 +165,13 @@ export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobF
     .eq('status', 'published')
 
   if (tenantId) query = query.eq('tenant_id', tenantId)
-  if (filters.type) query = query.eq('employment_type', filters.type)
-  if (filters.workplace) query = query.eq('workplace', filters.workplace)
+  if (filters.types?.length) query = query.in('employment_type', filters.types)
+  if (filters.workplaces?.length) query = query.in('workplace', filters.workplaces)
+  if (filters.country) query = query.eq('country', filters.country)
 
-  if (filters.experience) {
-    // Range OVERLAP, with an unstated bound treated as open — see the note on
-    // EXPERIENCE_BANDS. Two `or` calls are ANDed by PostgREST.
-    const band = EXPERIENCE_BANDS[filters.experience]
-    if (band.max !== null) {
-      query = query.or(`experience_min.is.null,experience_min.lte.${band.max}`)
-    }
-    query = query.or(`experience_max.is.null,experience_max.gte.${band.min}`)
+  if (filters.experience?.length) {
+    // Several bands are ORed; separate `or` calls (search below) are ANDed.
+    query = query.or(filters.experience.map(experienceCondition).join(','))
   }
 
   if (filters.posted) {
@@ -172,12 +186,16 @@ export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobF
      * searched. Stripped rather than escaped: this is a search box, and a term
      * containing `(` is not a query anyone is trying to run.
      */
-    const term = filters.q.replace(/[,()*\\]/g, ' ').trim().slice(0, 80)
-    if (term) query = query.or(`title.ilike.%${term}%,location.ilike.%${term}%`)
+    const term = filters.q.replace(/[,()*\\%:]/g, ' ').trim().slice(0, 80)
+    if (term) {
+      query = query.or(
+        `title.ilike.%${term}%,location.ilike.%${term}%,client_name.ilike.%${term}%,description.ilike.%${term}%`
+      )
+    }
   }
 
   const { data, count, error } = await query
-    .order('published_at', { ascending: false })
+    .order('published_at', { ascending: filters.sort === 'oldest' })
     .range(from, from + perPage - 1)
 
   if (error) {
@@ -194,6 +212,36 @@ export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobF
     page,
     perPage,
   }
+}
+
+/**
+ * Every country with at least one live posting, most postings first — what the
+ * portal's country switcher offers. Postings with no country are not counted:
+ * they show under "All countries".
+ */
+export async function listPublicJobCountries(): Promise<Array<{ code: string; count: number }>> {
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('jobs')
+    .select('country')
+    .eq('status', 'published')
+    .not('country', 'is', null)
+    .limit(5000)
+
+  if (error) {
+    console.error('[jobs-public] countries unavailable', error.message)
+    return []
+  }
+
+  const counts = new Map<string, number>()
+  for (const row of (data ?? []) as Array<{ country: string | null }>) {
+    if (row.country && /^[A-Z]{2}$/.test(row.country)) {
+      counts.set(row.country, (counts.get(row.country) ?? 0) + 1)
+    }
+  }
+  return Array.from(counts, ([code, count]) => ({ code, count })).sort(
+    (a, b) => b.count - a.count || a.code.localeCompare(b.code)
+  )
 }
 
 /** One published job, or null. Null covers "draft", "closed" and "never existed"

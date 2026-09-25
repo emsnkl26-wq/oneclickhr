@@ -3,7 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSc
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { reviewTimesheetSchema } from '@/lib/schemas'
-import { payForWeek } from '@/lib/billing'
+import { decideOvertime, overtimeApplies, payForWeek, payWithOvertime } from '@/lib/billing'
 import { notifyEmployee } from '@/lib/notify'
 import { formatPeriod } from '@/lib/time'
 import { audit } from '@/lib/audit'
@@ -37,7 +37,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   const { data: sheet } = await supabase
     .from('timesheets')
     .select(
-      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, assignment_id'
+      'id, code, employee_id, week_start, week_end, status, total_hours, billable_hours, overtime_hours, assignment_id'
     )
     .eq('id', id)
     .maybeSingle()
@@ -67,24 +67,57 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
    * have not set your rate yet" and "you earned nothing" are different
    * statements and only one of them is true.
    */
+  /*
+   * OVERTIME (049). The week's overtime hours are the database's (computed from
+   * the grid); the reviewer decides how many of them to approve. Without a
+   * placement there is no rate and no eligibility to judge by, so overtime is
+   * approved as asked and the hours are recorded for payroll to see.
+   */
+  const overtimeHours = Number(sheet.overtime_hours ?? 0)
+  if (input.status === 'approved') {
+    decision.approved_overtime_hours = decideOvertime(
+      overtimeHours,
+      input.approvedOvertimeHours,
+      true
+    )
+    decision.overtime_pay_amount = null
+  }
+
   if (input.status === 'approved' && sheet.assignment_id) {
     const { data: assignment } = await supabase
       .from('employee_assignments')
-      .select('pay_rate, pay_currency, rate_unit')
+      .select('pay_rate, pay_currency, rate_unit, overtime_eligible, overtime_pay_multiplier')
       .eq('id', sheet.assignment_id)
       .eq('tenant_id', ctx.tenantId)
       .maybeSingle()
 
     if (assignment) {
+      const unit = assignment.rate_unit as RateUnit
       const payRate = assignment.pay_rate == null ? null : Number(assignment.pay_rate)
-      const amount = payForWeek(
-        Number(sheet.billable_hours),
-        payRate,
-        assignment.rate_unit as RateUnit
-      )
-      decision.pay_rate_snapshot = payRate
-      decision.pay_amount = amount
-      decision.pay_currency = amount === null ? null : assignment.pay_currency
+      const applies = overtimeApplies(unit, assignment.overtime_eligible !== false)
+      const approvedOvertime = decideOvertime(overtimeHours, input.approvedOvertimeHours, applies)
+      decision.approved_overtime_hours = approvedOvertime
+
+      if (approvedOvertime === null) {
+        // No overtime in play: the pre-049 arithmetic, unchanged.
+        const amount = payForWeek(Number(sheet.billable_hours), payRate, unit)
+        decision.pay_rate_snapshot = payRate
+        decision.pay_amount = amount
+        decision.pay_currency = amount === null ? null : assignment.pay_currency
+      } else {
+        const pay = payWithOvertime({
+          billableHours: Number(sheet.billable_hours),
+          overtimeHours,
+          approvedOvertimeHours: approvedOvertime,
+          payRate,
+          unit,
+          payMultiplier: Number(assignment.overtime_pay_multiplier ?? 1.5),
+        })
+        decision.pay_rate_snapshot = payRate
+        decision.pay_amount = pay?.total ?? null
+        decision.overtime_pay_amount = pay?.overtimePay ?? null
+        decision.pay_currency = pay === null ? null : assignment.pay_currency
+      }
     }
   }
 
@@ -100,6 +133,13 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   if (!updated) return jsonError('That timesheet has already been decided.', 409)
 
   const period = formatPeriod(sheet.week_start, sheet.week_end)
+  const approvedOvertime = decision.approved_overtime_hours as number | null | undefined
+  const overtimeNote =
+    input.status === 'approved' && overtimeHours > 0 && approvedOvertime != null
+      ? approvedOvertime >= overtimeHours
+        ? ` Overtime approved: ${approvedOvertime} h.`
+        : ` Overtime approved: ${approvedOvertime} of ${overtimeHours} h.`
+      : ''
   await notifyEmployee(supabase, {
     tenantId: ctx.tenantId,
     employeeId: sheet.employee_id,
@@ -115,7 +155,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
         : `Timesheet ${sheet.code} needs changes`,
     description:
       input.status === 'approved'
-        ? `Your timesheet for ${period} (${Number(sheet.total_hours)} hours) has been approved.`
+        ? `Your timesheet for ${period} (${Number(sheet.total_hours)} hours) has been approved.${overtimeNote}`
         : `Your timesheet for ${period} was returned. ${input.note ?? ''}`.trim(),
   })
 
@@ -126,7 +166,13 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     action: `timesheet.${input.status}`,
     entity: 'timesheets',
     entityId: id,
-    meta: { code: sheet.code, employeeId: sheet.employee_id, hours: Number(sheet.total_hours) },
+    meta: {
+      code: sheet.code,
+      employeeId: sheet.employee_id,
+      hours: Number(sheet.total_hours),
+      overtimeHours,
+      approvedOvertimeHours: approvedOvertime ?? null,
+    },
     request,
   })
 

@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { jobSchema, jobStatusSchema } from '@/lib/schemas'
 import { formatLocation } from '@/lib/geo'
 import { audit } from '@/lib/audit'
+import { engagementColumns } from '@/lib/jobs'
 
 export const dynamic = 'force-dynamic'
 
@@ -102,6 +103,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
       openings: input.openings,
       skills: input.skills,
       closes_at: input.closesAt ?? null,
+      ...engagementColumns(input),
     })
     .eq('id', id)
 

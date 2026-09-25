@@ -134,7 +134,7 @@ export default async function EmployeeProfilePage() {
         isActive={profile?.is_active ?? true}
       />
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid items-start gap-5 lg:grid-cols-2">
         <div className="space-y-5">
           <ProfileForm
             profile={{

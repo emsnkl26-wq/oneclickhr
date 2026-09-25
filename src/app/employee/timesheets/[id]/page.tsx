@@ -17,6 +17,8 @@ interface PlacementRow {
   pay_rate: number | string | null
   pay_currency: string
   rate_unit: string
+  overtime_eligible: boolean | null
+  overtime_pay_multiplier: number | string | null
 }
 
 interface EntryRow {
@@ -54,7 +56,7 @@ export default async function EmployeeTimesheetPage({
   const { data: sheet, error: sheetError } = await supabase
     .from('timesheets')
     .select(
-      'id, code, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, vendor_id, client_id, assignment_id, pay_amount, pay_currency, attachments, attachment_url, attachment_name, review_note, reviewed_at, submitted_at'
+      'id, code, week_start, week_end, status, total_hours, billable_hours, non_billable_hours, weekly_learnings, vendor_id, client_id, assignment_id, pay_amount, pay_currency, approved_overtime_hours, attachments, attachment_url, attachment_name, review_note, reviewed_at, submitted_at'
     )
     .eq('id', id)
     .maybeSingle()
@@ -77,6 +79,7 @@ export default async function EmployeeTimesheetPage({
     { data: entries, error: entriesError },
     { data: assignments },
     { data: placements },
+    { data: tenantRow },
   ] = await Promise.all([
     supabase
       .from('timesheet_entries')
@@ -99,9 +102,13 @@ export default async function EmployeeTimesheetPage({
      */
     supabase
       .from('my_assignments')
-      .select('id, vendor_name, client_name, pay_rate, pay_currency, rate_unit, is_primary')
+      .select(
+        'id, vendor_name, client_name, pay_rate, pay_currency, rate_unit, is_primary, overtime_eligible, overtime_pay_multiplier'
+      )
       .eq('status', 'active')
       .order('is_primary', { ascending: false }),
+    // The weekly overtime threshold (049), to show the split as the week fills.
+    supabase.from('tenants').select('overtime_weekly_threshold').eq('id', ctx.tenantId).maybeSingle(),
   ])
 
   /*
@@ -148,6 +155,10 @@ export default async function EmployeeTimesheetPage({
         payCurrency: sheet.pay_currency ?? null,
         attachments: timesheetAttachments(sheet),
         reviewNote: sheet.review_note,
+        overtimeThreshold:
+          tenantRow?.overtime_weekly_threshold == null ? null : Number(tenantRow.overtime_weekly_threshold),
+        approvedOvertimeHours:
+          sheet.approved_overtime_hours == null ? null : Number(sheet.approved_overtime_hours),
       }}
       entries={((entries ?? []) as unknown as EntryRow[]).map((entry) => ({
         key: entry.id,
@@ -178,6 +189,8 @@ export default async function EmployeeTimesheetPage({
         payRate: row.pay_rate == null ? null : Number(row.pay_rate),
         payCurrency: row.pay_currency,
         rateUnit: row.rate_unit,
+        overtimeEligible: row.overtime_eligible !== false,
+        overtimePayMultiplier: Number(row.overtime_pay_multiplier ?? 1.5),
       }))}
     />
   )

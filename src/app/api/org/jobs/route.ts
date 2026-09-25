@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { jobSchema } from '@/lib/schemas'
 import { formatLocation } from '@/lib/geo'
 import { audit } from '@/lib/audit'
+import { engagementColumns } from '@/lib/jobs'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,6 +59,7 @@ async function handlePOST(request: NextRequest) {
       openings: input.openings,
       skills: input.skills,
       closes_at: input.closesAt ?? null,
+      ...engagementColumns(input),
       status: 'draft',
     })
     .select('id')

@@ -48,6 +48,13 @@ export interface EditorTimesheet {
   /** Every file on the week, in upload order (044). */
   attachments: Attachment[]
   reviewNote: string | null
+  /**
+   * The workspace's weekly overtime threshold (049), or null when overtime is
+   * off. Hours above it are overtime and need a manager's approval.
+   */
+  overtimeThreshold: number | null
+  /** How much overtime the reviewer approved; null until reviewed. */
+  approvedOvertimeHours: number | null
 }
 
 /** One of the employee's own placements. Carries pay, never bill. */
@@ -58,6 +65,9 @@ export interface EditorPlacement {
   payRate: number | null
   payCurrency: string
   rateUnit: string
+  /** False for a placement that is exempt from overtime (049). */
+  overtimeEligible: boolean
+  overtimePayMultiplier: number
 }
 
 /** What a local draft holds. Versioned so a shape change cannot be misread. */
@@ -173,6 +183,20 @@ export function TimesheetEditor({
 
   const filled = rows.filter((row) => rowTotal(row) > 0 || row.projectId || row.taskName.trim())
   const totalHours = round2(filled.reduce((sum, row) => sum + rowTotal(row), 0))
+  const billableHours = round2(
+    filled.filter((row) => row.billable).reduce((sum, row) => sum + rowTotal(row), 0)
+  )
+  /*
+   * The overtime split, live, as the database will compute it (049): billable
+   * hours above the workspace threshold. Shown only where it can be paid — an
+   * hourly placement that is not exempt — or where no placement is chosen yet.
+   */
+  const overtimeCounts =
+    timesheet.overtimeThreshold != null &&
+    (!placement || (placement.rateUnit === 'hour' && placement.overtimeEligible))
+  const overtimeHours = overtimeCounts
+    ? round2(Math.max(0, billableHours - (timesheet.overtimeThreshold ?? 0)))
+    : 0
 
   /* ---------------------------------------------------------------------
    * Draft recovery
@@ -551,6 +575,16 @@ export function TimesheetEditor({
         <p className="text-sm text-ink-muted">
           Total for the week{' '}
           <strong className="tabular ml-1 text-[17px] text-ink">{totalHours}</strong> hours
+          {overtimeHours > 0 ? (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+              {round2(billableHours - overtimeHours)} regular · {overtimeHours} overtime
+              {timesheet.approvedOvertimeHours != null
+                ? ` (${timesheet.approvedOvertimeHours} approved)`
+                : editable || timesheet.status === 'submitted'
+                  ? ' — needs manager approval'
+                  : ''}
+            </span>
+          ) : null}
           {dirty ? (
             <span className="ml-2 text-xs font-medium text-amber-700">· Unsaved changes</span>
           ) : null}

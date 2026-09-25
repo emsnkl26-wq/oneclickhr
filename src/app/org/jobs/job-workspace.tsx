@@ -15,6 +15,7 @@ import { JobDialog, type JobFormValues, type DepartmentOption } from './job-dial
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatDateLabel, formatInstantLabel } from '@/lib/time'
 import type { JobStatus, JobType, JobWorkplace } from '@/types/db'
+import { JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS } from '@/lib/job-form'
 
 export interface JobRow {
   id: string
@@ -31,19 +32,8 @@ export interface JobRow {
   form: JobFormValues
 }
 
-const TYPE_LABELS: Record<JobType, string> = {
-  full_time: 'Full time',
-  part_time: 'Part time',
-  contract: 'Contract',
-  internship: 'Internship',
-  temporary: 'Temporary',
-}
-
-const WORKPLACE_LABELS: Record<JobWorkplace, string> = {
-  onsite: 'On site',
-  remote: 'Remote',
-  hybrid: 'Hybrid',
-}
+const TYPE_LABELS = JOB_TYPE_LABELS
+const WORKPLACE_LABELS = JOB_WORKPLACE_LABELS
 
 /**
  * `jobs` is ONE page the database has already filtered. Nothing here narrows it

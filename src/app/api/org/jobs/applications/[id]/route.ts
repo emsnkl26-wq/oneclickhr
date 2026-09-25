@@ -4,6 +4,8 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { applicationReviewSchema } from '@/lib/schemas'
 import { audit } from '@/lib/audit'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { emailApplicantStatus } from '@/lib/jobs'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,12 +41,16 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     .maybeSingle()
 
   if (!existing) return jsonError('That application was not found.', 404)
+  const statusBefore = existing.status
 
   const patch: Record<string, unknown> = {}
   if (input.status) {
     patch.status = input.status
     patch.reviewed_by = ctx.userId
     patch.reviewed_at = new Date().toISOString()
+    // Shown to the applicant on their timeline (052); cleared when there is
+    // none, so an old message never rides along with a later stage.
+    patch.candidate_message = input.message ?? null
   }
   // Compared against undefined, not falsiness: `notes: null` is how the form
   // clears a note, and treating that as "no change" would make it unclearable.
@@ -70,6 +76,11 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     meta: { jobId: existing.job_id, from: existing.status, to: input.status ?? existing.status },
     request,
   })
+
+  // A real stage change is worth an email to someone following it (052).
+  if (input.status && input.status !== statusBefore) {
+    await emailApplicantStatus(createAdminClient(), id, input.message ?? null)
+  }
 
   return jsonOk({ ok: true })
 }

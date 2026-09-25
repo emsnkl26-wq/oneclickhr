@@ -26,6 +26,8 @@ export interface QueueRow {
   status: TimesheetStatus
   totalHours: number
   billableHours: number
+  /** Billable hours above the weekly threshold (049). */
+  overtimeHours: number
   weeklyLearnings: string | null
   reviewNote: string | null
   hasAttachment: boolean
@@ -55,7 +57,7 @@ export function TimesheetQueue({
    */
   function exportCsv() {
     const csv = toCsv(
-      ['Timesheet ID', 'Employee', 'Period start', 'Period end', 'Total hours', 'Billable hours', 'Status', 'Weekly learnings'],
+      ['Timesheet ID', 'Employee', 'Period start', 'Period end', 'Total hours', 'Billable hours', 'Overtime hours', 'Status', 'Weekly learnings'],
       timesheets.map((row) => [
         row.code,
         row.employeeName,
@@ -63,6 +65,7 @@ export function TimesheetQueue({
         row.weekEnd,
         row.totalHours,
         row.billableHours,
+        row.overtimeHours,
         row.status,
         row.weeklyLearnings ?? '',
       ])
@@ -117,7 +120,19 @@ export function TimesheetQueue({
       header: 'Total hours',
       className: 'text-right',
       headerClassName: 'text-right',
-      cell: (row) => <span className="tabular font-medium">{row.totalHours}</span>,
+      cell: (row) => (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          {row.overtimeHours > 0 ? (
+            <span
+              className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+              title={`${row.overtimeHours} h overtime`}
+            >
+              +{row.overtimeHours} OT
+            </span>
+          ) : null}
+          <span className="tabular font-medium">{row.totalHours}</span>
+        </span>
+      ),
     },
     {
       key: 'status',

@@ -512,10 +512,26 @@ export async function stopChannel(
 
 /** Map a Google event onto our `meetings` columns. */
 export function eventToMeetingFields(event: GoogleEvent) {
+  /*
+   * An ALL-DAY event carries dates, not instants (048). It is stored on UTC
+   * midnight and flagged `all_day`, and the calendar reads it back in UTC so it
+   * lands on the same date for every viewer. Google's `end.date` is EXCLUSIVE —
+   * a one-day event on the 22nd ends on the 23rd — so the stored end is the
+   * last day it actually covers.
+   */
+  const allDay = !event.start?.dateTime && !!event.start?.date
   const start = event.start?.dateTime ?? (event.start?.date ? `${event.start.date}T00:00:00Z` : null)
-  const end = event.end?.dateTime ?? (event.end?.date ? `${event.end.date}T23:59:59Z` : null)
+  let end = event.end?.dateTime ?? null
+  if (!end && event.end?.date) {
+    const lastDay = new Date(`${event.end.date}T00:00:00Z`)
+    lastDay.setUTCDate(lastDay.getUTCDate() - 1)
+    const inclusive = lastDay.toISOString().slice(0, 10)
+    const firstDay = start ? start.slice(0, 10) : inclusive
+    end = `${inclusive < firstDay ? firstDay : inclusive}T23:59:59Z`
+  }
 
   return {
+    all_day: allDay,
     title: event.summary?.slice(0, 200) || 'Untitled event',
     description: event.description?.slice(0, 4000) ?? null,
     location: event.location?.slice(0, 300) ?? null,
