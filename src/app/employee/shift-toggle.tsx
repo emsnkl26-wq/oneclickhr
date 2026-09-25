@@ -121,7 +121,7 @@ export function ShiftToggle({
 
         {state.clockedIn ? (
           <>
-            <p className="tabular mt-2 text-[34px] font-bold leading-none tracking-[-0.03em] text-brand-600">
+            <p className="tabular mt-2 text-[34px] font-bold leading-none tracking-[-0.03em] text-brand-ink">
               {elapsed || '00:00:00'}
             </p>
             <p className="tabular mt-2 text-[13px] text-ink-muted">

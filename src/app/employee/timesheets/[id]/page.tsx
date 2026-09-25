@@ -4,6 +4,7 @@ import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { TimesheetEditor } from './timesheet-editor'
 import { timesheetAttachments } from '@/lib/timesheet-attachments'
+import { brandColorOrDefault } from '@/lib/brand'
 import type { TimesheetStatus } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Timesheet' }
@@ -180,7 +181,7 @@ export default async function EmployeeTimesheetPage({
       org={{
         name: ctx.tenant?.name ?? 'Workspace',
         logoKey: ctx.tenant?.logoUrl ?? null,
-        primaryColor: ctx.tenant?.primaryColor ?? '#C41E33',
+        primaryColor: brandColorOrDefault(ctx.tenant?.primaryColor),
       }}
       placements={((placements ?? []) as unknown as PlacementRow[]).map((row) => ({
         id: row.id,

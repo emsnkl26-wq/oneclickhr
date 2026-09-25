@@ -17,7 +17,7 @@ const statusOnly = jobStatusSchema.strict()
  * THE KILL SWITCH, and a platform job's ordinary editor.
  *
  * A status change applies to ANY job on the platform, including a customer's.
- * That is the whole point of it: this portal carries Oneclickhr's name, and a
+ * That is the whole point of it: this portal carries OneclickHR's name, and a
  * posting that is fraudulent, discriminatory or simply nonsense has to be
  * removable without waiting for the org that wrote it. Content edits are
  * restricted to platform jobs — taking a role down is moderation; rewriting

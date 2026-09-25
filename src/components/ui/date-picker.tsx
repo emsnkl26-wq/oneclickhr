@@ -435,7 +435,7 @@ function PickerFooter({
       <button
         type="button"
         onClick={onToday}
-        className="focus-ring rounded-lg px-2 py-1 text-[13px] font-medium text-brand-600 transition-colors hover:bg-brand-50"
+        className="focus-ring rounded-lg px-2 py-1 text-[13px] font-medium text-brand-ink transition-colors hover:bg-brand-50"
       >
         {todayLabel}
       </button>

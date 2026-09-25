@@ -24,6 +24,7 @@ import {
   INVOICE_STATUSES, INVOICE_STATUS_LABELS, InvoiceStatusChip,
 } from '@/components/invoice/invoice-status'
 import { StatusChip } from '@/components/ui/patterns'
+import { brandColorOrDefault } from '@/lib/brand'
 import type { Invoice, InvoiceStatus, InvoiceType, InvoiceUnit } from '@/types/db'
 
 const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
@@ -328,7 +329,7 @@ export function InvoiceWorkspace({
         org={{
           name: orgName,
           logoKey: orgLogoUrl,
-          primaryColor: orgPrimaryColor ?? '#C41E33',
+          primaryColor: brandColorOrDefault(orgPrimaryColor),
           addressLines: orgAddressLines,
           email: orgEmail,
           phone: orgPhone,

@@ -87,7 +87,7 @@ export default async function TalentPage({
       <p className="px-1 text-xs leading-relaxed text-ink-muted">
         Visa numbers and documents are never shown here. Open a person for their full work history;
         files stay behind their organization&apos;s own access controls.{' '}
-        <Link href="/super/users" className="font-medium text-brand-600 hover:underline">
+        <Link href="/super/users" className="font-medium text-brand-ink hover:underline">
           Manage accounts
         </Link>
       </p>

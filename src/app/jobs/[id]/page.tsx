@@ -7,6 +7,7 @@ import { loadJobViewer } from '@/lib/job-viewer-server'
 import { JOB_TYPE_LABELS, JOB_WORKPLACE_LABELS, isExpired } from '@/lib/jobs'
 import { formatInstantLabel } from '@/lib/time'
 import { appUrl } from '@/lib/env'
+import { BRAND, BRAND_ASSETS, brandOgImage } from '@/lib/brand'
 import { CompanyMark } from '../company-mark'
 import { JobDescription, JobSummary, RecruiterContact } from '../job-details'
 import { JobApplyPanel } from './job-apply-panel'
@@ -38,6 +39,10 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
       description: `${JOB_TYPE_LABELS[job.employmentType]} · ${where}`,
       url: `${appUrl()}/jobs/${job.id}`,
       type: 'article',
+      // `openGraph` here REPLACES the layout's whole object, so the site name and
+      // the card image have to be said again or every shared job loses them.
+      siteName: BRAND.jobsName,
+      images: [brandOgImage(BRAND_ASSETS.ogJobs, `${job.title} at ${job.company.name}`)],
     },
   }
 }
@@ -75,7 +80,7 @@ export default async function PublicJobPage({ params }: Params) {
           <CompanyMark company={job.company} size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">
+              <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-ink">
                 {JOB_TYPE_LABELS[job.employmentType]}
               </span>
               <span className="rounded-full bg-page px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink ring-1 ring-inset ring-line">

@@ -18,14 +18,15 @@ import * as React from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DEFAULT_PRIMARY_COLOR } from '@/lib/brand'
 import { controlBase } from '@/components/ui/select'
 
 const HEX = /^#([0-9a-f]{6})$/i
 
 /** Ready-made choices, so most orgs never touch the slider at all. */
 const PRESETS = [
-  '#C41E33', '#DC2626', '#EA580C', '#D97706', '#16A34A', '#059669',
-  '#0891B2', '#2563EB', '#4F46E5', '#7C3AED', '#DB2777', '#1A1C23',
+  '#FF6A00', '#DC2626', '#D97706', '#16A34A', '#059669', '#0891B2',
+  '#2563EB', '#4F46E5', '#7C3AED', '#DB2777', '#64748B', '#0F172A',
 ]
 
 /* ------------------------------------------------------- Colour conversion */
@@ -38,7 +39,7 @@ interface Hsv {
 
 function hexToHsv(hex: string): Hsv {
   const match = HEX.exec(hex)
-  if (!match) return { h: 352, s: 0.73, v: 0.77 }
+  if (!match) return { h: 25, s: 1, v: 1 }
 
   const int = parseInt(match[1], 16)
   const r = ((int >> 16) & 255) / 255
@@ -138,7 +139,7 @@ export function ColorField({
 }: ColorFieldProps) {
   const [open, setOpen] = React.useState(false)
   const valid = HEX.test(value)
-  const safe = valid ? value.toUpperCase() : '#C41E33'
+  const safe = valid ? value.toUpperCase() : DEFAULT_PRIMARY_COLOR
 
   /*
    * HSV is held locally while the popover is open. Round-tripping through hex

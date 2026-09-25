@@ -52,7 +52,7 @@ export async function MyPlacementsCard({ supabase }: { supabase: SupabaseClient 
                 <p className="truncate text-sm font-medium">
                   {row.client_name || 'End client not set'}
                   {row.is_primary ? (
-                    <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
+                    <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-ink">
                       Primary
                     </span>
                   ) : null}

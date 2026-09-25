@@ -9,8 +9,12 @@ import type { Config } from 'tailwindcss'
  * (and its derived shades) on the workspace shell at request time, and every
  * `bg-brand-600` in the app follows without a single conditional class.
  *
- * Discipline: ONE deliberate accent (crimson) on active nav, primary buttons and
- * headline numbers. Everything else stays neutral.
+ * Discipline: ONE deliberate accent (OneclickHR orange) on active nav, primary
+ * buttons and headline numbers. Everything else stays neutral.
+ *
+ * Two ways to spend the orange: `bg-brand-*` and icons use the vivid brand
+ * shades; orange TEXT uses `text-brand-ink`, which is the same hue deepened
+ * (and lightened in dark mode) to stay readable. See globals.css.
  */
 const config: Config = {
   darkMode: ['class'],
@@ -43,6 +47,7 @@ const config: Config = {
           600: 'hsl(var(--brand-600))',
           700: 'hsl(var(--brand-700))',
           800: 'hsl(var(--brand-800))',
+          ink: 'hsl(var(--brand-ink))',
           DEFAULT: 'hsl(var(--brand-600))',
         },
         sidebar: {
@@ -52,6 +57,9 @@ const config: Config = {
           hover: 'hsl(var(--sidebar-hover))',
           border: 'hsl(var(--sidebar-border))',
         },
+        // Always-dark surfaces (sign-in panel, job-portal hero): the brand charcoal,
+        // which does NOT change with the theme.
+        charcoal: '#0F172A',
         page: 'hsl(var(--page-bg))',
         card: {
           DEFAULT: 'hsl(var(--card))',

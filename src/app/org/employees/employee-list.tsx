@@ -127,7 +127,7 @@ export function EmployeeList({
           <div className="min-w-0">
             <Link
               href={`/org/employees/${row.id}`}
-              className="block truncate font-medium hover:text-brand-600 hover:underline"
+              className="block truncate font-medium hover:text-brand-ink hover:underline"
             >
               {row.full_name || 'Unnamed'}
             </Link>

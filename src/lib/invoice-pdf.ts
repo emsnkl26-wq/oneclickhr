@@ -420,7 +420,7 @@ export async function buildInvoicePdf(
   doc.setFontSize(6.5)
   doc.setTextColor(...MUTED)
   // Clickable — this is the only branding on an invoice that isn't the org's own.
-  doc.textWithLink('Powered by OneClickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
+  doc.textWithLink('Powered by OneclickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
 
   return doc
 }

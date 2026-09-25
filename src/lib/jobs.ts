@@ -302,7 +302,7 @@ export function toPublicJob(
 /**
  * Who to tell when an application arrives.
  *
- * The org's active admins, or the platform's super admins for an Oneclickhr
+ * The org's active admins, or the platform's super admins for an OneclickHR
  * posting. Runs on whatever client the caller passes; the apply route passes the
  * admin client because the applicant has no session and RLS would return nothing.
  */
@@ -375,7 +375,7 @@ export async function emailApplicantStatus(
     } | null
     if (!row?.applicant_profile_id || !row.job) return
 
-    let companyName = 'Oneclickhr'
+    let companyName = 'OneclickHR'
     let brandColor: string | undefined
     if (row.job.tenant_id) {
       const { data: tenant } = await admin

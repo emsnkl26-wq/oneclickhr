@@ -10,7 +10,7 @@ import { engagementColumns } from '@/lib/jobs'
 export const dynamic = 'force-dynamic'
 
 /**
- * Post one of Oneclickhr's own openings.
+ * Post one of OneclickHR's own openings.
  *
  * Written with the SERVICE ROLE, not the session client, and that is not a
  * shortcut. A super admin's RLS bypass in this codebase is read-only — every
@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic'
  * refuses every other cross-tenant write. The guard above is the boundary.
  *
  * `tenant_id` is left NULL, which is what makes this a platform job. The portal
- * badges those as Oneclickhr; `jobs_tenant_posted_ck` insists on a `posted_by`
+ * badges those as OneclickHR; `jobs_tenant_posted_ck` insists on a `posted_by`
  * in exchange, so a platform posting is never unattributable.
  */
 async function handlePOST(request: NextRequest) {

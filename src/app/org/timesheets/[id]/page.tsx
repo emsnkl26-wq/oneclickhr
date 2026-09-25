@@ -161,7 +161,7 @@ export default async function OrgTimesheetDetailPage({
         <div className="flex flex-wrap gap-x-8 gap-y-2 text-right">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-ink-muted">Total</p>
-            <p className="tabular text-[17px] font-bold text-brand-600">
+            <p className="tabular text-[17px] font-bold text-brand-ink">
               {Number(sheet.total_hours)}
             </p>
           </div>

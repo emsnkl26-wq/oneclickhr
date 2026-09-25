@@ -72,7 +72,7 @@ export interface CalendarMeeting {
  * in the grid cannot drift apart — they are the same lookup.
  */
 export const EVENT_STYLES: Record<CalendarEventKind, { dot: string; chip: string; label: string }> = {
-  meeting: { dot: 'bg-brand-600', chip: 'bg-brand-50 text-brand-700', label: 'Meetings' },
+  meeting: { dot: 'bg-brand-600', chip: 'bg-brand-50 text-brand-ink', label: 'Meetings' },
   leave: { dot: 'bg-amber-500', chip: 'bg-amber-50 text-amber-700', label: 'Leave' },
   holiday: { dot: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-700', label: 'Holidays' },
   birthday: { dot: 'bg-pink-500', chip: 'bg-pink-50 text-pink-700', label: 'Birthdays' },

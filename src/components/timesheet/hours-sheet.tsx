@@ -105,7 +105,7 @@ export function HoursSheet({
           </span>
           <Link
             href={`${timesheetBasePath}/${row.timesheetId}`}
-            className="tabular text-xs text-brand-600 hover:underline"
+            className="tabular text-xs text-brand-ink hover:underline"
           >
             {row.timesheetCode}
           </Link>

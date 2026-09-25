@@ -104,7 +104,7 @@ export function JobWorkspace({
       cell: (row) => (
         <Link
           href={`${detailBase}/${row.id}`}
-          className="tabular inline-flex items-center gap-1.5 font-medium text-brand-600 hover:underline"
+          className="tabular inline-flex items-center gap-1.5 font-medium text-brand-ink hover:underline"
         >
           <Users className="size-3.5" aria-hidden />
           {row.applicationCount}

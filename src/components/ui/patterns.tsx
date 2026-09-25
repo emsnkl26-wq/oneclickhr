@@ -8,7 +8,7 @@ import { cn, humanize } from '@/lib/utils'
 /**
  * Icon tints for a stat row.
  *
- * The rule the app follows: the NUMBER is crimson on at most one card (that is
+ * The rule the app follows: the NUMBER is brand-coloured on at most one card (that is
  * what `accent` does), and the icon tile may carry a quiet hue so a long row of
  * cards is scannable. The tile is a tint, never a fill — these sit next to each
  * other and a row of saturated squares reads as a toy.
@@ -30,7 +30,7 @@ export interface StatCardProps {
   value: React.ReactNode
   hint?: string
   icon?: LucideIcon
-  /** Renders the number in crimson. Use for ONE card per row, at most. */
+  /** Renders the number in the brand ink colour. Use for ONE card per row, at most. */
   accent?: boolean
   /** Tints the icon tile. Defaults to brand when `accent` is set. */
   tone?: StatTone
@@ -67,7 +67,7 @@ export function StatCard({
       <p
         className={cn(
           'tabular mt-3 break-words text-[28px] font-bold leading-[1.1] tracking-[-0.02em]',
-          accent ? 'text-brand-600' : 'text-ink'
+          accent ? 'text-brand-ink' : 'text-ink'
         )}
       >
         {value}
@@ -169,7 +169,7 @@ const TONES: Record<Tone, string> = {
   // thing in every workspace, so the semantic tones are fixed palette colours
   // and only `brand` below may follow the theme.
   danger: 'bg-red-50 text-red-700 ring-red-200',
-  brand: 'bg-brand-50 text-brand-700 ring-brand-200',
+  brand: 'bg-brand-50 text-brand-ink ring-brand-200',
 }
 
 /** Every status in the app maps to a tone here, so colours stay consistent. */

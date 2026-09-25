@@ -42,7 +42,7 @@ const WORKPLACE_LABELS = JOB_WORKPLACE_LABELS
  * button that says so.
  *
  * `endpoint` is a prop rather than a constant so the super-admin console can
- * reuse the whole dialog for Oneclickhr's own postings, which go through
+ * reuse the whole dialog for OneclickHR's own postings, which go through
  * /api/super/jobs. The two forms ask for exactly the same things.
  */
 export function JobDialog({

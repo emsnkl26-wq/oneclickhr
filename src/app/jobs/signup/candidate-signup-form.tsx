@@ -128,7 +128,7 @@ export function CandidateSignupForm() {
 
       <p className="mt-6 text-center text-sm text-ink-muted">
         Already have an account?{' '}
-        <Link href="/jobs/login" className="font-medium text-brand-600 hover:underline">
+        <Link href="/jobs/login" className="font-medium text-brand-ink hover:underline">
           Sign in
         </Link>
       </p>

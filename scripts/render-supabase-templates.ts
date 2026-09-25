@@ -33,6 +33,7 @@
 import fs from 'fs'
 import path from 'path'
 import { layout, button, esc } from '../src/lib/email-layout'
+import { BRAND } from '../src/lib/brand'
 
 /**
  * `{{ .SiteURL }}` must be the app origin (Authentication → URL Configuration).
@@ -42,11 +43,17 @@ import { layout, button, esc } from '../src/lib/email-layout'
 const confirmLink = (type: 'signup' | 'recovery') =>
   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=${type}`
 
+/**
+ * Supabase substitutes this itself when it sends, so the logo URL resolves to
+ * the same origin the confirmation link does — no environment read here.
+ */
+const SITE_URL = '{{ .SiteURL }}'
+
 const FOOT_NOTE = (extra: string) =>
-  `<p style="margin:18px 0 0;font-size:13px;color:#6B7280;">${extra}</p>`
+  `<p style="margin:18px 0 0;font-size:13px;color:#64748B;">${extra}</p>`
 
 const fallbackLine = (link: string) =>
-  `<p style="margin:18px 0 0;font-size:12px;color:#9CA3AF;word-break:break-all;">
+  `<p style="margin:18px 0 0;font-size:12px;color:#94A3B8;word-break:break-all;">
       Button not working? Paste this into your browser:<br>${link}
     </p>`
 
@@ -69,7 +76,7 @@ const templates: Record<string, string> = {
 
     ${fallbackLine(confirmLink('signup'))}
   `,
-    { brandName: 'Oneclickhr', preheader: 'Confirm your email to activate your workspace' }
+    { brandName: BRAND.name, origin: SITE_URL, preheader: 'Confirm your email to activate your workspace' }
   ),
 
   'reset-password.html': layout(
@@ -89,7 +96,7 @@ const templates: Record<string, string> = {
 
     ${fallbackLine(confirmLink('recovery'))}
   `,
-    { brandName: 'Oneclickhr', preheader: 'Reset your Oneclickhr password' }
+    { brandName: BRAND.name, origin: SITE_URL, preheader: `Reset your ${BRAND.name} password` }
   ),
 }
 

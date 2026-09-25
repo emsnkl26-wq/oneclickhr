@@ -37,7 +37,7 @@ export const uuid = z.string().uuid('Invalid identifier')
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the date picker')
 export const hexColor = z
   .string()
-  .regex(/^#[0-9a-fA-F]{6}$/, 'Use a 6-digit hex colour, e.g. #C41E33')
+  .regex(/^#[0-9a-fA-F]{6}$/, 'Use a 6-digit hex colour, e.g. #FF6A00')
 
 const optionalText = (max: number) =>
   z

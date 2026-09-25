@@ -49,15 +49,15 @@ export function JobHero({
   const label = country ? countryName(country) : 'all countries'
 
   return (
-    <section className="relative isolate overflow-hidden bg-[#12141a] text-white">
-      {/* Our crimson, as light rather than as a block of colour. */}
+    <section className="relative isolate overflow-hidden bg-charcoal text-white">
+      {/* Our orange, as light rather than as a block of colour. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 opacity-90"
         style={{
           background:
-            'radial-gradient(60% 80% at 15% 0%, hsl(352 73% 44% / 0.35), transparent 60%),' +
-            'radial-gradient(50% 70% at 90% 100%, hsl(352 73% 44% / 0.22), transparent 60%)',
+            'radial-gradient(60% 80% at 15% 0%, hsl(25 100% 50% / 0.30), transparent 60%),' +
+            'radial-gradient(50% 70% at 90% 100%, hsl(17 100% 47% / 0.20), transparent 60%)',
         }}
       />
       <div
@@ -111,10 +111,10 @@ export function JobHero({
         <h1 className="mt-6 text-balance text-[34px] font-bold leading-[1.1] tracking-[-0.03em] sm:text-5xl lg:text-[56px]">
           Explore career opportunities
           <br className="hidden sm:block" /> with{' '}
-          <span className="text-[hsl(352_85%_62%)]">Oneclickhr</span> companies
+          <span className="text-brand-500">OneclickHR</span> companies
         </h1>
         <p className="mt-5 max-w-2xl text-pretty text-[15px] leading-relaxed text-white/70 sm:text-base">
-          Full-time, contract, C2C and W2 roles from organizations hiring on Oneclickhr. Create a
+          Full-time, contract, C2C and W2 roles from organizations hiring on OneclickHR. Create a
           free account to apply in a click and follow every application.
         </p>
 
@@ -170,7 +170,7 @@ function CountryOption({
       onClick={onClick}
       className={cn(
         'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-page',
-        active && 'bg-brand-50 font-semibold text-brand-700'
+        active && 'bg-brand-50 font-semibold text-brand-ink'
       )}
     >
       <span className="grid w-5 place-items-center" aria-hidden>

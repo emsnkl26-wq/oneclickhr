@@ -8,7 +8,7 @@ import { rateLimit, limitKey } from '@/lib/rate-limit'
 export const dynamic = 'force-dynamic'
 
 /**
- * Tell Oneclickhr something.
+ * Tell OneclickHR something.
  *
  * NOT THE HELP DESK. `/api/tickets` is a workspace's own internal queue, which
  * never leaves the tenant. This one goes the other way: a customer reporting a

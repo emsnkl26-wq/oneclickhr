@@ -58,10 +58,10 @@ interface TenantRow {
   country: string | null
 }
 
-/** Oneclickhr itself, for a platform posting. */
+/** OneclickHR itself, for a platform posting. */
 const PLATFORM_COMPANY: PublicCompany = {
   id: null,
-  name: 'Oneclickhr',
+  name: 'OneclickHR',
   slug: null,
   isPlatform: true,
   logoUrl: null,

@@ -4,6 +4,8 @@ import { Briefcase, LayoutDashboard } from 'lucide-react'
 import { loadContext } from '@/lib/auth/context'
 import { homeFor } from '@/lib/auth/context'
 import { appUrl } from '@/lib/env'
+import { BrandLogo } from '@/components/brand/logo'
+import { BRAND, BRAND_ASSETS, brandOgImage } from '@/lib/brand'
 
 /**
  * The public frame — the only unauthenticated layout in this product other than
@@ -46,15 +48,25 @@ import { appUrl } from '@/lib/env'
 export const metadata: Metadata = {
   title: {
     default: 'Jobs',
-    template: '%s · Jobs at Oneclickhr',
+    template: `%s · Jobs at ${BRAND.name}`,
   },
   description:
-    'Open roles from organizations hiring through Oneclickhr. Browse by country and apply with a free account.',
+    `Open roles from organizations hiring through ${BRAND.name}. Browse by country and apply with a free account.`,
   metadataBase: new URL(appUrl()),
   robots: { index: true, follow: true },
+  /*
+   * Restated here rather than inherited: a segment that sets `openGraph` REPLACES
+   * the parent's whole object, images included, so leaving them out would drop
+   * the link-preview card from every job page.
+   */
   openGraph: {
     type: 'website',
-    siteName: 'Oneclickhr Jobs',
+    siteName: BRAND.jobsName,
+    images: [brandOgImage(BRAND_ASSETS.ogJobs, `${BRAND.jobsName} — open roles`)],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    images: [BRAND_ASSETS.ogJobs.src],
   },
 }
 
@@ -65,15 +77,12 @@ export default async function JobsLayout({ children }: { children: React.ReactNo
     <div className="flex min-h-screen flex-col bg-page">
       <header className="sticky top-0 z-30 border-b border-line bg-card/85 backdrop-blur">
         <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link href="/jobs" className="flex min-w-0 items-center gap-2.5">
-            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-              O
-            </span>
-            {/* The wordmark shrinks a step on a phone so it cannot push the
+          <Link href="/jobs" aria-label={BRAND.jobsName} className="flex min-w-0 items-center gap-2.5">
+            {/* The lockup shrinks a step on a phone so it cannot push the
                 sign-in buttons off the right edge. */}
-            <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink sm:text-[17px]">
-              Oneclickhr
-              <span className="ml-1.5 text-ink-muted">Jobs</span>
+            <BrandLogo variant="horizontal" height={32} priority alt="" className="h-6 w-auto sm:h-8" />
+            <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink-muted sm:text-[17px]">
+              Jobs
             </span>
           </Link>
 
@@ -122,10 +131,10 @@ export default async function JobsLayout({ children }: { children: React.ReactNo
 
       <footer className="border-t border-line bg-card">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-4 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p>© {new Date().getFullYear()} Oneclickhr. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} {BRAND.name}. All rights reserved.</p>
           <p>
             Hiring for your own team?{' '}
-            <Link href="/signup" className="font-medium text-brand-600 hover:underline">
+            <Link href="/signup" className="font-medium text-brand-ink hover:underline">
               Post a role
             </Link>
             .

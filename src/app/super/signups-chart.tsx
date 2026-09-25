@@ -7,7 +7,7 @@ import {
 /**
  * Weekly signups.
  *
- * One series, one colour — the brand crimson — because a single-series chart
+ * One series, one colour — the brand orange — because a single-series chart
  * gains nothing from a palette. The grid is horizontal-only and the axes are
  * unadorned so the shape of the line is what reads first.
  */
@@ -28,32 +28,32 @@ export function SignupsChart({ data }: { data: Array<{ week: string; count: numb
         <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
           <defs>
             <linearGradient id="signupFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#C41E33" stopOpacity={0.22} />
-              <stop offset="100%" stopColor="#C41E33" stopOpacity={0} />
+              <stop offset="0%" stopColor="#FF6A00" stopOpacity={0.22} />
+              <stop offset="100%" stopColor="#FF6A00" stopOpacity={0} />
             </linearGradient>
           </defs>
 
-          <CartesianGrid stroke="#E7E9EE" vertical={false} />
+          <CartesianGrid stroke="#E2E8F0" vertical={false} />
           <XAxis
             dataKey="week"
             tickFormatter={(value: string) => value.slice(5)}
-            tick={{ fontSize: 11, fill: '#6B7280' }}
+            tick={{ fontSize: 11, fill: '#64748B' }}
             tickLine={false}
-            axisLine={{ stroke: '#E7E9EE' }}
+            axisLine={{ stroke: '#E2E8F0' }}
             interval="preserveStartEnd"
           />
           <YAxis
             allowDecimals={false}
-            tick={{ fontSize: 11, fill: '#6B7280' }}
+            tick={{ fontSize: 11, fill: '#64748B' }}
             tickLine={false}
             axisLine={false}
             width={40}
           />
           <Tooltip
-            cursor={{ stroke: '#E7E9EE' }}
+            cursor={{ stroke: '#E2E8F0' }}
             contentStyle={{
               borderRadius: 12,
-              border: '1px solid #E7E9EE',
+              border: '1px solid #E2E8F0',
               boxShadow: '0 12px 40px -12px rgb(16 24 40 / 0.18)',
               fontSize: 13,
             }}
@@ -63,7 +63,7 @@ export function SignupsChart({ data }: { data: Array<{ week: string; count: numb
           <Area
             type="monotone"
             dataKey="count"
-            stroke="#C41E33"
+            stroke="#FF6A00"
             strokeWidth={2}
             fill="url(#signupFill)"
             dot={false}

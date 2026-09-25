@@ -39,7 +39,7 @@ export default function GlobalError({
       >
         <main style={{ maxWidth: '28rem', textAlign: 'center' }}>
           <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600 }}>
-            Oneclickhr could not start
+            OneclickHR could not start
           </h1>
           <p style={{ marginTop: '0.75rem', fontSize: '0.875rem', lineHeight: 1.6, opacity: 0.75 }}>
             Something failed before the page could be drawn. Your data has not been affected. Please

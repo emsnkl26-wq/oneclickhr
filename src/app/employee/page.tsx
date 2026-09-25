@@ -273,7 +273,7 @@ export default async function EmployeeDashboard() {
             <CardTitle>Recent attendance</CardTitle>
             <Link
               href="/employee/attendance"
-              className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"
+              className="flex items-center gap-1 text-[13px] font-medium text-brand-ink hover:underline"
             >
               View all <ArrowRight className="size-3.5" />
             </Link>
@@ -311,7 +311,7 @@ export default async function EmployeeDashboard() {
               <CardTitle>My tasks</CardTitle>
               <Link
                 href="/employee/tasks"
-                className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"
+                className="flex items-center gap-1 text-[13px] font-medium text-brand-ink hover:underline"
               >
                 Open board <ArrowRight className="size-3.5" />
               </Link>
@@ -344,7 +344,7 @@ export default async function EmployeeDashboard() {
               <CardTitle>Announcements</CardTitle>
               <Link
                 href="/employee/notifications"
-                className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"
+                className="flex items-center gap-1 text-[13px] font-medium text-brand-ink hover:underline"
               >
                 View all <ArrowRight className="size-3.5" />
               </Link>
@@ -375,7 +375,7 @@ export default async function EmployeeDashboard() {
                 <CardTitle>My leave</CardTitle>
                 <Link
                   href="/employee/leaves"
-                  className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"
+                  className="flex items-center gap-1 text-[13px] font-medium text-brand-ink hover:underline"
                 >
                   Manage <ArrowRight className="size-3.5" />
                 </Link>

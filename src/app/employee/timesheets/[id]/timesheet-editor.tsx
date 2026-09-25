@@ -481,7 +481,7 @@ export function TimesheetEditor({
       {timesheet.status === 'rejected' && timesheet.reviewNote ? (
         <div
           role="alert"
-          className="flex items-start gap-2.5 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3.5 text-sm text-brand-700"
+          className="flex items-start gap-2.5 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3.5 text-sm text-brand-ink"
         >
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <div>

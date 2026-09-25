@@ -14,6 +14,7 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/primitives'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { BrandLogo } from '@/components/brand/logo'
 import { cn, initials } from '@/lib/utils'
 import type { UserRole, TrackingMode } from '@/types/db'
 
@@ -29,7 +30,17 @@ export interface ShellUser {
 
 export interface ShellBrand {
   name: string
+  /** The workspace's own uploaded logo, if it has one. */
   logoUrl: string | null
+  /**
+   * True where the product itself is the brand — the platform console and the
+   * job portal — rather than a customer's workspace. Those wear the OneclickHR
+   * lockup; a workspace wears its own logo (or, until it uploads one, the
+   * OneclickHR mark) beside its own name.
+   */
+  platform?: boolean
+  /** Small label after the platform lockup, e.g. "Jobs". */
+  suffix?: string
 }
 
 /**
@@ -46,7 +57,7 @@ export interface ShellBrand {
  * the bundle loads and nothing reflows on hydration.
  *
  * ACTIVE STATE is a tinted pill with a brand-coloured icon and a small accent
- * bar, rather than a filled crimson block. It reads as "you are here" without
+ * bar, rather than a filled orange block. It reads as "you are here" without
  * turning the quietest surface in the app into the loudest, and — unlike a
  * brand-tinted background — it stays legible in both themes, because the tint
  * comes from the sidebar's own hover colour.
@@ -167,20 +178,23 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
   }
 
   function renderBrand(inDrawer: boolean) {
-    const mark = brand.logoUrl ? (
-      <Image
-        src={brand.logoUrl}
-        alt=""
-        width={32}
-        height={32}
-        className="size-8 shrink-0 rounded-lg object-cover"
-        unoptimized
-      />
-    ) : (
-      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white shadow-sm">
-        {brand.name.charAt(0).toUpperCase()}
-      </span>
-    )
+    // The 32px slot: the workspace's logo if it uploaded one, otherwise the
+    // OneclickHR mark. Never a lettered placeholder — the product has a logo now.
+    const mark =
+      brand.logoUrl && !brand.platform ? (
+        <Image
+          src={brand.logoUrl}
+          alt=""
+          width={32}
+          height={32}
+          className="size-8 shrink-0 rounded-lg object-cover"
+          unoptimized
+        />
+      ) : (
+        <span className="grid size-8 shrink-0 place-items-center">
+          <BrandLogo variant="mark" height={28} alt="" />
+        </span>
+      )
 
     return (
       <div className="rail-center flex h-16 shrink-0 items-center justify-between gap-2.5 border-b border-sidebar-border px-4">
@@ -213,10 +227,23 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
           )}
           aria-label={brand.name}
         >
-          {mark}
-          <span className="rail-label text-[15px] font-semibold tracking-[-0.015em] text-sidebar-fg">
-            {brand.name}
-          </span>
+          {brand.platform ? (
+            <>
+              <BrandLogo variant="horizontal" height={28} priority alt="" />
+              {brand.suffix ? (
+                <span className="rail-label text-[13px] font-semibold text-sidebar-muted">
+                  {brand.suffix}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {mark}
+              <span className="rail-label text-[15px] font-semibold tracking-[-0.015em] text-sidebar-fg">
+                {brand.name}
+              </span>
+            </>
+          )}
         </Link>
 
         <div className={cn('flex shrink-0 items-center gap-0.5', !inDrawer && 'rail-expanded-only')}>
@@ -324,9 +351,34 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
         >
           <Menu className="size-5" />
         </button>
-        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]">
-          {brand.name}
-        </span>
+        <Link href="/" aria-label={brand.name} className="focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-lg">
+          {brand.platform ? (
+            <>
+              <BrandLogo variant="horizontal" height={24} alt="" />
+              {brand.suffix ? (
+                <span className="truncate text-[13px] font-semibold text-ink-muted">{brand.suffix}</span>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {brand.logoUrl ? (
+                <Image
+                  src={brand.logoUrl}
+                  alt=""
+                  width={24}
+                  height={24}
+                  className="size-6 shrink-0 rounded-md object-cover"
+                  unoptimized
+                />
+              ) : (
+                <BrandLogo variant="mark" height={22} alt="" />
+              )}
+              <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em]">
+                {brand.name}
+              </span>
+            </>
+          )}
+        </Link>
         <ThemeToggle className="text-ink-muted hover:bg-page hover:text-ink" />
       </div>
 

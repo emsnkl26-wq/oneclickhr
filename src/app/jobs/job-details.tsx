@@ -32,7 +32,7 @@ export function JobDescription({ job }: { job: PublicJob }) {
             {job.skills.map((skill) => (
               <span
                 key={skill}
-                className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700"
+                className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-ink"
               >
                 {skill}
               </span>
@@ -109,7 +109,7 @@ export function RecruiterContact({ job }: { job: PublicJob }) {
       </h3>
       {r.name || r.title ? (
         <div className="mt-4 flex items-center gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-brand-50 text-sm font-bold text-brand-700">
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-brand-50 text-sm font-bold text-brand-ink">
             {initials(r.name, r.email)}
           </span>
           <div className="min-w-0">
@@ -123,7 +123,7 @@ export function RecruiterContact({ job }: { job: PublicJob }) {
           <li>
             <a
               href={`mailto:${r.email}`}
-              className="inline-flex min-w-0 items-center gap-2 break-all text-ink hover:text-brand-600"
+              className="inline-flex min-w-0 items-center gap-2 break-all text-ink hover:text-brand-ink"
             >
               <Mail className="size-4 shrink-0 text-ink-muted" aria-hidden />
               {r.email}
@@ -134,7 +134,7 @@ export function RecruiterContact({ job }: { job: PublicJob }) {
           <li>
             <a
               href={`tel:${r.phone.replace(/[^+\d]/g, '')}`}
-              className="inline-flex items-center gap-2 text-ink hover:text-brand-600"
+              className="inline-flex items-center gap-2 text-ink hover:text-brand-ink"
             >
               <Phone className="size-4 shrink-0 text-ink-muted" aria-hidden />
               {r.phone}
@@ -147,7 +147,7 @@ export function RecruiterContact({ job }: { job: PublicJob }) {
               href={r.linkedinUrl}
               target="_blank"
               rel="noopener noreferrer nofollow"
-              className="inline-flex items-center gap-2 text-ink hover:text-brand-600"
+              className="inline-flex items-center gap-2 text-ink hover:text-brand-ink"
             >
               <Linkedin className="size-4 shrink-0 text-[#0A66C2]" aria-hidden />
               Recruiter profile
@@ -160,7 +160,7 @@ export function RecruiterContact({ job }: { job: PublicJob }) {
               href={r.companyLinkedinUrl}
               target="_blank"
               rel="noopener noreferrer nofollow"
-              className="inline-flex items-center gap-2 text-ink hover:text-brand-600"
+              className="inline-flex items-center gap-2 text-ink hover:text-brand-ink"
             >
               <Linkedin className="size-4 shrink-0 text-[#0A66C2]" aria-hidden />
               Company page

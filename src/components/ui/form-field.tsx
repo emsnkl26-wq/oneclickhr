@@ -70,7 +70,7 @@ export function FormError({ message }: { message?: string | null }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-2.5 rounded-lg border border-brand-200 bg-brand-50 px-3.5 py-3 text-sm text-brand-700"
+      className="flex items-start gap-2.5 rounded-lg border border-brand-200 bg-brand-50 px-3.5 py-3 text-sm text-brand-ink"
     >
       <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>{message}</span>

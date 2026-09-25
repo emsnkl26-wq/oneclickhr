@@ -247,7 +247,15 @@ export const config = {
      * that browser with it, silently, some time after the user signed out and
      * back in. Serving the file as a static asset is also simply correct: it
      * is public, identical for everybody, and carries nothing to authorize.
+     *
+     * `manifest.webmanifest` is excluded for the same reason as `sw.js`: the
+     * browser fetches it WITHOUT cookies, on its own, from any page including
+     * /login. Redirected to /login it comes back as HTML, the manifest is
+     * discarded, and "install app" and the home-screen icon quietly stop working.
+     * The brand images (favicon, social cards, logos) are all `.png`/`.ico`, so
+     * the extension rule already lets them through signed out — which a link
+     * preview crawler, never signed in, depends on.
      */
-    '/((?!_next/static|_next/image|favicon.ico|sw.js|icons/|api/files/view|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icons/|api/files/view|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

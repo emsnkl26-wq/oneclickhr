@@ -14,7 +14,7 @@ export default function CandidateSignupPage() {
       <CandidateSignupForm />
       <p className="mt-6 text-center text-xs leading-relaxed text-ink-muted">
         Hiring for your company?{' '}
-        <Link href="/signup" className="font-medium text-brand-600 hover:underline">
+        <Link href="/signup" className="font-medium text-brand-ink hover:underline">
           Create an organization workspace
         </Link>{' '}
         instead.

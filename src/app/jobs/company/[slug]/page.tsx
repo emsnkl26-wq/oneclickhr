@@ -5,6 +5,7 @@ import { ArrowLeft, Globe, MapPin } from 'lucide-react'
 import { getPublicCompany, listPublicJobs, FEED_PER_PAGE } from '@/lib/jobs-public'
 import { loadJobViewer } from '@/lib/job-viewer-server'
 import { appUrl } from '@/lib/env'
+import { BRAND, BRAND_ASSETS, brandOgImage } from '@/lib/brand'
 import { CompanyMark } from '../../company-mark'
 import { JobBoard } from '../../job-board'
 
@@ -41,8 +42,16 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   return {
     title: `Jobs at ${company.name}`,
-    description: `Open roles at ${company.name}. Browse and apply with a free Oneclickhr Jobs account.`,
+    description: `Open roles at ${company.name}. Browse and apply with a free ${BRAND.jobsName} account.`,
     alternates: { canonical: `${appUrl()}/jobs/company/${(await params).slug}` },
+    // Restated: this segment's `openGraph` would otherwise replace the layout's,
+    // card image included. Same reason as in jobs/[id]/page.tsx.
+    openGraph: {
+      type: 'website',
+      siteName: BRAND.jobsName,
+      title: `Jobs at ${company.name}`,
+      images: [brandOgImage(BRAND_ASSETS.ogJobs, `Jobs at ${company.name}`)],
+    },
   }
 }
 

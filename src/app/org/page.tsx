@@ -279,7 +279,7 @@ export default async function OrgDashboard() {
         />
         <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-brand-600">
+            <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-brand-ink">
               {formatLocal(new Date(), tz, 'EEEE, d MMMM yyyy')}
             </p>
             <h1 className="mt-2 text-[26px] font-bold tracking-[-0.02em] text-ink sm:text-[30px]">
@@ -749,7 +749,7 @@ function ViewAll({ href, label = 'View all' }: { href: string; label?: string })
   return (
     <Link
       href={href}
-      className="group flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"
+      className="group flex items-center gap-1 text-[13px] font-medium text-brand-ink hover:underline"
     >
       {label}
       <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />

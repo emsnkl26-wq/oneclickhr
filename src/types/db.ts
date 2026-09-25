@@ -890,8 +890,8 @@ export type ApplicationStatus =
 export interface Job {
   id: string
   /**
-   * NULL means a PLATFORM job — Oneclickhr hiring for itself. Read it as
-   * "Oneclickhr", never as "unscoped": every other table in this schema uses a
+   * NULL means a PLATFORM job — OneclickHR hiring for itself. Read it as
+   * "OneclickHR", never as "unscoped": every other table in this schema uses a
    * null tenant to mean nothing of the sort.
    */
   tenant_id: string | null
@@ -1022,12 +1022,12 @@ export interface PublicRecruiter {
   companyLinkedinUrl: string | null
 }
 
-/** The employer behind a posting. `slug` is null for Oneclickhr's own jobs. */
+/** The employer behind a posting. `slug` is null for OneclickHR's own jobs. */
 export interface PublicCompany {
   id: string | null
   name: string
   slug: string | null
-  /** True for a platform job, which the portal badges as Oneclickhr. */
+  /** True for a platform job, which the portal badges as OneclickHR. */
   isPlatform: boolean
   /** `/api/jobs/logo?tenant=…`, or null when the org has not uploaded one. */
   logoUrl: string | null

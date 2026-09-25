@@ -60,7 +60,7 @@ export default async function MyApplicationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="My applications"
-        description="Roles you have applied for on the Oneclickhr job portal. Only the hiring organization sees these — your workspace does not."
+        description="Roles you have applied for on the OneclickHR job portal. Only the hiring organization sees these — your workspace does not."
         actions={
           <Button variant="secondary" asChild>
             <Link href="/jobs">

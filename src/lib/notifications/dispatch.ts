@@ -42,6 +42,7 @@ import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { sendPushToUsers, usersWithSubscriptions, isPushConfigured } from '@/lib/push/send'
 import { sendNotificationEmail, isEmailConfigured } from '@/lib/email'
 import { isExternalImage } from '@/lib/notification-image'
+import { brandColorOrDefault } from '@/lib/brand'
 import {
   importanceFor,
   pathFor,
@@ -269,7 +270,7 @@ async function loadBrand(admin: SupabaseClient, tenantId: string): Promise<Tenan
 
   return {
     name: (data?.name as string) || 'Your workspace',
-    primaryColor: (data?.primary_color as string) || '#C41E33',
+    primaryColor: brandColorOrDefault(data?.primary_color as string | undefined),
   }
 }
 

@@ -19,6 +19,7 @@ import 'server-only'
 import { Resend } from 'resend'
 import { layout, button, esc, stripHtml } from '@/lib/email-layout'
 import { appUrl } from '@/lib/env'
+import { BRAND, brandColorOrDefault } from '@/lib/brand'
 import { EMPLOYEE_LOGIN_PATH } from '@/lib/routes'
 
 let client: Resend | null = null
@@ -173,7 +174,7 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
   // which for a new starter reads as "they sent me a broken password". An
   // administrator invite (027) needs the other door, for exactly that reason.
   const loginUrl = args.adminPortal ? `${appUrl()}/login` : `${appUrl()}${EMPLOYEE_LOGIN_PATH}`
-  const brand = args.brandColor || '#C41E33'
+  const brand = brandColorOrDefault(args.brandColor)
 
   const ask = args.completeOnboarding
     ? `
@@ -195,11 +196,11 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
       loginUrl
     )}</a> with the details below.</p>
 
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F9;border:1px solid #E7E9EE;border-radius:12px;margin:0 0 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;border:1px solid #E2E8F0;border-radius:12px;margin:0 0 8px;">
       <tr><td style="padding:16px 18px;">
-        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.6px;color:#6B7280;margin-bottom:4px;">Email</div>
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.6px;color:#64748B;margin-bottom:4px;">Email</div>
         <div style="font-size:15px;font-weight:600;margin-bottom:14px;">${esc(args.to)}</div>
-        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.6px;color:#6B7280;margin-bottom:4px;">Temporary password</div>
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.6px;color:#64748B;margin-bottom:4px;">Temporary password</div>
         <div style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:17px;font-weight:700;letter-spacing:0.5px;">${esc(
           args.tempPassword
         )}</div>
@@ -210,7 +211,7 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
 
     ${button(loginUrl, args.completeOnboarding ? 'Sign in and finish setup' : 'Sign in', brand)}
 
-    <p style="margin:0;font-size:13px;color:#6B7280;">
+    <p style="margin:0;font-size:13px;color:#64748B;">
       You will be asked to choose your own password the first time you sign in — this
       temporary one stops working at that point. If you did not expect this email,
       please contact your manager.
@@ -256,14 +257,14 @@ export async function sendVisaReminder(args: VisaReminderArgs): Promise<SendResu
   const html = layout(
     `
     <div style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:${
-      urgent ? '#FCEBEE' : '#FEF3C7'
-    };color:${urgent ? '#A5182A' : '#92400E'};margin-bottom:14px;">
+      urgent ? '#FEF2F2' : '#FEF3C7'
+    };color:${urgent ? '#B91C1C' : '#92400E'};margin-bottom:14px;">
       ${urgent ? 'Action needed' : 'Upcoming expiry'}
     </div>
     <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">${esc(headline)}</h1>
     <p style="margin:0 0 18px;">A work authorization on your ${esc(args.orgName)} workspace is approaching its expiry date.</p>
 
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F9;border:1px solid #E7E9EE;border-radius:12px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;border:1px solid #E2E8F0;border-radius:12px;">
       <tr><td style="padding:16px 18px;font-size:14px;">
         <strong>Employee</strong><br>${esc(args.employeeName)}<br><br>
         <strong>Visa type</strong><br>${esc(args.visaType)}<br><br>
@@ -271,7 +272,7 @@ export async function sendVisaReminder(args: VisaReminderArgs): Promise<SendResu
       </td></tr>
     </table>
 
-    ${button(`${appUrl()}/org/visa`, 'Review work authorizations', args.brandColor || '#C41E33')}
+    ${button(`${appUrl()}/org/visa`, 'Review work authorizations', args.brandColor)}
   `,
     {
       brandName: args.orgName,
@@ -301,8 +302,8 @@ export async function sendLeaveDecision(args: LeaveDecisionArgs): Promise<SendRe
   const html = layout(
     `
     <div style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:${
-      approved ? '#DCFCE7' : '#FCEBEE'
-    };color:${approved ? '#15803D' : '#A5182A'};margin-bottom:14px;">
+      approved ? '#DCFCE7' : '#FEF2F2'
+    };color:${approved ? '#15803D' : '#B91C1C'};margin-bottom:14px;">
       ${approved ? 'Approved' : 'Rejected'}
     </div>
     <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">${esc(subject)}</h1>
@@ -312,12 +313,12 @@ export async function sendLeaveDecision(args: LeaveDecisionArgs): Promise<SendRe
     )}</strong> has been ${esc(args.status)}.</p>
     ${
       args.note
-        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F9;border:1px solid #E7E9EE;border-radius:12px;"><tr><td style="padding:14px 16px;font-size:14px;"><strong>Note from your manager</strong><br>${esc(
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;border:1px solid #E2E8F0;border-radius:12px;"><tr><td style="padding:14px 16px;font-size:14px;"><strong>Note from your manager</strong><br>${esc(
             args.note
           )}</td></tr></table>`
         : ''
     }
-    ${button(`${appUrl()}/employee/leaves`, 'View my leave', args.brandColor || '#C41E33')}
+    ${button(`${appUrl()}/employee/leaves`, 'View my leave', args.brandColor)}
   `,
     { brandName: args.orgName, brandColor: args.brandColor, preheader: subject }
   )
@@ -353,7 +354,7 @@ export async function sendAnnouncement(args: AnnouncementArgs): Promise<SendResu
         ? `<img src="${esc(args.imageUrl)}" alt="" style="display:block;width:100%;max-width:520px;height:auto;border:0;border-radius:10px;margin:0 0 18px;" />`
         : ''
     }
-    ${button(`${appUrl()}/employee/notifications`, 'Open the portal', args.brandColor || '#C41E33')}
+    ${button(`${appUrl()}/employee/notifications`, 'Open the portal', args.brandColor)}
   `,
     { brandName: args.orgName, brandColor: args.brandColor, preheader: args.title }
   )
@@ -397,8 +398,8 @@ export async function sendApplicationReceived(args: ApplicationReceivedArgs): Pr
     )}</strong> to the hiring team at <strong>${esc(
       args.companyName
     )}</strong>. They will contact you directly if they would like to take it further.</p>
-    <p style="margin:0 0 18px;color:#6B7280;font-size:13px;">You are receiving this because this address was used to apply through the Oneclickhr job portal. If that was not you, you can ignore this message.</p>
-    ${button(`${appUrl()}/jobs`, 'Browse more roles', args.brandColor || '#C41E33')}
+    <p style="margin:0 0 18px;color:#64748B;font-size:13px;">You are receiving this because this address was used to apply through the ${BRAND.name} job portal. If that was not you, you can ignore this message.</p>
+    ${button(`${appUrl()}/jobs`, 'Browse more roles', args.brandColor)}
   `,
     { brandName: args.companyName, brandColor: args.brandColor, preheader: subject }
   )
@@ -434,7 +435,7 @@ export async function sendNewApplicationAlert(args: NewApplicationArgs): Promise
     <p style="margin:0 0 18px;"><strong>${esc(
       args.applicantName
     )}</strong> has applied for <strong>${esc(args.jobTitle)}</strong>.</p>
-    ${button(`${appUrl()}${args.reviewPath}`, 'Review the application', args.brandColor || '#C41E33')}
+    ${button(`${appUrl()}${args.reviewPath}`, 'Review the application', args.brandColor)}
   `,
     { brandName: args.orgName, brandColor: args.brandColor, preheader: subject }
   )
@@ -498,8 +499,8 @@ export async function sendNotificationEmail(args: NotificationEmailArgs): Promis
           )}" alt="" style="display:block;width:100%;max-width:520px;height:auto;border:0;border-radius:10px;margin:0 0 18px;" />`
         : ''
     }
-    ${button(url, 'Open in the portal', args.brandColor || '#C41E33')}
-    <p style="margin:0;font-size:13px;color:#6B7280;">
+    ${button(url, 'Open in the portal', args.brandColor)}
+    <p style="margin:0;font-size:13px;color:#64748B;">
       You are receiving this because it needs your attention on ${esc(args.orgName)}.
       Routine updates are not emailed — you will find those in the portal.
     </p>
@@ -545,12 +546,12 @@ export async function sendApplicationStatusUpdate(args: ApplicationStatusArgs): 
       <strong>${esc(args.companyName)}</strong> is now: <strong>${esc(args.statusLabel)}</strong>.</p>
     ${
       args.message
-        ? `<div style="margin:0 0 18px;padding:12px 14px;border-radius:10px;background:#F6F7F9;white-space:pre-line;">${esc(
+        ? `<div style="margin:0 0 18px;padding:12px 14px;border-radius:10px;background:#F1F5F9;white-space:pre-line;">${esc(
             args.message
           )}</div>`
         : ''
     }
-    ${button(`${appUrl()}/candidate`, 'View my applications', args.brandColor || '#C41E33')}
+    ${button(`${appUrl()}/candidate`, 'View my applications', args.brandColor)}
   `,
     { brandName: args.companyName, brandColor: args.brandColor, preheader: subject }
   )

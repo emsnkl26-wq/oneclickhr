@@ -1,4 +1,4 @@
-# Oneclickhr — Setup Guide
+# OneclickHR — Setup Guide
 
 Everything needed to take this repository from nothing to a running,
 multi-tenant production deployment. Follow the sections in order; each one ends
@@ -104,6 +104,7 @@ Later migrations run the same way, in number order. The most recent batch:
 | 51 | `051_candidate_role_enum.sql` | **Run on its own, before 52.** Adds the `candidate` role and the C2C / W2 / contract-to-hire job types. Postgres cannot use a new enum value in the transaction that added it |
 | 52 | `052_job_portal_candidates.sql` | Job-seeker accounts, candidate profiles, recruiter contact on jobs, and the application history applicants can follow |
 | 53 | `053_super_admin_talent_and_purge.sql` | The platform console's talent directory view (service role only) and `purge_tenant()` for permanently deleting an organization |
+| 54 | `054_brand_refresh.sql` | The OneclickHR rebrand: moves the workspace colour default from the old crimson (`#C41E33`) to the brand orange (`#FF6A00`), and moves every workspace still on the old default. The app already treats the old default as "unset", so this is not urgent — it makes the stored data match what is shown |
 
 `009` is not optional either — `/org/documents` and `/super/organizations` call
 `search_documents()` and `platform_tenant_stats()`, and both pages error without
@@ -257,7 +258,7 @@ The app-side alternative exists (§4e) but is off by default.
 3. **API Keys → Create API Key** with *Sending access*. Copy it into
    `RESEND_API_KEY`.
 4. Set `EMAIL_FROM` to a verified address, e.g.
-   `Oneclickhr <no-reply@oneclickhr.app>`.
+   `OneclickHR <no-reply@oneclickhr.app>`.
 
 ### 4b. Point Supabase's SMTP at Resend
 

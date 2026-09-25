@@ -78,7 +78,7 @@ export default async function SuperDashboard() {
     <div className="space-y-6">
       <PageHeader
         title="Platform overview"
-        description="Every organization on Oneclickhr."
+        description="Every organization on OneclickHR."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -127,7 +127,7 @@ export default async function SuperDashboard() {
             <CardTitle>Newest organizations</CardTitle>
             <Link
               href="/super/organizations"
-              className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"
+              className="flex items-center gap-1 text-[13px] font-medium text-brand-ink hover:underline"
             >
               View all <ArrowRight className="size-3.5" />
             </Link>
@@ -145,7 +145,7 @@ export default async function SuperDashboard() {
                   <div className="min-w-0 flex-1">
                     <Link
                       href={`/super/organizations/${tenant.id}`}
-                      className="block truncate text-sm font-medium hover:text-brand-600 hover:underline"
+                      className="block truncate text-sm font-medium hover:text-brand-ink hover:underline"
                     >
                       {tenant.name}
                     </Link>
@@ -166,7 +166,7 @@ export default async function SuperDashboard() {
             <CardTitle>Recent platform activity</CardTitle>
             <Link
               href="/super/audit"
-              className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"
+              className="flex items-center gap-1 text-[13px] font-medium text-brand-ink hover:underline"
             >
               Full log <ArrowRight className="size-3.5" />
             </Link>

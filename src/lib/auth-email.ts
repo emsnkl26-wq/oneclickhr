@@ -9,6 +9,8 @@ import 'server-only'
  * comment for why it isn't the default `?code=` link).
  */
 import { sendEmail, layout, button, esc, type SendResult } from '@/lib/email'
+import { BRAND } from '@/lib/brand'
+import { appUrl } from '@/lib/env'
 
 export interface SignupConfirmationArgs {
   to: string
@@ -34,17 +36,17 @@ export async function sendSignupConfirmationEmail(args: SignupConfirmationArgs):
 
     ${button(args.confirmUrl, 'Confirm my email')}
 
-    <p style="margin:18px 0 0;font-size:13px;color:#6B7280;">
+    <p style="margin:18px 0 0;font-size:13px;color:#64748B;">
       This link works on any device — open it on your phone if that's where you're
       reading this. It expires in 24 hours. If you did not create this account, you
       can safely ignore this email.
     </p>
 
-    <p style="margin:18px 0 0;font-size:12px;color:#9CA3AF;word-break:break-all;">
+    <p style="margin:18px 0 0;font-size:12px;color:#94A3B8;word-break:break-all;">
       Button not working? Paste this into your browser:<br>${esc(args.confirmUrl)}
     </p>
   `,
-    { brandName: org || 'Oneclickhr', preheader: 'Confirm your email to activate your workspace' }
+    { brandName: org || BRAND.name, origin: appUrl(), preheader: 'Confirm your email to activate your workspace' }
   )
 
   return sendEmail({ to: args.to, subject: 'Confirm your email address', html })
@@ -56,22 +58,22 @@ async function sendCandidateConfirmationEmail(args: SignupConfirmationArgs): Pro
     `
     <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">Confirm your email</h1>
     <p style="margin:0 0 18px;">
-      Thanks for creating your Oneclickhr Jobs account. Click below to confirm your email
+      Thanks for creating your ${BRAND.jobsName} account. Click below to confirm your email
       address — then sign in to apply for roles and follow every application.
     </p>
 
     ${button(args.confirmUrl, 'Confirm my email')}
 
-    <p style="margin:18px 0 0;font-size:13px;color:#6B7280;">
+    <p style="margin:18px 0 0;font-size:13px;color:#64748B;">
       This link works on any device and expires in 24 hours. If you did not create this
       account, you can safely ignore this email.
     </p>
 
-    <p style="margin:18px 0 0;font-size:12px;color:#9CA3AF;word-break:break-all;">
+    <p style="margin:18px 0 0;font-size:12px;color:#94A3B8;word-break:break-all;">
       Button not working? Paste this into your browser:<br>${esc(args.confirmUrl)}
     </p>
   `,
-    { brandName: 'Oneclickhr Jobs', preheader: 'Confirm your email to start applying' }
+    { brandName: BRAND.jobsName, origin: appUrl(), preheader: 'Confirm your email to start applying' }
   )
 
   return sendEmail({ to: args.to, subject: 'Confirm your email address', html })
@@ -93,16 +95,16 @@ export async function sendPasswordResetEmail(args: PasswordResetArgs): Promise<S
 
     ${button(args.resetUrl, 'Choose a new password')}
 
-    <p style="margin:18px 0 0;font-size:13px;color:#6B7280;">
+    <p style="margin:18px 0 0;font-size:13px;color:#64748B;">
       This link works on any device and expires in 1 hour. If you did not request
       this, you can ignore this email — your password will not change.
     </p>
 
-    <p style="margin:18px 0 0;font-size:12px;color:#9CA3AF;word-break:break-all;">
+    <p style="margin:18px 0 0;font-size:12px;color:#94A3B8;word-break:break-all;">
       Button not working? Paste this into your browser:<br>${esc(args.resetUrl)}
     </p>
   `,
-    { brandName: 'Oneclickhr', preheader: 'Reset your Oneclickhr password' }
+    { brandName: BRAND.name, origin: appUrl(), preheader: `Reset your ${BRAND.name} password` }
   )
 
   return sendEmail({ to: args.to, subject: 'Reset your password', html })

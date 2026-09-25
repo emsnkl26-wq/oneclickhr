@@ -54,7 +54,7 @@ export function TimesheetList({
       cell: (row) => (
         <Link
           href={`/employee/timesheets/${row.id}`}
-          className="tabular font-medium text-brand-600 hover:underline"
+          className="tabular font-medium text-brand-ink hover:underline"
         >
           {row.code}
         </Link>

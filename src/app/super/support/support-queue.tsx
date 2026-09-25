@@ -214,7 +214,7 @@ function RequestDialog({ row, onClose }: { row: SupportRow | null; onClose: () =
               */}
               <dd className="mt-0.5">
                 {row?.reporter_email ? (
-                  <a className="text-brand-600 hover:underline" href={`mailto:${row.reporter_email}`}>
+                  <a className="text-brand-ink hover:underline" href={`mailto:${row.reporter_email}`}>
                     {row.reporter_email}
                   </a>
                 ) : (

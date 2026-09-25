@@ -251,7 +251,7 @@ export function CandidateProfileForm({ initial }: { initial: CandidateProfileVal
                   {values.skills.map((skill) => (
                     <span
                       key={skill}
-                      className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700"
+                      className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-ink"
                     >
                       {skill}
                       <button

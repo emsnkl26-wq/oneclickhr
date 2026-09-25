@@ -47,7 +47,7 @@ export default async function ChangePasswordPage() {
 
         {!forced ? (
           <p className="mt-4 text-center text-sm">
-            <a href="/" className="font-medium text-brand-600 hover:underline">
+            <a href="/" className="font-medium text-brand-ink hover:underline">
               Back to the app
             </a>
           </p>

@@ -126,7 +126,7 @@ export function MeetingDetailDialog({
                     href={meeting.meet_link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 break-all font-medium text-brand-600 hover:underline"
+                    className="inline-flex items-center gap-1 break-all font-medium text-brand-ink hover:underline"
                   >
                     {meeting.meet_link}
                     <ExternalLink className="size-3.5 shrink-0" aria-hidden />

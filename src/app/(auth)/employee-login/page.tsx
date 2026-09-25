@@ -21,7 +21,7 @@ export default function EmployeeLoginPage() {
           <p className="mt-6 border-t border-line pt-4 text-center text-xs leading-relaxed text-ink-muted">
             Employees do not sign up here — your organization creates your account and sends your
             sign-in details. If you run the organization,{' '}
-            <Link href="/login" className="font-medium text-brand-600 hover:underline">
+            <Link href="/login" className="font-medium text-brand-ink hover:underline">
               sign in as an administrator
             </Link>
             .

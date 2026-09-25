@@ -37,10 +37,10 @@ export interface SuperJobRow {
  *
  * Two capabilities that the org console does not have, and one it does not lose:
  *
- *   • Unpublish ANY job, including a customer's. The portal carries Oneclickhr's
+ *   • Unpublish ANY job, including a customer's. The portal carries OneclickHR's
  *     name, so a posting that is fraudulent or abusive has to come down without
  *     waiting for the org that wrote it.
- *   • Post Oneclickhr's own roles, which carry no tenant.
+ *   • Post OneclickHR's own roles, which carry no tenant.
  *
  * What it deliberately cannot do is EDIT a customer's posting. Taking a role
  * down is moderation; rewriting someone's advert under their own company name is
@@ -110,7 +110,7 @@ export function SuperJobConsole({
         <span className="inline-flex items-center gap-2">
           <span className="truncate">{row.companyName}</span>
           {row.isPlatform ? (
-            <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
+            <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-ink">
               Ours
             </span>
           ) : null}
@@ -230,7 +230,7 @@ export function SuperJobConsole({
           />
           <Button onClick={() => setCreating(true)} className="shrink-0">
             <Plus />
-            Post for Oneclickhr
+            Post for OneclickHR
           </Button>
         </div>
       </div>

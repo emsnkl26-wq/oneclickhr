@@ -546,7 +546,7 @@ function SingleFileField(props: FieldProps) {
             href={`/api/files/view?key=${encodeURIComponent(stored)}`}
             target="_blank"
             rel="noreferrer"
-            className="focus-ring shrink-0 rounded text-xs font-medium text-brand-600 hover:underline"
+            className="focus-ring shrink-0 rounded text-xs font-medium text-brand-ink hover:underline"
           >
             View
           </a>

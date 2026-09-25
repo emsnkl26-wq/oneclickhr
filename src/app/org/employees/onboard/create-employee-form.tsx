@@ -277,7 +277,7 @@ function ChoiceCard({
 }) {
   return (
     <div className="card-surface flex flex-col p-5">
-      <span className="grid size-9 place-items-center rounded-lg bg-brand-50 text-brand-700">
+      <span className="grid size-9 place-items-center rounded-lg bg-brand-50 text-brand-ink">
         <Icon className="size-4" aria-hidden />
       </span>
       <p className="mt-3 font-semibold">{title}</p>

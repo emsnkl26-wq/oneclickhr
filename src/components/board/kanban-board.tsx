@@ -383,7 +383,7 @@ function Column({
             type="button"
             onClick={() => onEdit(column)}
             aria-label={`Column settings for ${column.name}`}
-            className="focus-ring rounded-md p-1 text-ink-muted transition hover:bg-card hover:text-brand-600"
+            className="focus-ring rounded-md p-1 text-ink-muted transition hover:bg-card hover:text-brand-ink"
           >
             <Settings2 className="size-4" />
           </button>
@@ -394,7 +394,7 @@ function Column({
             type="button"
             onClick={() => onAdd(column.id)}
             aria-label={`Add a task to ${column.name}`}
-            className="focus-ring rounded-md p-1 text-ink-muted transition hover:bg-card hover:text-brand-600"
+            className="focus-ring rounded-md p-1 text-ink-muted transition hover:bg-card hover:text-brand-ink"
           >
             <Plus className="size-4" />
           </button>
@@ -651,7 +651,7 @@ export function NoMatches({ onClear }: { onClear: () => void }) {
           <button
             type="button"
             onClick={onClear}
-            className="focus-ring rounded-md px-3 py-1.5 text-sm font-medium text-brand-600 hover:bg-brand-50"
+            className="focus-ring rounded-md px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-brand-50"
           >
             Clear filters
           </button>

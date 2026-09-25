@@ -66,7 +66,7 @@ export default async function SuperJobDetailPage({
   ])
 
   const companyName = isPlatform
-    ? 'Oneclickhr'
+    ? 'OneclickHR'
     : ((tenant as { name: string } | null)?.name ?? 'Unknown workspace')
 
   const applications: ApplicantRow[] = (

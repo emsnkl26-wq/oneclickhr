@@ -180,7 +180,7 @@ export function RadioCards({
               <span
                 className={cn(
                   'block truncate text-sm font-medium',
-                  selected ? 'text-brand-700' : 'text-ink'
+                  selected ? 'text-brand-ink' : 'text-ink'
                 )}
               >
                 {option.label}

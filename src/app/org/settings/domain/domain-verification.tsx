@@ -284,7 +284,7 @@ function PublishAndCheck({
                   href={`https://${domain}`}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="font-medium text-brand-600 hover:underline"
+                  className="font-medium text-brand-ink hover:underline"
                 >
                   {domain}
                 </a>{' '}

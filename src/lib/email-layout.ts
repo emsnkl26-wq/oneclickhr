@@ -10,6 +10,8 @@
  * Pure string building — no secrets, no I/O, no environment.
  */
 
+import { BRAND, BRAND_ASSETS, DEFAULT_PRIMARY_COLOR, brandColorOrDefault } from './brand'
+
 export function esc(value: string): string {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -32,17 +34,45 @@ export interface LayoutOptions {
   brandName?: string
   brandColor?: string
   preheader?: string
+  /**
+   * Absolute origin the brand images are served from, e.g. `https://app.example`
+   * (or Supabase's `{{ .SiteURL }}` in a dashboard template). An email cannot use
+   * a relative URL, and this file must not read the environment, so the caller
+   * says. Without it the header falls back to the name in text, which is also
+   * what a mail client that blocks images shows.
+   */
+  origin?: string
 }
 
 /**
  * Table-based layout with inline styles — the only thing that renders reliably
  * across Outlook, Gmail and Apple Mail. `brandColor` lets an org's email carry
- * its own colour, defaulting to Oneclickhr crimson.
+ * its own colour, defaulting to OneclickHR orange.
+ *
+ * TWO HEADERS. A message sent ON BEHALF OF a workspace shows that workspace's
+ * name and colour. A message from the platform itself (sign-up confirmation,
+ * password reset) shows the OneclickHR logo.
  */
 export function layout(bodyHtml: string, opts: LayoutOptions = {}): string {
-  const brandName = esc(opts.brandName || 'Oneclickhr')
-  const brand = /^#[0-9a-fA-F]{6}$/.test(opts.brandColor || '') ? opts.brandColor! : '#C41E33'
+  const brandName = esc(opts.brandName || BRAND.name)
+  const brand = brandColorOrDefault(opts.brandColor)
   const preheader = opts.preheader ? esc(opts.preheader) : ''
+  const fromPlatform =
+    !opts.brandName || opts.brandName === BRAND.name || opts.brandName === BRAND.jobsName
+
+  const header =
+    fromPlatform && opts.origin
+      ? `<img src="${esc(opts.origin.replace(/\/+$/, ''))}${BRAND_ASSETS.email.src}" width="${Math.round(
+          (32 * BRAND_ASSETS.email.width) / BRAND_ASSETS.email.height
+        )}" height="32" alt="${brandName}" style="display:inline-block;height:32px;width:auto;border:0;vertical-align:middle;">${
+          opts.brandName === BRAND.jobsName
+            ? `<span style="color:#94A3B8;font-size:15px;font-weight:600;margin-left:8px;vertical-align:middle;">Jobs</span>`
+            : ''
+        }`
+      : `<span style="color:#FFFFFF;font-size:17px;font-weight:700;letter-spacing:-0.2px;">
+            ${brandName}
+          </span>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${brand};margin-left:8px;vertical-align:middle;"></span>`
 
   return `<!doctype html>
 <html lang="en">
@@ -52,24 +82,21 @@ export function layout(bodyHtml: string, opts: LayoutOptions = {}): string {
 <meta name="color-scheme" content="light">
 <title>${brandName}</title>
 </head>
-<body style="margin:0;padding:0;background:#F6F7F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;color:#1A1C23;">
+<body style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;color:#0F172A;">
 ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>` : ''}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F9;padding:32px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;padding:32px 12px;">
   <tr><td align="center">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border:1px solid #E7E9EE;border-radius:14px;overflow:hidden;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:14px;overflow:hidden;">
       <tr>
-        <td style="background:#16181F;padding:22px 28px;">
-          <span style="color:#FFFFFF;font-size:17px;font-weight:700;letter-spacing:-0.2px;">
-            ${brandName}
-          </span>
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${brand};margin-left:8px;vertical-align:middle;"></span>
+        <td style="background:${BRAND.colors.charcoal};border-top:3px solid ${brand};padding:20px 28px;">
+          ${header}
         </td>
       </tr>
-      <tr><td style="padding:32px 28px;font-size:15px;line-height:1.65;color:#1A1C23;">
+      <tr><td style="padding:32px 28px;font-size:15px;line-height:1.65;color:#0F172A;">
         ${bodyHtml}
       </td></tr>
       <tr>
-        <td style="padding:18px 28px;background:#FAFBFC;border-top:1px solid #E7E9EE;font-size:12px;line-height:1.6;color:#6B7280;">
+        <td style="padding:18px 28px;background:#F8FAFC;border-top:1px solid #E2E8F0;font-size:12px;line-height:1.6;color:#64748B;">
           This is an automated message from ${brandName}. If it looks unexpected, you can ignore it.
         </td>
       </tr>
@@ -80,9 +107,9 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;"
 </html>`
 }
 
-export function button(href: string, label: string, brand = '#C41E33'): string {
+export function button(href: string, label: string, brand: string = DEFAULT_PRIMARY_COLOR): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
-  <tr><td style="border-radius:10px;background:${brand};">
+  <tr><td style="border-radius:10px;background:${brandColorOrDefault(brand)};">
     <a href="${esc(href)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:10px;">${esc(label)}</a>
   </td></tr>
 </table>`

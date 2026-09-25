@@ -22,11 +22,11 @@ import type { FinancePoint } from './finance-data'
 const COLORS = {
   light: {
     earned: '#1f9d6b', expenses: '#e5484d', payroll: '#f08c00', net: '#2a78d6',
-    grid: '#E7E9EE', axis: '#6B7280', zero: '#9AA0AE',
+    grid: '#E2E8F0', axis: '#64748B', zero: '#94A3B8',
   },
   dark: {
     earned: '#34c38f', expenses: '#f2555a', payroll: '#f5a524', net: '#3987e5',
-    grid: '#2A2E39', axis: '#9AA0AE', zero: '#6B7280',
+    grid: '#243247', axis: '#94A3B8', zero: '#64748B',
   },
 }
 

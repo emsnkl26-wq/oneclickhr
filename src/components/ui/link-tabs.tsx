@@ -99,7 +99,7 @@ export function LinkTabs({
             className={cn(
               'focus-ring flex items-center whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-medium transition',
               isSelected
-                ? 'bg-brand-50 text-brand-700'
+                ? 'bg-brand-50 text-brand-ink'
                 : 'text-ink-muted hover:text-ink'
             )}
           >

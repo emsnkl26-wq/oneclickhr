@@ -32,11 +32,11 @@ every row below and set the new value.
 | 6 | Same as above | Redirect URLs allowlist — add | `https://app.oneclickhr.app/**` | ⬜ |
 | 7 | **Google Cloud Console** → APIs & Services → Credentials → your OAuth client | Authorized redirect URIs — add | `https://app.oneclickhr.app/api/integrations/google/callback` | ⬜ (only if Google Calendar integration is used) |
 | 8 | Same client | Authorized JavaScript origins — add | `https://app.oneclickhr.app` | ⬜ |
-| 9 | **Google Cloud Console** → OAuth consent screen | App name / Authorized domains | App name `Oneclickhr`; Authorized domains: `oneclickhr.app` (Google wants the apex registrable domain — covers every subdomain including `app.`) | ⬜ |
+| 9 | **Google Cloud Console** → OAuth consent screen | App name / Authorized domains | App name `OneclickHR`; Authorized domains: `oneclickhr.app` (Google wants the apex registrable domain — covers every subdomain including `app.`) | ⬜ |
 | 10 | **Cloudflare R2** → bucket (see note below) → Settings → CORS Policy | `AllowedOrigins` — add | `https://app.oneclickhr.app` | ⬜ **← every upload in production fails until this is done. Check with `R2_CORS_ORIGINS="https://app.oneclickhr.app" npm run r2:doctor`** |
 | 11 | **cron-job.org** → both jobs (visa reminders, calendar sync) | Job URL | `https://app.oneclickhr.app/api/cron/visa-reminders` and `.../api/cron/calendar-sync` | ⬜ |
 | 12 | **Resend** → Domains | Verified sending domain | `oneclickhr.app` (apex — SPF/DKIM/return-path DNS records; sender addresses don't use a subdomain) | ⬜ |
-| 13 | **Resend** / Supabase SMTP settings | `EMAIL_FROM` / Sender email | `Oneclickhr <no-reply@oneclickhr.app>` | ⬜ |
+| 13 | **Resend** / Supabase SMTP settings | `EMAIL_FROM` / Sender email | `OneclickHR <no-reply@oneclickhr.app>` | ⬜ |
 
 Rows 5–6 control the link inside Supabase's own confirmation/reset-password
 emails (`{{ .SiteURL }}` in the template — see SETUP.md §4c), so if Site URL is

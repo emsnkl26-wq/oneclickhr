@@ -6,11 +6,12 @@ import { JOB_TYPES, JOB_WORKPLACES } from '@/lib/schemas'
 import { loadJobViewer } from '@/lib/job-viewer-server'
 import { JobHero } from './job-hero'
 import { JobBoard } from './job-board'
+import { BRAND } from '@/lib/brand'
 
 export const metadata: Metadata = {
   title: 'Open roles',
   description:
-    'Full-time, contract, C2C and W2 roles from organizations hiring through Oneclickhr. Browse by country and apply in a click.',
+    `Full-time, contract, C2C and W2 roles from organizations hiring through ${BRAND.name}. Browse by country and apply in a click.`,
 }
 
 export const dynamic = 'force-dynamic'

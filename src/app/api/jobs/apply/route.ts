@@ -196,7 +196,7 @@ async function notify(
   try {
     const admin = createAdminClient()
 
-    let companyName = 'Oneclickhr'
+    let companyName = 'OneclickHR'
     let brandColor: string | undefined
     if (job.tenantId) {
       const { data } = await admin

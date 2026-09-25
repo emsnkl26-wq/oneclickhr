@@ -3,7 +3,8 @@
 import { useTheme } from '@/components/theme-provider'
 
 /**
- * The one palette the dashboard's visuals share.
+ * The one palette the dashboard's visuals share — one series, in the brand
+ * orange (Orange Dark on light, a step brighter on dark), on slate neutrals.
  *
  * It lives in its own module for a build reason, not a stylistic one: the gauge
  * and the two plots both need it, but only the plots need `recharts`. Keeping
@@ -16,8 +17,8 @@ import { useTheme } from '@/components/theme-provider'
  * and the matching hex is handed to the chart.
  */
 export const PALETTE = {
-  light: { series: '#2a78d6', fillTop: 0.22, grid: '#E7E9EE', axis: '#6B7280' },
-  dark: { series: '#3987e5', fillTop: 0.3, grid: '#2A2E39', axis: '#9AA0AE' },
+  light: { series: '#F24400', fillTop: 0.22, grid: '#E2E8F0', axis: '#64748B' },
+  dark: { series: '#FF7A1A', fillTop: 0.3, grid: '#243247', axis: '#94A3B8' },
 }
 
 export function usePalette() {

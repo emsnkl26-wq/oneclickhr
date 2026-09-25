@@ -188,7 +188,7 @@ export function ApplicantList({
             onClick={() => setFilter(tab.value)}
             className={cn(
               'focus-ring flex items-center whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-medium transition',
-              filter === tab.value ? 'bg-brand-50 text-brand-700' : 'text-ink-muted hover:text-ink'
+              filter === tab.value ? 'bg-brand-50 text-brand-ink' : 'text-ink-muted hover:text-ink'
             )}
           >
             {tab.label} ({tab.count})
@@ -253,7 +253,7 @@ export function ApplicantList({
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 break-all text-sm">
                     <a
                       href={`mailto:${row.email}`}
-                      className="inline-flex items-center gap-1.5 text-brand-600 hover:underline"
+                      className="inline-flex items-center gap-1.5 text-brand-ink hover:underline"
                     >
                       <Mail className="size-3.5" aria-hidden />
                       {row.email}

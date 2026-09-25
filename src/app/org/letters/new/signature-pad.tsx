@@ -10,7 +10,7 @@ import type { LogoAsset } from '@/lib/document-pdf'
 type Mode = 'draw' | 'upload' | 'type'
 
 const SCRIPT_FONT = "'Segoe Script', 'Brush Script MT', 'Lucida Handwriting', 'Apple Chancery', cursive"
-const INK = '#1a1c23'
+const INK = '#0f172a'
 
 /**
  * Crop a canvas to its inked pixels (plus a little padding) and hand it back as

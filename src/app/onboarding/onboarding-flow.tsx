@@ -10,7 +10,7 @@ import { apiPost, ApiClientError } from '@/lib/fetcher'
 import { COMMON_TIMEZONES } from '@/lib/timezones'
 import { contrastOn } from '@/lib/utils'
 
-const PRESET_COLORS = ['#C41E33', '#2563EB', '#16A34A', '#7C3AED', '#EA580C', '#0F766E']
+const PRESET_COLORS = ['#FF6A00', '#2563EB', '#16A34A', '#7C3AED', '#DC2626', '#0F766E']
 
 export function OnboardingFlow({
   orgName, defaultColor, defaultTimezone,

@@ -17,7 +17,7 @@ const FILTERS = ['all', 'published', 'draft', 'closed', 'platform'] as const
 type Filter = (typeof FILTERS)[number]
 
 /**
- * Every posting on the platform — Oneclickhr's own and every customer's.
+ * Every posting on the platform — OneclickHR's own and every customer's.
  *
  * Read with the service role and deliberately unscoped, in the same shape as
  * /super/organizations: `requireSuperAdmin()` above IS the boundary, and RLS is
@@ -25,7 +25,7 @@ type Filter = (typeof FILTERS)[number]
  * should ever say.
  *
  * `platform` is a filter rather than a separate page. The two things a super
- * admin does here — post Oneclickhr's own roles, and pull down a customer's bad
+ * admin does here — post OneclickHR's own roles, and pull down a customer's bad
  * one — are the same list viewed two ways, and splitting them would mean
  * discovering the moderation queue only if you knew to look for it.
  */
@@ -86,7 +86,7 @@ export default async function SuperJobsPage({
     applicationCount: job.application_count,
     publishedAt: job.published_at,
     closesAt: job.closes_at,
-    companyName: job.tenant_id ? (names.get(job.tenant_id) ?? 'Unknown workspace') : 'Oneclickhr',
+    companyName: job.tenant_id ? (names.get(job.tenant_id) ?? 'Unknown workspace') : 'OneclickHR',
     isPlatform: !job.tenant_id,
     form: toFormValues(job),
   }))
@@ -95,7 +95,7 @@ export default async function SuperJobsPage({
     <div className="space-y-6">
       <PageHeader
         title="Jobs"
-        description="Every posting on the portal. Post Oneclickhr's own roles here, and unpublish anything that should not be public."
+        description="Every posting on the portal. Post OneclickHR's own roles here, and unpublish anything that should not be public."
         actions={
           <Button variant="secondary" asChild>
             <a href="/jobs" target="_blank" rel="noreferrer">

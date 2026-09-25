@@ -284,7 +284,7 @@ export function WeekGrid({
                   </td>
                 ))}
                 <td className="px-3 py-3 text-right">
-                  <span className="tabular text-sm font-bold text-brand-600">{grandTotal}</span>
+                  <span className="tabular text-sm font-bold text-brand-ink">{grandTotal}</span>
                 </td>
                 {readOnly ? null : <td />}
               </tr>

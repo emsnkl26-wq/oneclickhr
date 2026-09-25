@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { RouteProgress } from '@/components/shell/route-progress'
+import { BRAND, BRAND_ASSETS, brandOgImage } from '@/lib/brand'
+import { appUrl } from '@/lib/env'
 import '@/app/globals.css'
 
 // Importing this for its side effect: environment validation runs once per
@@ -16,16 +18,51 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
+  // Makes every relative image URL below absolute. Link-preview crawlers do not
+  // resolve a relative og:image, and without this Next guesses localhost.
+  metadataBase: new URL(appUrl()),
   title: {
-    default: 'Oneclickhr',
-    template: '%s · Oneclickhr',
+    default: BRAND.title,
+    template: `%s · ${BRAND.name}`,
   },
-  description: 'Employee management for modern care organizations.',
+  description: BRAND.description,
+  applicationName: BRAND.name,
   robots: { index: false, follow: false },
+
+  // `/favicon.ico` (multi-size) is what browsers ask for by default and what
+  // older ones stop at; the PNGs are for the ones that read the <link> tags.
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: BRAND_ASSETS.favicon32.src, type: 'image/png', sizes: '32x32' },
+      { url: BRAND_ASSETS.favicon16.src, type: 'image/png', sizes: '16x16' },
+    ],
+    apple: [{ url: BRAND_ASSETS.appleTouch.src, sizes: '180x180', type: 'image/png' }],
+  },
+  // Served by src/app/manifest.ts.
+  manifest: '/manifest.webmanifest',
+
+  openGraph: {
+    type: 'website',
+    siteName: BRAND.name,
+    title: BRAND.title,
+    description: BRAND.description,
+    images: [brandOgImage(BRAND_ASSETS.ogDefault, BRAND.title)],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: BRAND.title,
+    description: BRAND.description,
+    images: [BRAND_ASSETS.ogDefault.src],
+  },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#16181F',
+  // Browser chrome follows the app's theme rather than one fixed colour.
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: BRAND.themeColor.light },
+    { media: '(prefers-color-scheme: dark)', color: BRAND.themeColor.dark },
+  ],
   width: 'device-width',
   initialScale: 1,
 }

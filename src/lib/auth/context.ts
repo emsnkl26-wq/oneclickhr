@@ -20,6 +20,7 @@ import 'server-only'
  */
 import { cache } from 'react'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { brandColorOrDefault } from '@/lib/brand'
 import type { UserRole, TenantStatus, TrackingMode } from '@/types/db'
 
 export interface AppContext {
@@ -169,7 +170,7 @@ async function loadContextUncached(): Promise<ContextResult> {
           slug: row.tenant_slug ?? '',
           status: (row.tenant_status ?? 'active') as TenantStatus,
           logoUrl: row.tenant_logo_url,
-          primaryColor: row.tenant_primary_color ?? '#C41E33',
+          primaryColor: brandColorOrDefault(row.tenant_primary_color),
           timezone: row.tenant_timezone ?? 'Asia/Kolkata',
           workStartTime: row.tenant_work_start_time ?? '09:30',
           onboarded: !!row.tenant_onboarded,

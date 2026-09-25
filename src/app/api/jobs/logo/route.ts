@@ -19,7 +19,7 @@ const REDIRECT_CACHE_SECONDS = 10 * 60
  * that is a fact about the tenant rather than about the caller.
  *
  * THE RULE: the tenant must currently have at least one PUBLISHED job. Without
- * it this route would answer "is this uuid a customer of Oneclickhr?" for any
+ * it this route would answer "is this uuid a customer of OneclickHR?" for any
  * uuid anyone cared to try, and hand over their branding. With it, the only
  * thing it confirms is something the same visitor can already read off /jobs.
  *

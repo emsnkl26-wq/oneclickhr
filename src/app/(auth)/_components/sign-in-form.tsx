@@ -115,7 +115,7 @@ export function SignInForm({ portal, title, subtitle, footer }: SignInFormProps)
         <div className="flex justify-end">
           <Link
             href="/forgot-password"
-            className="text-[13px] font-medium text-brand-600 hover:text-brand-700 hover:underline"
+            className="text-[13px] font-medium text-brand-ink hover:underline"
           >
             Forgot your password?
           </Link>

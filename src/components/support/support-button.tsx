@@ -133,7 +133,7 @@ export function SupportButton() {
             <DialogHeader>
               <DialogTitle>Contact support</DialogTitle>
               <DialogDescription>
-                This goes straight to the Oneclickhr team. For something your own HR team handles,
+                This goes straight to the OneclickHR team. For something your own HR team handles,
                 use the Help desk instead.
               </DialogDescription>
             </DialogHeader>

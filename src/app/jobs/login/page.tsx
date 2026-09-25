@@ -28,7 +28,7 @@ export default function CandidateLoginPage() {
           footer={
             <p className="mt-6 text-center text-sm text-ink-muted">
               New here?{' '}
-              <Link href="/jobs/signup" className="font-medium text-brand-600 hover:underline">
+              <Link href="/jobs/signup" className="font-medium text-brand-ink hover:underline">
                 Create a free account
               </Link>
             </p>
@@ -37,11 +37,11 @@ export default function CandidateLoginPage() {
       </Suspense>
       <p className="mt-6 text-center text-xs leading-relaxed text-ink-muted">
         Hiring or managing a team?{' '}
-        <Link href="/login" className="font-medium text-brand-600 hover:underline">
+        <Link href="/login" className="font-medium text-brand-ink hover:underline">
           Organization sign-in
         </Link>{' '}
         ·{' '}
-        <Link href="/employee-login" className="font-medium text-brand-600 hover:underline">
+        <Link href="/employee-login" className="font-medium text-brand-ink hover:underline">
           Employee portal
         </Link>
       </p>

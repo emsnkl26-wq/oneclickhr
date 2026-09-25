@@ -139,7 +139,7 @@ function ApplicationCard({ row, events }: { row: ApplicationRow; events: EventRo
   return (
     <details className="card-surface group overflow-hidden">
       <summary className="flex cursor-pointer list-none items-center gap-4 p-5 [&::-webkit-details-marker]:hidden">
-        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-base font-bold text-brand-700">
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-base font-bold text-brand-ink">
           {row.company_name.charAt(0).toUpperCase()}
         </span>
         <span className="min-w-0 flex-1">
@@ -192,7 +192,7 @@ function ApplicationCard({ row, events }: { row: ApplicationRow; events: EventRo
 
         {latestMessage ? (
           <div className="rounded-lg border border-brand-200 bg-brand-50/60 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-ink">
               Message from {row.company_name}
             </p>
             <p className="mt-1 whitespace-pre-line break-words text-sm text-ink">{latestMessage}</p>
@@ -252,13 +252,13 @@ function ApplicationCard({ row, events }: { row: ApplicationRow; events: EventRo
                   ) : null}
                 </p>
                 {row.recruiter_email ? (
-                  <a href={`mailto:${row.recruiter_email}`} className="flex items-center gap-2 break-all text-ink-muted hover:text-brand-600">
+                  <a href={`mailto:${row.recruiter_email}`} className="flex items-center gap-2 break-all text-ink-muted hover:text-brand-ink">
                     <Mail className="size-4 shrink-0" aria-hidden />
                     {row.recruiter_email}
                   </a>
                 ) : null}
                 {row.recruiter_phone ? (
-                  <a href={`tel:${row.recruiter_phone.replace(/[^+\d]/g, '')}`} className="flex items-center gap-2 text-ink-muted hover:text-brand-600">
+                  <a href={`tel:${row.recruiter_phone.replace(/[^+\d]/g, '')}`} className="flex items-center gap-2 text-ink-muted hover:text-brand-ink">
                     <Phone className="size-4 shrink-0" aria-hidden />
                     {row.recruiter_phone}
                   </a>
@@ -268,7 +268,7 @@ function ApplicationCard({ row, events }: { row: ApplicationRow; events: EventRo
                     href={row.recruiter_linkedin_url}
                     target="_blank"
                     rel="noopener noreferrer nofollow"
-                    className="flex items-center gap-2 text-ink-muted hover:text-brand-600"
+                    className="flex items-center gap-2 text-ink-muted hover:text-brand-ink"
                   >
                     <Linkedin className="size-4 shrink-0" aria-hidden />
                     LinkedIn

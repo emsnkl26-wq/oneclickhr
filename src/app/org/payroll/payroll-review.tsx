@@ -384,7 +384,7 @@ function ReviewDialog({ row, onClose }: { row: Row | null; onClose: () => void }
               <dd className="mt-0.5 text-sm">
                 {confirmation?.file_url ? (
                   <a
-                    className="text-brand-600 hover:underline"
+                    className="text-brand-ink hover:underline"
                     href={`/api/files/view?key=${encodeURIComponent(confirmation.file_url)}`}
                     target="_blank"
                     rel="noopener noreferrer"

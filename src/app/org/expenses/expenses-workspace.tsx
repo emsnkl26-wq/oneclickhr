@@ -198,7 +198,7 @@ export function ExpensesWorkspace({
                             href={`/api/files/view?key=${encodeURIComponent(expense.receipt_url)}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
+                            className="inline-flex items-center gap-1 text-xs text-brand-ink hover:underline"
                           >
                             <Paperclip className="size-3" aria-hidden />
                             Receipt

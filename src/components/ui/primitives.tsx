@@ -129,7 +129,7 @@ const DropdownMenuItem = React.forwardRef<
     className={cn(
       'relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-none transition',
       'focus:bg-page data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-4',
-      destructive ? 'text-danger focus:bg-brand-50' : 'text-ink',
+      destructive ? 'text-danger focus:bg-danger/10' : 'text-ink',
       className
     )}
     {...props}
@@ -190,7 +190,7 @@ const AvatarFallback = React.forwardRef<
   <AvatarPrimitive.Fallback
     ref={ref}
     className={cn(
-      'flex size-full items-center justify-center bg-brand-50 text-[11px] font-semibold text-brand-700',
+      'flex size-full items-center justify-center bg-brand-50 text-[11px] font-semibold text-brand-ink',
       className
     )}
     {...props}
@@ -245,7 +245,7 @@ const TabsTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       'focus-ring whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-medium text-ink-muted transition',
-      'hover:text-ink data-[state=active]:bg-brand-50 data-[state=active]:text-brand-700',
+      'hover:text-ink data-[state=active]:bg-brand-50 data-[state=active]:text-brand-ink',
       className
     )}
     {...props}

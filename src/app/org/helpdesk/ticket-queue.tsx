@@ -47,7 +47,7 @@ export function TicketQueue({
       cell: (row) => (
         <Link
           href={`/org/helpdesk/${row.id}`}
-          className="tabular font-medium text-brand-600 hover:underline"
+          className="tabular font-medium text-brand-ink hover:underline"
         >
           {row.code}
         </Link>

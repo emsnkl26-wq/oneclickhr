@@ -90,7 +90,7 @@ export function OrganizationList({ tenants }: { tenants: TenantRow[] }) {
           <div className="min-w-0">
             <Link
               href={`/super/organizations/${row.id}`}
-              className="block truncate font-medium hover:text-brand-600 hover:underline"
+              className="block truncate font-medium hover:text-brand-ink hover:underline"
             >
               {row.name}
             </Link>

@@ -5,22 +5,25 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
- * The crimson is reserved for `default` (the one primary action on a screen) and
- * `danger`. Everything else is neutral — that restraint is what makes the accent
- * read as meaningful rather than decorative.
+ * The orange is reserved for `default` (the one primary action on a screen);
+ * `danger` is red. Everything else is neutral — that restraint is what makes the
+ * accent read as meaningful rather than decorative.
+ *
+ * White on #FF6A00 is 2.9:1, so the two filled variants are semibold: the extra
+ * weight is what keeps a 14px label legible on a colour this light.
  */
 const buttonVariants = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors focus-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        default: 'bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800',
+        default: 'bg-brand-600 font-semibold text-white shadow-sm hover:bg-brand-700 active:bg-brand-800',
         secondary: 'border border-line bg-card text-ink shadow-sm hover:bg-page',
         ghost: 'text-ink-muted hover:bg-page hover:text-ink',
-        danger: 'bg-danger text-white shadow-sm hover:bg-brand-700',
-        outline: 'border border-brand-600 text-brand-600 hover:bg-brand-50',
-        link: 'text-brand-600 underline-offset-4 hover:underline',
-        subtle: 'bg-brand-50 text-brand-700 hover:bg-brand-100',
+        danger: 'bg-danger font-semibold text-white shadow-sm hover:bg-danger/90',
+        outline: 'border border-brand-600 text-brand-ink hover:bg-brand-50',
+        link: 'text-brand-ink underline-offset-4 hover:underline',
+        subtle: 'bg-brand-50 text-brand-ink hover:bg-brand-100',
       },
       size: {
         sm: 'h-8 px-3 text-[13px]',

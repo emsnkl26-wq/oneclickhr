@@ -606,7 +606,7 @@ export function SkillsSection({
             {skills.map((skill) => (
               <span
                 key={skill}
-                className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 py-1 pl-3 pr-1.5 text-[13px] font-medium text-brand-700 ring-1 ring-inset ring-brand-200"
+                className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 py-1 pl-3 pr-1.5 text-[13px] font-medium text-brand-ink ring-1 ring-inset ring-brand-200"
               >
                 {skill}
                 {readOnly ? (

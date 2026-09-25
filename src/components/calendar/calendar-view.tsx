@@ -292,7 +292,7 @@ export function CalendarView({
                         onClick={() => onCreateOn(cell.date)}
                         aria-label={`Schedule a meeting on ${formatDay(cell.date)}`}
                         title="Schedule a meeting"
-                        className="focus-ring rounded p-0.5 text-ink-muted opacity-0 transition hover:bg-page hover:text-brand-600 focus-visible:opacity-100 group-hover:opacity-100"
+                        className="focus-ring rounded p-0.5 text-ink-muted opacity-0 transition hover:bg-page hover:text-brand-ink focus-visible:opacity-100 group-hover:opacity-100"
                       >
                         <Plus className="size-3.5" />
                       </button>

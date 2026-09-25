@@ -29,7 +29,7 @@ export function DomainBanner({
   const days = daysLeft
   const overdue = days !== null && days < 0
 
-  // Amber while there is still time, crimson once it has run out. Two tones
+  // Amber while there is still time, red once it has run out. Two tones
   // only: a gradient of urgency across a fortnight would just read as noise.
   const tone = overdue
     ? {
@@ -37,7 +37,7 @@ export function DomainBanner({
         tile: 'bg-danger/10 text-danger',
         title: 'text-danger',
         body: 'text-danger/90',
-        button: 'bg-danger hover:bg-brand-700',
+        button: 'bg-danger hover:bg-danger/90',
       }
     : {
         wrap: 'border-amber-200 bg-amber-50',

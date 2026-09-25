@@ -691,7 +691,7 @@ class DocWriter {
       this.doc.setTextColor(...MUTED)
       // Clickable — the only place in the document that points away from the
       // org's own site, so it links to ours, not theirs.
-      this.doc.textWithLink('Powered by OneClickHR', this.margin, y, { url: ONECLICKHR_URL })
+      this.doc.textWithLink('Powered by OneclickHR', this.margin, y, { url: ONECLICKHR_URL })
 
       if (this.options.pageNumbers || total > 1) {
         this.doc.text(`Page ${page} of ${total}`, this.pageWidth - this.margin, y, {

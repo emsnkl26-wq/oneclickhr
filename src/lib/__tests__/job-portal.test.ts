@@ -143,7 +143,7 @@ describe('job postings (052)', () => {
       published_at: null,
       closes_at: null,
     } as unknown as Job
-    const company = { id: null, name: 'Oneclickhr', slug: null, isPlatform: true, logoUrl: null, website: null, location: null }
+    const company = { id: null, name: 'OneclickHR', slug: null, isPlatform: true, logoUrl: null, website: null, location: null }
 
     expect(toPublicJob(row, company).recruiter).toBeNull()
     const withRecruiter = toPublicJob(

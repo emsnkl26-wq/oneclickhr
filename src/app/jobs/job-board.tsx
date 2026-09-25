@@ -241,7 +241,7 @@ function FilterPanel({ filters }: { filters: BoardFilters }) {
                 for (const key of ['q', 'type', 'mode', 'exp']) query.delete(key)
               })
             }
-            className="text-xs font-medium text-brand-600 hover:underline"
+            className="text-xs font-medium text-brand-ink hover:underline"
           >
             Clear all
           </button>
@@ -377,7 +377,7 @@ function JobCard({
           <CompanyMark company={job.company} />
           <div className="min-w-0 flex-1">
             <h3 className="line-clamp-2 text-[16px] font-semibold leading-snug text-ink">
-              <button type="button" onClick={onView} className="text-left hover:text-brand-600">
+              <button type="button" onClick={onView} className="text-left hover:text-brand-ink">
                 {job.title}
               </button>
             </h3>
@@ -389,7 +389,7 @@ function JobCard({
         </div>
 
         <div className="mt-4 flex flex-wrap gap-1.5">
-          <span className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
+          <span className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-ink">
             {JOB_TYPE_LABELS[job.employmentType]}
           </span>
           <span className="inline-flex items-center gap-1 rounded-full bg-page px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-inset ring-line">
@@ -497,7 +497,7 @@ function JobDetailsDialog({
                     ) : null}
                   </DialogDescription>
                   <div className="mt-2.5 flex flex-wrap gap-1.5">
-                    <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">
+                    <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-ink">
                       {JOB_TYPE_LABELS[job.employmentType]}
                     </span>
                     <span className="rounded-full bg-page px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink ring-1 ring-inset ring-line">

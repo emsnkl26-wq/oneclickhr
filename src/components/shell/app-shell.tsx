@@ -3,7 +3,8 @@ import { Sidebar, type ShellBrand, type ShellUser } from '@/components/shell/sid
 import { DomainBanner } from '@/components/shell/domain-banner'
 import { SupportButton } from '@/components/support/support-button'
 import { PushBootstrap } from '@/components/notifications/push-bootstrap'
-import { hexToHslTriple, shiftLightness } from '@/lib/utils'
+import { brandColorOrDefault, DEFAULT_PRIMARY_COLOR, BRAND } from '@/lib/brand'
+import { brandDarkTints, brandInk, brandLightTints, hexToHslTriple, shiftLightness } from '@/lib/utils'
 import { daysUntilDeadline } from '@/lib/domain'
 import type { AppContext } from '@/lib/auth/context'
 
@@ -15,7 +16,7 @@ import type { AppContext } from '@/lib/auth/context'
  * variables on `:root`. Because every `bg-brand-600` in the app reads
  * `hsl(var(--brand-600))`, overriding the variable re-themes the entire
  * workspace — no conditional classes, no runtime class generation, and the
- * Oneclickhr crimson stays the default when an org has not chosen one.
+ * OneclickHR orange stays the default when an org has not chosen one.
  *
  * It targets `:root` rather than a wrapper div so that chrome rendered OUTSIDE
  * this subtree — the fixed route-progress bar in the root layout — is brand
@@ -23,23 +24,34 @@ import type { AppContext } from '@/lib/auth/context'
  * conflict with, and emitting it server-side means no flash of the wrong colour.
  *
  * The 50/700 shades are DERIVED from the chosen hue rather than left at the
- * crimson defaults; mixing a custom primary with a crimson tint would look like
+ * orange defaults; mixing a custom primary with an orange tint would look like
  * a bug.
+ *
+ * A workspace on the platform colour writes NOTHING. The stylesheet already
+ * carries the exact brand-kit shades for it, in both themes, and re-deriving
+ * them here would only produce slightly different oranges.
  */
 function brandCss(hex: string | null | undefined): string | null {
-  const triple = hexToHslTriple(hex ?? '')
+  const color = brandColorOrDefault(hex)
+  if (color.toLowerCase() === DEFAULT_PRIMARY_COLOR.toLowerCase()) return null
+
+  const triple = hexToHslTriple(color)
   // `hexToHslTriple` only ever returns numbers parsed out of a `#rrggbb` match,
   // so nothing user-controlled can reach the stylesheet as text.
   if (!triple) return null
 
+  const lightTints = brandLightTints(color)
   const declarations: Record<string, string> = {
     '--brand-600': triple,
     '--brand-700': shiftLightness(triple, -7),
     '--brand-800': shiftLightness(triple, -14),
     '--brand-500': shiftLightness(triple, +8),
-    '--brand-200': shiftLightness(triple, +40),
-    '--brand-100': shiftLightness(triple, +47),
-    '--brand-50': shiftLightness(triple, +51),
+    // Fixed-lightness washes rather than "the colour plus N" — see brandLightTints.
+    '--brand-200': lightTints?.[200] ?? triple,
+    '--brand-100': lightTints?.[100] ?? triple,
+    '--brand-50': lightTints?.[50] ?? triple,
+    // The same colour as readable TEXT (`text-brand-ink`) on a light surface.
+    '--brand-ink': brandInk(color, 'light') ?? triple,
     /*
      * `--danger` IS DELIBERATELY NOT OVERRIDDEN.
      *
@@ -59,7 +71,14 @@ function brandCss(hex: string | null | undefined): string | null {
     .map(([name, value]) => `${name}:${value}`)
     .join(';')
 
-  return `:root{${body}}`
+  // The dark theme needs its own tints and ink. This rule comes AFTER `:root`
+  // and has the same specificity as globals.css's `.dark`, so it wins over both.
+  const tints = brandDarkTints(color)
+  const dark = tints
+    ? `.dark{--brand-50:${tints[50]};--brand-100:${tints[100]};--brand-200:${tints[200]};--brand-ink:${brandInk(color, 'dark') ?? triple}}`
+    : ''
+
+  return `:root{${body}}${dark}`
 }
 
 export function AppShell({
@@ -77,19 +96,22 @@ export function AppShell({
     trackingMode: ctx.trackingMode,
   }
 
+  const platform = ctx.role === 'super_admin' || ctx.role === 'candidate'
   const brand: ShellBrand = {
     name:
       ctx.role === 'super_admin'
-        ? 'Oneclickhr'
+        ? BRAND.name
         : ctx.role === 'candidate'
-          ? 'Oneclickhr Jobs'
+          ? BRAND.jobsName
           : (ctx.tenant?.name ?? 'Workspace'),
     logoUrl: ctx.tenant?.logoUrl
       ? `/api/files/view?key=${encodeURIComponent(ctx.tenant.logoUrl)}`
       : null,
+    platform,
+    suffix: ctx.role === 'candidate' ? 'Jobs' : undefined,
   }
 
-  // The platform console always wears Oneclickhr crimson — it is our product,
+  // The platform console always wears the OneclickHR orange — it is our product,
   // not a customer's workspace.
   const css =
     ctx.role === 'super_admin' || ctx.role === 'candidate' ? null : brandCss(ctx.tenant?.primaryColor)

@@ -3,59 +3,78 @@
 @tailwind utilities;
 
 /**
- * Brand palette, derived from the Oneclickhr logo (crimson on near-black) and
- * refined to premium shades. Stored as raw HSL triples so Tailwind can compose
- * them with opacity modifiers (`bg-brand-600/10`) and so a per-org colour can be
- * swapped in at runtime by overriding just these three variables.
+ * OneclickHR design tokens, taken from the brand kit (see src/lib/brand.ts).
  *
- *   --brand-600  #C41E33   primary crimson  -> 352 73% 44%
- *   --brand-700  #A5182A   hover / pressed  -> 352 74% 37%
- *   --brand-50   #FCEBEE   tint             -> 351 76% 95%
+ * Stored as raw HSL triples so Tailwind can compose them with opacity modifiers
+ * (`bg-brand-600/10`) and so a per-org colour can be swapped in at runtime by
+ * overriding just the --brand-* variables (see brandCss in app-shell.tsx).
+ *
+ *   --brand-600  #FF6A00  Primary Orange — CTAs, highlights, active state
+ *   --brand-700  #F24400  Orange Dark    — hover / pressed
+ *   --brand-800  #C93A00  deeper         — active press, dark-mode washes
+ *   --brand-ink  #C2410C  the same hue as TEXT. #FF6A00 is 2.9:1 on white:
+ *                         fine for a fill or an icon, too faint for a 13px link.
+ *                         Use `text-brand-ink` for orange text, `text-brand-ink`
+ *                         only for icons and large display numbers.
+ *
+ *   Charcoal #0F172A (text, dark surfaces) · Gray #64748B (secondary text)
+ *   Light Gray #F1F5F9 (page background, hover fills)
+ *
+ * DANGER IS RED, NOT BRAND. The old crimson brand doubled as the error colour;
+ * orange cannot, so errors and destructive actions have a true red of their own.
  */
 @layer base {
   :root {
-    --brand-50:  351 76% 95%;
-    --brand-100: 351 74% 91%;
-    --brand-200: 352 72% 84%;
-    --brand-500: 352 65% 52%;
-    --brand-600: 352 73% 44%;
-    --brand-700: 352 74% 37%;
-    --brand-800: 352 72% 30%;
+    --brand-50:  27 100% 96%;       /* #FFF4EB */
+    --brand-100: 27 100% 91%;       /* #FFE6D2 */
+    --brand-200: 26 100% 82%;       /* #FFCBA4 */
+    --brand-500: 24 100% 60%;       /* #FF8533 */
+    --brand-600: 25 100% 50%;       /* #FF6A00  Primary Orange */
+    --brand-700: 17 100% 47.5%;     /* #F24400  Orange Dark */
+    --brand-800: 17 100% 39.5%;     /* #C93A00 */
+    --brand-ink: 17 88% 40.5%;      /* #C2410C  orange text on light surfaces */
 
     /* Light theme: sidebar rides along with the page, not near-black. */
     --sidebar:        0 0% 100%;
-    --sidebar-fg:     227 13% 12%;
-    --sidebar-muted:  220 9%  46%;
-    --sidebar-hover:  220 16% 96%;
-    --sidebar-border: 222 18% 92%;
+    --sidebar-fg:     222 47% 11%;  /* Charcoal */
+    --sidebar-muted:  215 16% 47%;  /* Gray */
+    --sidebar-hover:  210 40% 96%;  /* Light Gray */
+    --sidebar-border: 214 32% 91%;
 
-    --page-bg:   220 16% 97%;       /* #F6F7F9 */
+    --page-bg:   210 40% 96%;       /* #F1F5F9  Light Gray */
     --card:      0 0% 100%;
-    --secondary: 220 16% 96%;
-    --text:      227 13% 12%;       /* #1A1C23 */
-    --muted:     220 9%  46%;       /* #6B7280 */
-    --border:    222 18% 92%;       /* #E7E9EE */
+    --secondary: 210 40% 96%;
+    --text:      222 47% 11%;       /* #0F172A  Charcoal */
+    --muted:     215 16% 47%;       /* #64748B  Gray */
+    --border:    214 32% 91%;       /* #E2E8F0 */
 
     --success: 142 71% 36%;         /* #16A34A */
     --warning: 38 92%  50%;         /* #F59E0B */
     --info:    221 83% 53%;         /* #2563EB */
-    --danger:  352 73% 44%;         /* #C41E33 */
+    --danger:  0 72% 51%;           /* #DC2626 */
   }
 
   /* Dark theme, toggled via the `dark` class on <html> (see theme-provider). */
   .dark {
-    --sidebar:        225 15% 11%;  /* #16181F premium near-black charcoal */
-    --sidebar-fg:     228 13% 91%;  /* #E7E8EC */
-    --sidebar-muted:  228 8%  62%;
-    --sidebar-hover:  225 14% 17%;
-    --sidebar-border: 225 13% 20%;
+    /* A tint is a light wash in the light theme and a dark, warm one here, so
+       `bg-brand-50 text-brand-ink` reads as a chip on either surface. */
+    --brand-50:  22 46% 12%;
+    --brand-100: 23 53% 15%;
+    --brand-200: 22 53% 22%;
+    --brand-ink: 24 100% 62%;       /* #FF8A3D */
 
-    --page-bg:   226 16% 9%;
-    --card:      225 15% 12%;
-    --secondary: 225 13% 16%;
-    --text:      228 13% 91%;
-    --muted:     228 8%  62%;
-    --border:    225 13% 20%;
+    --sidebar:        222 47% 11%;  /* #0F172A Charcoal */
+    --sidebar-fg:     214 32% 91%;  /* #E2E8F0 */
+    --sidebar-muted:  215 20% 65%;  /* #94A3B8 */
+    --sidebar-hover:  217 33% 17%;
+    --sidebar-border: 217 33% 18%;
+
+    --page-bg:   223 49% 8%;        /* #0B1120 */
+    --card:      222 47% 11%;
+    --secondary: 217 33% 17%;       /* #1E293B */
+    --text:      214 32% 91%;
+    --muted:     215 20% 65%;
+    --border:    216 33% 21%;       /* #243247 */
   }
 
   * {

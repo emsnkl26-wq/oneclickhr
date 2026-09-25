@@ -20,7 +20,7 @@
     "email:templates": "tsx scripts/render-supabase-templates.ts",
     "check:boundaries": "tsx scripts/check-client-boundary.ts",
     "push:keys": "tsx scripts/push-keys.ts",
-    "push:icons": "tsx scripts/make-push-icons.ts"
+    "brand:assets": "tsx scripts/make-brand-assets.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.716.0",
@@ -75,6 +75,7 @@
     "eslint": "^8.57.1",
     "eslint-config-next": "^15.1.3",
     "postcss": "^8.4.49",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

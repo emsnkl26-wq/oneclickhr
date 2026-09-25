@@ -68,7 +68,7 @@ export function ReviewStep({
               <span
                 className={cn(
                   'grid size-6 shrink-0 place-items-center rounded-full',
-                  errors ? 'bg-brand-50 text-brand-700' : 'bg-emerald-50 text-emerald-600'
+                  errors ? 'bg-brand-50 text-brand-ink' : 'bg-emerald-50 text-emerald-600'
                 )}
                 aria-hidden
               >
@@ -87,7 +87,7 @@ export function ReviewStep({
                     : 'Complete'}
                 </span>
               </span>
-              <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-muted transition group-hover:text-brand-600">
+              <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-muted transition group-hover:text-brand-ink">
                 <Pencil className="size-3.5" aria-hidden />
                 Edit
               </span>

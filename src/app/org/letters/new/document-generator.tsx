@@ -1123,7 +1123,7 @@ function AutoBadge({ edited, onRevert }: { edited: boolean; onRevert: () => void
     <button
       type="button"
       onClick={onRevert}
-      className="focus-ring inline-flex shrink-0 items-center gap-1 rounded text-xs font-medium text-brand-600 hover:underline"
+      className="focus-ring inline-flex shrink-0 items-center gap-1 rounded text-xs font-medium text-brand-ink hover:underline"
     >
       <RotateCcw className="size-3" aria-hidden />
       Edited — use automatic
@@ -1223,7 +1223,7 @@ function AgreementSections({
                   >
                     <span className="min-w-0 flex-1 truncate">{section.heading}</span>
                     {edited ? (
-                      <span className="shrink-0 text-xs font-normal text-brand-600">Edited</span>
+                      <span className="shrink-0 text-xs font-normal text-brand-ink">Edited</span>
                     ) : null}
                     <ChevronDown
                       className={cn(

@@ -353,7 +353,7 @@ export const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function 
                       className={cn(
                         'flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors',
                         isActive && 'bg-page',
-                        isSelected ? 'font-medium text-brand-600' : 'text-ink',
+                        isSelected ? 'font-medium text-brand-ink' : 'text-ink',
                         option.disabled && 'pointer-events-none opacity-50'
                       )}
                     >

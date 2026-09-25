@@ -99,13 +99,13 @@ export default async function TalentProfilePage({ params }: { params: Promise<{ 
                 ) : null}
               </div>
               {person.email ? (
-                <a href={`mailto:${person.email}`} className="flex items-center gap-2 break-all hover:text-brand-600">
+                <a href={`mailto:${person.email}`} className="flex items-center gap-2 break-all hover:text-brand-ink">
                   <Mail className="size-4 shrink-0 text-ink-muted" aria-hidden />
                   {person.email}
                 </a>
               ) : null}
               {person.phone ? (
-                <a href={`tel:${person.phone.replace(/[^+\d]/g, '')}`} className="flex items-center gap-2 hover:text-brand-600">
+                <a href={`tel:${person.phone.replace(/[^+\d]/g, '')}`} className="flex items-center gap-2 hover:text-brand-ink">
                   <Phone className="size-4 shrink-0 text-ink-muted" aria-hidden />
                   {person.phone}
                 </a>
@@ -166,7 +166,7 @@ export default async function TalentProfilePage({ params }: { params: Promise<{ 
               </CardHeader>
               <CardContent className="flex flex-wrap gap-1.5">
                 {skills.map((skill) => (
-                  <span key={skill} className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">
+                  <span key={skill} className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-ink">
                     {skill}
                   </span>
                 ))}

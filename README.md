@@ -1,4 +1,4 @@
-# Oneclickhr
+# OneclickHR
 
 A multi-tenant Employee Management System, built as SaaS. Each customer
 organization gets an isolated workspace for attendance, leave, payroll,
@@ -122,6 +122,20 @@ late-login checks and visa day-diffs all go through `src/lib/time.ts`, which
 takes a timezone explicitly. A lambda runs in UTC; a 9am IST clock-in filed
 under the previous day is wrong in a way nothing reports.
 
+**The brand has one source of truth.** Name, tagline, palette and asset sizes
+live in `src/lib/brand.ts`; the same palette is mirrored as CSS variables in
+`src/app/globals.css` (a test fails if the two drift). Draw the logo with
+`<BrandLogo>` (`src/components/brand/logo.tsx`), which swaps the light and dark
+artwork with CSS. Orange **fills and icons** use `bg-brand-600` / `text-brand-600`;
+orange **text** uses `text-brand-ink`, because #FF6A00 on white is only 2.9:1.
+Errors are `danger` (a real red) — never brand-coloured, since a workspace can
+re-brand itself to any colour.
+
+Every image under `public/brand/`, `public/icons/` and `public/favicon.ico` is
+**generated** from the two source logos, `public/logo.png` (the mark) and
+`public/long logo.png` (the lockup): `npm run brand:assets`. Change the logo by
+replacing those two files and re-running it — do not hand-edit the outputs.
+
 ---
 
 ## Commands
@@ -130,6 +144,7 @@ under the previous day is wrong in a way nothing reports.
 npm run dev             # development server
 npm run build           # production build
 npm run type-check      # TypeScript
+npm run brand:assets    # regenerate logos, favicons, app icons and social cards
 npm test                # unit tests — timezone, crypto, upload, money
 npm run test:isolation  # cross-tenant isolation, against a real database
 ```

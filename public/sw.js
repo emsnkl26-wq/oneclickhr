@@ -1,6 +1,6 @@
 /* eslint-disable */
 /**
- * Oneclickhr service worker — notifications only.
+ * OneclickHR service worker — notifications only.
  *
  * ┌────────────────────────────────────────────────────────────────────────┐
  * │ THERE IS DELIBERATELY NO `fetch` HANDLER.                              │
