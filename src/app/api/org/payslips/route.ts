@@ -39,6 +39,40 @@ async function handlePOST(request: NextRequest) {
 
   if (!employee) return jsonError('That employee was not found.', 404)
 
+  // One payslip per person per month: regenerating a month REPLACES its slip,
+  // so the employee only ever sees the current version.
+  const { data: previous } = await supabase
+    .from('payslips')
+    .select('id, file_url')
+    .eq('employee_id', input.employeeId)
+    .eq('year', input.year)
+    .eq('month', input.month)
+    .maybeSingle()
+
+  if (previous) {
+    const { error: updateError } = await supabase
+      .from('payslips')
+      .update({ file_url: input.key, file_name: input.fileName, uploaded_by: ctx.userId })
+      .eq('id', previous.id)
+    if (updateError) {
+      await deleteObject(input.key)
+      return jsonError(friendlyDbError(updateError), 400)
+    }
+    if (previous.file_url && previous.file_url !== input.key) await deleteObject(previous.file_url)
+
+    await audit({
+      tenantId: ctx.tenantId,
+      actorId: ctx.userId,
+      actorEmail: ctx.email,
+      action: 'payslip.replaced',
+      entity: 'payslips',
+      entityId: previous.id,
+      meta: { employeeId: input.employeeId, month: input.month, year: input.year },
+      request,
+    })
+    return jsonOk({ id: previous.id })
+  }
+
   const { data, error } = await supabase
     .from('payslips')
     .insert({

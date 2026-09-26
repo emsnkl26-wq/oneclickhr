@@ -148,7 +148,7 @@ export function PayrollUploader({
       {payslips.length ? (
         <Card>
           <CardHeader>
-            <CardTitle>Earlier payslips</CardTitle>
+            <CardTitle>Payslips</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <ul className="divide-y divide-line">

@@ -256,6 +256,6 @@ export const config = {
      * the extension rule already lets them through signed out — which a link
      * preview crawler, never signed in, depends on.
      */
-    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icons/|api/files/view|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icons/|fonts/|api/files/view|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

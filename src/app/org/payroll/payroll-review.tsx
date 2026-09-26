@@ -15,7 +15,7 @@
 import * as React from 'react'
 import { useProgressRouter } from '@/lib/use-progress-router'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Clock, Download, Search, Wallet, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock, Download, FileText, Search, Wallet, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
-import { apiPatch, ApiClientError } from '@/lib/fetcher'
+import { apiPatch, apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
+import { loadOrgLogo } from '@/lib/document-pdf'
+import {
+  renderPayslip, payslipFileName, payslipMoney, daysInMonth, MONTHS_LONG, type SalaryBasis,
+} from '@/lib/payslip-pdf'
 import { MONTH_NAMES } from '@/lib/time'
 import { initials, formatMoney } from '@/lib/utils'
 import { periodLabel, periodsOf, type PayPeriod, type PaySchedule } from '@/lib/pay-schedule'
@@ -40,6 +44,25 @@ export interface EmployeeRow {
   designation: string | null
   /** Monthly, or twice a month (050) — decides one row or two per month. */
   schedule: PaySchedule
+  pay_rate: number | string | null
+  pay_currency: string | null
+}
+
+/** A payslip already issued for the month on screen. */
+export interface PayslipRow {
+  id: string
+  employee_id: string
+  file_url: string
+  file_name: string | null
+}
+
+/** What the payslip footer prints, from the org's letterhead settings. */
+export interface PayslipCompany {
+  name: string
+  logoUrl: string | null
+  address: string
+  email: string | null
+  website: string | null
 }
 
 export interface ConfirmationRow {
@@ -76,16 +99,24 @@ const PERIOD_SHORT: Record<PayPeriod, string> = {
 }
 
 export function PayrollReview({
-  employees, confirmations, month, year,
+  employees, confirmations, payslips, company, month, year,
 }: {
   employees: EmployeeRow[]
   confirmations: ConfirmationRow[]
+  payslips: PayslipRow[]
+  company: PayslipCompany
   month: number
   year: number
 }) {
   const progressRouter = useProgressRouter()
   const [query, setQuery] = React.useState('')
   const [reviewing, setReviewing] = React.useState<Row | null>(null)
+  const [issuing, setIssuing] = React.useState<EmployeeRow | null>(null)
+
+  const payslipOf = React.useMemo(
+    () => new Map(payslips.map((slip) => [slip.employee_id, slip])),
+    [payslips]
+  )
 
   const byEmployeePeriod = React.useMemo(
     () => new Map(confirmations.map((row) => [`${row.employee_id}:${row.period}`, row])),
@@ -193,9 +224,16 @@ export function PayrollReview({
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
-      className: 'w-[190px]',
+      className: 'w-[300px]',
       cell: (row) => (
         <div className="flex justify-end gap-1">
+          {/* One payslip per month, so only on each person's first row. */}
+          {row.period === Math.min(...periodsOf(row.schedule)) ? (
+            <PayslipActions
+              slip={payslipOf.get(row.id) ?? null}
+              onGenerate={() => setIssuing(row)}
+            />
+          ) : null}
           {row.confirmation?.file_url ? (
             <Button asChild size="sm" variant="ghost">
               <a
@@ -276,6 +314,14 @@ export function PayrollReview({
       />
 
       <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} />
+      <PayslipDialog
+        employee={issuing}
+        company={company}
+        month={month}
+        year={year}
+        replacing={issuing ? payslipOf.has(issuing.id) : false}
+        onClose={() => setIssuing(null)}
+      />
     </div>
   )
 }
@@ -434,6 +480,304 @@ function ReviewDialog({ row, onClose }: { row: Row | null; onClose: () => void }
           >
             <CheckCircle2 />
             Confirm
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PayslipActions({ slip, onGenerate }: { slip: PayslipRow | null; onGenerate: () => void }) {
+  if (!slip) {
+    return (
+      <Button size="sm" variant="secondary" onClick={onGenerate}>
+        <FileText />
+        Payslip
+      </Button>
+    )
+  }
+  return (
+    <>
+      <Button asChild size="sm" variant="ghost">
+        <a
+          href={`/api/files/view?key=${encodeURIComponent(slip.file_url)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={slip.file_name ?? undefined}
+        >
+          <FileText />
+          Payslip
+        </a>
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onGenerate}>
+        Redo
+      </Button>
+    </>
+  )
+}
+
+/** Remembered per browser: the two footer details the letterhead settings lack. */
+const PAYSLIP_PREFS_KEY = 'payslip-footer'
+
+function readPrefs(): { tagline?: string; queriesEmail?: string } | null {
+  try {
+    const raw = window.localStorage.getItem(PAYSLIP_PREFS_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Generate one employee's payslip for the month on screen, in the org's
+ * salary-slip layout (see `payslip-pdf.ts`). Everything is prefilled from the
+ * profile and stays editable; "Preview" opens the PDF without saving, and
+ * "Issue payslip" stores it where the employee can download it.
+ */
+function PayslipDialog({
+  employee, company, month, year, replacing, onClose,
+}: {
+  employee: EmployeeRow | null
+  company: PayslipCompany
+  month: number
+  year: number
+  replacing: boolean
+  onClose: () => void
+}) {
+  const router = useRouter()
+  const [name, setName] = React.useState('')
+  const [email, setEmail] = React.useState('')
+  const [designation, setDesignation] = React.useState('')
+  const [currency, setCurrency] = React.useState('INR')
+  const [basis, setBasis] = React.useState<SalaryBasis>('annual')
+  const [salary, setSalary] = React.useState('')
+  const [workingDays, setWorkingDays] = React.useState('')
+  const [deductions, setDeductions] = React.useState('0')
+  const [tagline, setTagline] = React.useState('')
+  const [queriesEmail, setQueriesEmail] = React.useState('')
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState<'preview' | 'issue' | null>(null)
+
+  React.useEffect(() => {
+    if (!employee) return
+    const code = (employee.pay_currency || 'INR').toUpperCase()
+    const prefs = readPrefs()
+    setName(employee.full_name ?? '')
+    setEmail(employee.email ?? '')
+    setDesignation(employee.designation ?? '')
+    setCurrency(code)
+    // Rupee slips state the annual salary; the others the monthly figure.
+    setBasis(code === 'INR' ? 'annual' : 'monthly')
+    setSalary(employee.pay_rate != null ? String(employee.pay_rate) : '')
+    setWorkingDays(String(daysInMonth(month, year)))
+    setDeductions('0')
+    setTagline(prefs?.tagline ?? '')
+    setQueriesEmail(prefs?.queriesEmail ?? company.email ?? '')
+    setError(null)
+    setBusy(null)
+  }, [employee, month, year, company.email])
+
+  const salaryValue = Number(salary)
+  const earnings = Math.round((basis === 'annual' ? salaryValue / 12 : salaryValue) * 100) / 100
+  const deductionValue = Number(deductions || 0)
+  const code = currency.trim().toUpperCase()
+
+  function validate(): string | null {
+    if (!name.trim()) return 'Enter the employee name.'
+    if (!Number.isFinite(salaryValue) || salaryValue <= 0) return 'Enter the salary.'
+    if (!/^[A-Z]{3}$/.test(code)) return 'Currency must be a three-letter code, like INR or USD.'
+    const days = Number(workingDays)
+    if (!Number.isInteger(days) || days < 0 || days > 31) return 'Working days must be 0–31.'
+    if (!Number.isFinite(deductionValue) || deductionValue < 0) return 'Deductions cannot be negative.'
+    if (deductionValue > earnings) return 'Deductions cannot exceed the month’s earnings.'
+    return null
+  }
+
+  async function build(): Promise<Blob> {
+    try {
+      window.localStorage.setItem(
+        PAYSLIP_PREFS_KEY,
+        JSON.stringify({ tagline: tagline.trim(), queriesEmail: queriesEmail.trim() })
+      )
+    } catch {
+      // Remembering the footer is a convenience; blocked storage is fine.
+    }
+    const logo = await loadOrgLogo(company.logoUrl)
+    return renderPayslip({
+      org: {
+        name: company.name,
+        logo,
+        tagline: tagline.trim(),
+        address: company.address,
+        email: company.email,
+        website: company.website,
+        queriesEmail: queriesEmail.trim() || null,
+      },
+      employeeName: name.trim(),
+      employeeEmail: email.trim(),
+      designation: designation.trim(),
+      basis,
+      salary: salaryValue,
+      currency: code,
+      workingDays: Number(workingDays),
+      month,
+      year,
+      earnings,
+      deductions: deductionValue,
+    })
+  }
+
+  async function run(mode: 'preview' | 'issue') {
+    if (!employee) return
+    const problem = validate()
+    if (problem) {
+      setError(problem)
+      return
+    }
+    setError(null)
+    setBusy(mode)
+    // Opened inside the click so the popup blocker lets it through.
+    const preview = mode === 'preview' ? window.open('', '_blank') : null
+    try {
+      const blob = await build()
+      if (mode === 'preview') {
+        const url = URL.createObjectURL(blob)
+        if (preview) preview.location.href = url
+        else window.open(url, '_blank')
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        return
+      }
+      const fileName = payslipFileName(name, month, year)
+      const file = new File([blob], fileName, { type: 'application/pdf' })
+      const uploaded = await uploadFile(file, 'payslip')
+      await apiPost('/api/org/payslips', {
+        employeeId: employee.id,
+        month,
+        year,
+        key: uploaded.key,
+        fileName,
+      })
+      toast.success(replacing ? 'Payslip replaced' : 'Payslip issued')
+      onClose()
+      router.refresh()
+    } catch (err) {
+      preview?.close()
+      setError(err instanceof ApiClientError ? err.message : 'Could not generate the payslip.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <Dialog open={!!employee} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>
+            Payslip — {MONTHS_LONG[month - 1]} {year}
+          </DialogTitle>
+          <DialogDescription>
+            {replacing
+              ? 'This month already has a payslip. Issuing again replaces it.'
+              : 'Check the details, preview, then issue it to the employee.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody className="space-y-4">
+          <FormError message={error} />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Employee name">
+              <Input value={name} onChange={(event) => setName(event.target.value)} />
+            </FormField>
+            <FormField label="Employee email">
+              <Input value={email} onChange={(event) => setEmail(event.target.value)} />
+            </FormField>
+            <FormField label="Designation">
+              <Input value={designation} onChange={(event) => setDesignation(event.target.value)} />
+            </FormField>
+            <FormField label="Currency">
+              <Input
+                value={currency}
+                maxLength={3}
+                onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+              />
+            </FormField>
+            <FormField label="Salary stated as">
+              <Select value={basis} onChange={(event) => setBasis(event.target.value as SalaryBasis)}>
+                <option value="annual">Annual salary</option>
+                <option value="monthly">Monthly salary</option>
+              </Select>
+            </FormField>
+            <FormField label={basis === 'annual' ? 'Annual salary' : 'Monthly salary'}>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={salary}
+                onChange={(event) => setSalary(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Working days in period">
+              <Input
+                type="number"
+                min="0"
+                max="31"
+                value={workingDays}
+                onChange={(event) => setWorkingDays(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Total deductions">
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={deductions}
+                onChange={(event) => setDeductions(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Tagline under company name" hint="e.g. Innovation & Technology">
+              <Input value={tagline} onChange={(event) => setTagline(event.target.value)} />
+            </FormField>
+            <FormField label="Queries contact email">
+              <Input
+                type="email"
+                value={queriesEmail}
+                onChange={(event) => setQueriesEmail(event.target.value)}
+              />
+            </FormField>
+          </div>
+
+          {salaryValue > 0 && /^[A-Z]{3}$/.test(code) ? (
+            <p className="tabular rounded-lg bg-page px-3.5 py-3 text-sm">
+              Net salary payable:{' '}
+              <span className="font-medium">
+                {payslipMoney(Math.max(0, earnings - deductionValue), code, { spaced: true })}
+              </span>
+            </p>
+          ) : null}
+        </DialogBody>
+
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose} disabled={!!busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="secondary"
+            loading={busy === 'preview'}
+            disabled={busy === 'issue'}
+            onClick={() => run('preview')}
+          >
+            Preview
+          </Button>
+          <Button
+            loading={busy === 'issue'}
+            disabled={busy === 'preview'}
+            onClick={() => run('issue')}
+          >
+            <FileText />
+            {replacing ? 'Replace payslip' : 'Issue payslip'}
           </Button>
         </DialogFooter>
       </DialogContent>
