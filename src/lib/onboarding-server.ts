@@ -272,15 +272,29 @@ export async function attachOnboardingDocuments(
     .eq('tenant_id', tenantId)
   if (error) problems.push(error.message)
 
-  // Labels are per-file, so they cannot ride along on the bulk update above.
-  for (const doc of draft.additionalDocs) {
-    if (!doc.label) continue
-    const { error: labelError } = await admin
-      .from('documents')
-      .update({ label: doc.label })
-      .eq('file_url', doc.key)
-      .eq('tenant_id', tenantId)
-    if (labelError) problems.push(labelError.message)
+  /*
+   * Labels are per-file, so they cannot ride along on the bulk update above.
+   *
+   * Issued together rather than one after another. Each row is a different
+   * `file_url`, so no two of these touch the same record and the order they
+   * land in carries no meaning — awaited in sequence they were simply N round
+   * trips where one phase does, which an onboarding pack with half a dozen
+   * attachments felt directly on submit.
+   */
+  const labelled = draft.additionalDocs.filter((doc) => doc.label)
+  if (labelled.length) {
+    const results = await Promise.all(
+      labelled.map((doc) =>
+        admin
+          .from('documents')
+          .update({ label: doc.label })
+          .eq('file_url', doc.key)
+          .eq('tenant_id', tenantId)
+      )
+    )
+    for (const { error: labelError } of results) {
+      if (labelError) problems.push(labelError.message)
+    }
   }
 
   return problems

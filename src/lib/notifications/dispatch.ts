@@ -37,6 +37,7 @@ import 'server-only'
  * src/lib/supabase/admin.ts — and `assertTenantScope` turns a missing one into a
  * throw rather than a cross-tenant read.
  */
+import { after } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 import { sendPushToUsers, usersWithSubscriptions, isPushConfigured } from '@/lib/push/send'
@@ -447,6 +448,27 @@ export async function deliverNotification(args: DeliverArgs): Promise<DeliveryRe
 
 export interface RaiseArgs extends Omit<DeliverArgs, 'notificationId'> {
   createdBy?: string | null
+  /**
+   * When the fan-out to push and email runs.
+   *
+   * `'await'` (the default) keeps the historical behaviour and is what a CRON
+   * job wants: it needs the `DeliveryReport` for its run ledger, and no user is
+   * waiting on the response.
+   *
+   * `'after'` returns as soon as the ROW is written and lets Next run the
+   * fan-out once the response has been flushed. Every system-raised
+   * notification wants this. Delivery means a recipient query, a subscription
+   * query, a web-push request per device and a Resend call per address — easily
+   * a second or more of network that a timesheet approval or a task comment was
+   * holding its HTTP response open for, to produce a report the caller then
+   * discarded. The row is still written first and still synchronous, so the
+   * notification is in the portal before the response returns; only the
+   * buzzing moves off the user's clock.
+   *
+   * The report is unavailable in this mode — it does not exist yet — so the
+   * function answers `null`.
+   */
+  deliver?: 'await' | 'after'
 }
 
 /** PostgREST/Postgres codes that mean "RLS refused this", and nothing else. */
@@ -535,7 +557,21 @@ export async function raiseNotification(
       return null
     }
 
-    return await deliverNotification({ ...args, notificationId: data.id as string })
+    const deliverArgs = { ...args, notificationId: data.id as string }
+
+    if (args.deliver === 'after') {
+      // `deliverNotification` never throws, so nothing here can surface as an
+      // unhandled rejection after the response has gone. Outside a request
+      // scope `after()` throws, and the fan-out is awaited inline instead.
+      try {
+        after(() => deliverNotification(deliverArgs))
+        return null
+      } catch {
+        return await deliverNotification(deliverArgs)
+      }
+    }
+
+    return await deliverNotification(deliverArgs)
   } catch (err) {
     console.error('[notify] unexpected failure', err)
     return null

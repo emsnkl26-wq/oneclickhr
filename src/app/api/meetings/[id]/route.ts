@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, after } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -96,26 +96,48 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     })
   }
 
-  // Mirror the edit. Failure is logged, not fatal — the local row is correct and
-  // the next incremental sync reconciles.
+  /*
+   * Mirror the edit. Failure is logged, not fatal — the local row is correct and
+   * the next incremental sync reconciles.
+   *
+   * Which is exactly why it runs AFTER the response. Being non-fatal and
+   * self-healing, nothing below ever read its outcome, yet the editor was made
+   * to wait on two calls out to Google — a token fetch (itself a refresh round
+   * trip when the stored one has aged out) and the patch. On a saved meeting
+   * edit that was the single slowest step in the request.
+   *
+   * Unlike the DELETE below, there is no ordering constraint to respect here: a
+   * patch that fails leaves a stale remote copy that the next sync corrects,
+   * whereas a failed remote DELETE would let the event be pulled back in.
+   */
   if (existing.google_event_id) {
-    const accessToken = await tokenFor(ctx.tenantId)
-    if (accessToken) {
-      const result = await patchEvent(
-        accessToken,
-        existing.google_event_id,
-        meetingToEvent({
-          title: input.title,
-          description: input.description,
-          start_time: input.startTime,
-          end_time: input.endTime,
-          timezone: input.timezone,
-          attendees: input.attendees,
-          // A pasted link rides along as the location, as it does on create.
-          location: input.meetLink?.trim() || undefined,
-        })
-      )
-      if (!result.ok) console.warn('[meetings] Google patch failed', result.status, result.detail)
+    const eventId = existing.google_event_id
+    const event = meetingToEvent({
+      title: input.title,
+      description: input.description,
+      start_time: input.startTime,
+      end_time: input.endTime,
+      timezone: input.timezone,
+      attendees: input.attendees,
+      // A pasted link rides along as the location, as it does on create.
+      location: input.meetLink?.trim() || undefined,
+    })
+    const mirror = async () => {
+      try {
+        const accessToken = await tokenFor(ctx.tenantId)
+        if (!accessToken) return
+        const result = await patchEvent(accessToken, eventId, event)
+        if (!result.ok) console.warn('[meetings] Google patch failed', result.status, result.detail)
+      } catch (err) {
+        // Nothing may escape here: this runs after the response, where a throw
+        // would surface as an unhandled rejection rather than a failed request.
+        console.warn('[meetings] Google patch threw', err)
+      }
+    }
+    try {
+      after(mirror)
+    } catch {
+      await mirror()
     }
   }
 

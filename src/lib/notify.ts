@@ -73,5 +73,18 @@ export async function notifyEmployee(
     actorId: notice.createdBy ?? null,
     event: notice.event,
     subjectId: notice.subjectId ?? null,
+    /*
+     * The row is written before this returns; the push and the email follow
+     * after the response has been flushed.
+     *
+     * Nothing here ever looked at the delivery report — property 2 above says a
+     * failure to deliver must not affect the operation, so there was never
+     * anything to do with it — yet every caller was holding its response open
+     * for the whole fan-out: a recipient query, a subscription query, a push
+     * request per device and a Resend call per address. That is the slowest
+     * thing attached to approving a timesheet or commenting on a card, and it
+     * was all on the user's clock for no gain.
+     */
+    deliver: 'after',
   })
 }

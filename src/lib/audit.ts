@@ -14,6 +14,7 @@ import 'server-only'
  * roll back a payroll upload; failures are swallowed and reported to the server
  * log.
  */
+import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getClientIp } from '@/lib/rate-limit'
 
@@ -56,21 +57,52 @@ function scrub(meta: Record<string, unknown>): Record<string, unknown> {
   return out
 }
 
-export async function audit(entry: AuditEntry): Promise<void> {
+/** Perform the insert. Never throws — see the header. */
+async function writeEntry(row: Record<string, unknown>, action: string): Promise<void> {
   try {
     const admin = createAdminClient()
-    await admin.from('audit_logs').insert({
-      tenant_id: entry.tenantId ?? null,
-      actor_id: entry.actorId ?? null,
-      actor_email: entry.actorEmail ?? null,
-      action: entry.action,
-      entity: entry.entity ?? null,
-      entity_id: entry.entityId ?? null,
-      ip: entry.request ? getClientIp(entry.request) : null,
-      meta: scrub(entry.meta ?? {}),
-    })
+    await admin.from('audit_logs').insert(row)
   } catch (err) {
-    console.error('[audit] failed to record', entry.action, err)
+    console.error('[audit] failed to record', action, err)
+  }
+}
+
+/**
+ * Record an entry. Returns as soon as the row is BUILT, not once it is written.
+ *
+ * The write is a round trip to Postgres whose result this function has already
+ * promised never to act on: auditing must not fail the operation it describes,
+ * so every caller ignores the outcome. Awaited inline it was therefore pure
+ * latency — 122 call sites across 87 route handlers each held the HTTP response
+ * open for a write nobody was waiting to hear about, which is a large part of
+ * why pressing a button felt slow. `after()` hands it to Next to run once the
+ * response has been flushed; on Vercel the function stays alive for it, so the
+ * row still lands — just not on the user's clock.
+ *
+ * The row is assembled EAGERLY, before deferring. `getClientIp` reads headers
+ * off the live `Request`, and `scrub` walks a `meta` object the caller may go on
+ * to mutate; both have to be resolved while they are still trustworthy.
+ *
+ * Outside a request scope (`tsx scripts/…`, tests) `after()` throws, and there
+ * the write is awaited inline — a script that exits the moment this returns has
+ * no "after the response" to defer to.
+ */
+export async function audit(entry: AuditEntry): Promise<void> {
+  const row = {
+    tenant_id: entry.tenantId ?? null,
+    actor_id: entry.actorId ?? null,
+    actor_email: entry.actorEmail ?? null,
+    action: entry.action,
+    entity: entry.entity ?? null,
+    entity_id: entry.entityId ?? null,
+    ip: entry.request ? getClientIp(entry.request) : null,
+    meta: scrub(entry.meta ?? {}),
+  }
+
+  try {
+    after(() => writeEntry(row, entry.action))
+  } catch {
+    await writeEntry(row, entry.action)
   }
 }
 
