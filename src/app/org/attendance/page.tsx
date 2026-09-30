@@ -41,7 +41,7 @@ export default async function AttendancePage({
       .order('full_name'),
     supabase
       .from('attendance')
-      .select('id, employee_id, date, login_time, logout_time, total_hours, is_late')
+      .select('id, employee_id, date, login_time, logout_time, total_hours, is_late, edited_at')
       .gte('date', from)
       .lte('date', to),
     supabase.from('departments').select('id, name').order('name'),

@@ -26,11 +26,15 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
-import { apiPatch, apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
+import { Checkbox } from '@/components/ui/checkbox'
+import { apiGet, apiPatch, apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
 import { loadOrgLogo } from '@/lib/document-pdf'
 import {
   renderPayslip, payslipFileName, payslipMoney, daysInMonth, MONTHS_LONG, type SalaryBasis,
 } from '@/lib/payslip-pdf'
+import {
+  suggestBreakdown, sumLines, type PayslipBreakdown, type PayslipLine,
+} from '@/lib/payslip-breakdown'
 import { MONTH_NAMES } from '@/lib/time'
 import { initials, formatMoney } from '@/lib/utils'
 import { periodLabel, periodsOf, type PayPeriod, type PaySchedule } from '@/lib/pay-schedule'
@@ -46,6 +50,10 @@ export interface EmployeeRow {
   schedule: PaySchedule
   pay_rate: number | string | null
   pay_currency: string | null
+  /** Prefill for a detailed payslip. */
+  date_of_joining: string | null
+  hire_date: string | null
+  bank_name: string | null
 }
 
 /** A payslip already issued for the month on screen. */
@@ -528,6 +536,61 @@ function readPrefs(): { tagline?: string; queriesEmail?: string } | null {
   }
 }
 
+/** One column of salary components, each amount editable in place. */
+function BreakdownLines({
+  title, lines, onChange,
+}: {
+  title: string
+  lines: LineDraft[]
+  onChange: (lines: LineDraft[]) => void
+}) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">{title}</legend>
+      {lines.map((line, index) => (
+        <div key={line.label} className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm" title={line.label}>
+            {line.label}
+          </span>
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            aria-label={line.label}
+            className="w-32 text-right"
+            value={line.amount}
+            onChange={(event) =>
+              onChange(
+                lines.map((current, i) => (i === index ? { ...current, amount: event.target.value } : current))
+              )
+            }
+          />
+        </div>
+      ))}
+    </fieldset>
+  )
+}
+
+/** A salary component as typed: the amount stays a string until it is used. */
+interface LineDraft {
+  label: string
+  amount: string
+}
+
+const toDrafts = (lines: PayslipLine[]): LineDraft[] =>
+  lines.map((line) => ({ label: line.label, amount: String(line.amount) }))
+
+const fromDrafts = (drafts: LineDraft[]): PayslipLine[] =>
+  drafts.map((draft) => ({ label: draft.label.trim(), amount: Number(draft.amount || 0) }))
+
+/** `2020-05-04` → `04-May-2020`, the way Indian slips print it. */
+function formatJoiningDate(date: string | null): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date ?? '')
+  if (!match) return ''
+  return `${match[3]}-${MONTHS_LONG[Number(match[2]) - 1].slice(0, 3)}-${match[1]}`
+}
+
 /**
  * Generate one employee's payslip for the month on screen, in the org's
  * salary-slip layout (see `payslip-pdf.ts`). Everything is prefilled from the
@@ -557,11 +620,51 @@ function PayslipDialog({
   const [queriesEmail, setQueriesEmail] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<'preview' | 'issue' | null>(null)
+  // The itemised slip: Basic, HRA, … and PF, PT, TDS.
+  const [detailed, setDetailed] = React.useState(false)
+  const [employeeCode, setEmployeeCode] = React.useState('')
+  const [dateOfJoining, setDateOfJoining] = React.useState('')
+  const [pfNumber, setPfNumber] = React.useState('')
+  const [bankDetails, setBankDetails] = React.useState('')
+  const [earningLines, setEarningLines] = React.useState<LineDraft[]>([])
+  const [deductionLines, setDeductionLines] = React.useState<LineDraft[]>([])
 
   React.useEffect(() => {
     if (!employee) return
     const code = (employee.pay_currency || 'INR').toUpperCase()
     const prefs = readPrefs()
+    const monthly =
+      employee.pay_rate != null
+        ? (code === 'INR' ? Number(employee.pay_rate) / 12 : Number(employee.pay_rate))
+        : 0
+    const suggested = suggestBreakdown(Number.isFinite(monthly) ? monthly : 0)
+    setDetailed(false)
+    setEmployeeCode(employee.employee_code ?? '')
+    setDateOfJoining(formatJoiningDate(employee.date_of_joining ?? employee.hire_date))
+    setPfNumber('')
+    setBankDetails(employee.bank_name ?? '')
+    setEarningLines(toDrafts(suggested.earnings))
+    setDeductionLines(toDrafts(suggested.deductions))
+
+    // Last detailed slip wins over the defaults: same PF no., same split.
+    let cancelled = false
+    apiGet<{ details: PayslipBreakdown | null }>(
+      `/api/org/payslips?employeeId=${encodeURIComponent(employee.id)}`
+    )
+      .then(({ details }) => {
+        if (cancelled || !details) return
+        setDetailed(true)
+        setEmployeeCode(details.employeeCode || employee.employee_code || '')
+        setDateOfJoining(details.dateOfJoining)
+        setPfNumber(details.pfNumber)
+        setBankDetails(details.bankDetails)
+        setEarningLines(toDrafts(details.earnings))
+        setDeductionLines(toDrafts(details.deductions))
+      })
+      .catch(() => {
+        // Only a prefill — the defaults above stand.
+      })
+
     setName(employee.full_name ?? '')
     setEmail(employee.email ?? '')
     setDesignation(employee.designation ?? '')
@@ -575,20 +678,49 @@ function PayslipDialog({
     setQueriesEmail(prefs?.queriesEmail ?? company.email ?? '')
     setError(null)
     setBusy(null)
+    return () => {
+      cancelled = true
+    }
   }, [employee, month, year, company.email])
 
   const salaryValue = Number(salary)
-  const earnings = Math.round((basis === 'annual' ? salaryValue / 12 : salaryValue) * 100) / 100
-  const deductionValue = Number(deductions || 0)
+  const monthlySalary = Math.round((basis === 'annual' ? salaryValue / 12 : salaryValue) * 100) / 100
+  const breakdown: PayslipBreakdown | null = detailed
+    ? {
+        employeeCode: employeeCode.trim(),
+        dateOfJoining: dateOfJoining.trim(),
+        pfNumber: pfNumber.trim(),
+        bankDetails: bankDetails.trim(),
+        earnings: fromDrafts(earningLines),
+        deductions: fromDrafts(deductionLines),
+      }
+    : null
+  const earnings = breakdown ? sumLines(breakdown.earnings) : monthlySalary
+  const deductionValue = breakdown ? sumLines(breakdown.deductions) : Number(deductions || 0)
   const code = currency.trim().toUpperCase()
+
+  function autoSplit() {
+    const pfLine = deductionLines.find((line) => line.label === 'PF Employee')
+    const suggested = suggestBreakdown(monthlySalary, { withPf: !pfLine || Number(pfLine.amount) > 0 })
+    setEarningLines(toDrafts(suggested.earnings))
+    setDeductionLines(toDrafts(suggested.deductions))
+  }
 
   function validate(): string | null {
     if (!name.trim()) return 'Enter the employee name.'
-    if (!Number.isFinite(salaryValue) || salaryValue <= 0) return 'Enter the salary.'
     if (!/^[A-Z]{3}$/.test(code)) return 'Currency must be a three-letter code, like INR or USD.'
     const days = Number(workingDays)
     if (!Number.isInteger(days) || days < 0 || days > 31) return 'Working days must be 0–31.'
-    if (!Number.isFinite(deductionValue) || deductionValue < 0) return 'Deductions cannot be negative.'
+    if (breakdown) {
+      const lines = [...breakdown.earnings, ...breakdown.deductions]
+      if (lines.some((line) => !Number.isFinite(line.amount) || line.amount < 0)) {
+        return 'Every amount must be zero or more.'
+      }
+      if (earnings <= 0) return 'Enter the salary components.'
+    } else {
+      if (!Number.isFinite(salaryValue) || salaryValue <= 0) return 'Enter the salary.'
+      if (!Number.isFinite(deductionValue) || deductionValue < 0) return 'Deductions cannot be negative.'
+    }
     if (deductionValue > earnings) return 'Deductions cannot exceed the month’s earnings.'
     return null
   }
@@ -624,6 +756,7 @@ function PayslipDialog({
       year,
       earnings,
       deductions: deductionValue,
+      breakdown,
     })
   }
 
@@ -656,6 +789,7 @@ function PayslipDialog({
         year,
         key: uploaded.key,
         fileName,
+        details: breakdown,
       })
       toast.success(replacing ? 'Payslip replaced' : 'Payslip issued')
       onClose()
@@ -727,16 +861,18 @@ function PayslipDialog({
                 onChange={(event) => setWorkingDays(event.target.value)}
               />
             </FormField>
-            <FormField label="Total deductions">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                value={deductions}
-                onChange={(event) => setDeductions(event.target.value)}
-              />
-            </FormField>
+            {detailed ? null : (
+              <FormField label="Total deductions">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={deductions}
+                  onChange={(event) => setDeductions(event.target.value)}
+                />
+              </FormField>
+            )}
             <FormField label="Tagline under company name" hint="e.g. Innovation & Technology">
               <Input value={tagline} onChange={(event) => setTagline(event.target.value)} />
             </FormField>
@@ -749,7 +885,68 @@ function PayslipDialog({
             </FormField>
           </div>
 
-          {salaryValue > 0 && /^[A-Z]{3}$/.test(code) ? (
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line px-3.5 py-3 text-sm">
+            <Checkbox checked={detailed} onChange={(event) => setDetailed(event.target.checked)} />
+            <span>
+              <span className="font-medium">Itemised slip with PF</span>
+              <span className="block text-xs text-ink-muted">
+                Adds Emp ID, date of joining, PF no. and bank details, and splits the salary into
+                Basic, HRA and allowances with PF, Professional Tax and TDS deducted.
+              </span>
+            </span>
+          </label>
+
+          {detailed ? (
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Emp ID">
+                  <Input value={employeeCode} maxLength={40} onChange={(event) => setEmployeeCode(event.target.value)} />
+                </FormField>
+                <FormField label="Date of joining" hint="As printed, e.g. 04-May-2020">
+                  <Input value={dateOfJoining} maxLength={40} onChange={(event) => setDateOfJoining(event.target.value)} />
+                </FormField>
+                <FormField label="PF No" hint="Leave blank if not enrolled">
+                  <Input
+                    value={pfNumber}
+                    maxLength={60}
+                    onChange={(event) => setPfNumber(event.target.value)}
+                    placeholder="AP/HYD/2225273/10148"
+                  />
+                </FormField>
+                <FormField label="Bank details">
+                  <Input
+                    value={bankDetails}
+                    maxLength={120}
+                    onChange={(event) => setBankDetails(event.target.value)}
+                    placeholder="44511550017 / Standard Chartered"
+                  />
+                </FormField>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <BreakdownLines title="Earnings" lines={earningLines} onChange={setEarningLines} />
+                <BreakdownLines title="Deductions" lines={deductionLines} onChange={setDeductionLines} />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="tabular text-ink-muted">
+                  Gross {payslipMoney(earnings, code || 'INR')} · Deductions{' '}
+                  {payslipMoney(deductionValue, code || 'INR')}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!(monthlySalary > 0)}
+                  onClick={autoSplit}
+                  title="Basic 50%, HRA 50% of Basic, CCA 10%, PF 12% of Basic (capped)"
+                >
+                  Split from salary
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {earnings > 0 && /^[A-Z]{3}$/.test(code) ? (
             <p className="tabular rounded-lg bg-page px-3.5 py-3 text-sm">
               Net salary payable:{' '}
               <span className="font-medium">

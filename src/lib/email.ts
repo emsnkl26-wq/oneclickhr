@@ -39,12 +39,18 @@ export interface SendResult {
   error?: string
 }
 
+export interface EmailAttachment {
+  filename: string
+  content: Buffer
+}
+
 interface SendArgs {
   to: string | string[]
   subject: string
   html: string
   text?: string
   replyTo?: string
+  attachments?: EmailAttachment[]
 }
 
 /**
@@ -61,7 +67,9 @@ function isRetryable(statusCode: number | undefined): boolean {
 
 const RETRY_DELAYS_MS = [250, 1000]
 
-export async function sendEmail({ to, subject, html, text, replyTo }: SendArgs): Promise<SendResult> {
+export async function sendEmail({
+  to, subject, html, text, replyTo, attachments,
+}: SendArgs): Promise<SendResult> {
   const api = resend()
   const from = process.env.EMAIL_FROM
 
@@ -85,6 +93,7 @@ export async function sendEmail({ to, subject, html, text, replyTo }: SendArgs):
         html,
         text: text || stripHtml(html),
         ...(replyTo ? { replyTo } : {}),
+        ...(attachments?.length ? { attachments } : {}),
       })
 
       if (!error) return { ok: true }
@@ -360,6 +369,51 @@ export async function sendAnnouncement(args: AnnouncementArgs): Promise<SendResu
   )
 
   return sendEmail({ to: args.to, subject: `${args.orgName}: ${args.title}`, html })
+}
+
+// ---------------------------------------------------------------------------
+// Letters
+// ---------------------------------------------------------------------------
+
+export interface LetterEmailArgs {
+  to: string
+  recipientName: string
+  /** "Offer letter", "Internship offer", … */
+  documentLabel: string
+  orgName: string
+  brandColor?: string
+  /** Replies go to the org rather than the no-reply sender. */
+  replyTo?: string | null
+  attachment: EmailAttachment
+}
+
+/**
+ * A generated letter, sent to its recipient as a PDF attachment.
+ *
+ * Attached rather than linked: the recipient of an offer usually has no
+ * account yet, and the library's links need one.
+ */
+export async function sendLetterEmail(args: LetterEmailArgs): Promise<SendResult> {
+  const subject = `${args.documentLabel} from ${args.orgName}`
+  const html = layout(
+    `
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">${esc(subject)}</h1>
+    <p style="margin:0 0 8px;">Hi ${esc(args.recipientName || 'there')},</p>
+    <p style="margin:0 0 18px;">Please find your ${esc(args.documentLabel.toLowerCase())} from <strong>${esc(
+      args.orgName
+    )}</strong> attached to this email. Review it and reply to this message with any questions.</p>
+    <p style="margin:0;color:#64748B;font-size:13px;">Attachment: ${esc(args.attachment.filename)}</p>
+  `,
+    { brandName: args.orgName, brandColor: args.brandColor, preheader: subject }
+  )
+
+  return sendEmail({
+    to: args.to,
+    subject,
+    html,
+    replyTo: args.replyTo || undefined,
+    attachments: [args.attachment],
+  })
 }
 
 // ---------------------------------------------------------------------------

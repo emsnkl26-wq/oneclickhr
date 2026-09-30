@@ -20,6 +20,7 @@
  */
 
 import type { LogoAsset } from '@/lib/document-pdf'
+import { sumLines, type PayslipBreakdown } from '@/lib/payslip-breakdown'
 
 /* --------------------------------------------------------------- Inputs */
 
@@ -53,6 +54,11 @@ export interface PayslipInput {
   /** The month's earnings before deductions. */
   earnings: number
   deductions: number
+  /**
+   * The itemised slip (Basic, HRA, PF …). When present the totals are the sums
+   * of its lines and `earnings` / `deductions` are ignored.
+   */
+  breakdown?: PayslipBreakdown | null
 }
 
 /* ------------------------------------------------------------ Type plumbing */
@@ -234,34 +240,63 @@ function drawGrid(doc: Doc, top: number, rows: Array<[string, string]>) {
   })
 }
 
-/** "Earnings" / "Deductions": blue label, header row, heavy rule, grey total. */
-function drawSection(doc: Doc, labelBaseline: number, label: string, total: [string, string]) {
+/** Height of one itemised line (Basic, HRA, PF …) inside a section. */
+const ITEM_ROW = 14.2
+
+/**
+ * "Earnings" / "Deductions": blue label, header row, heavy rule, any itemised
+ * lines, then the grey total. Returns the section's bottom edge so the next
+ * block can follow it. With no items this draws exactly the original layout.
+ */
+function drawSection(
+  doc: Doc,
+  labelBaseline: number,
+  label: string,
+  items: Array<[string, string]>,
+  total: [string, string]
+): number {
   setStyle(doc, 'bold', 11, ACCENT)
   drawText(doc, label, TEXT_X, labelBaseline, 'bold')
 
   const top = labelBaseline + 4.8
   const header = 14.8
   const body = 15.4
-  const bottom = top + header + body
+  const itemsTop = top + header
+  const totalTop = itemsTop + items.length * ITEM_ROW
+  const bottom = totalTop + body
 
   doc.setFillColor(...FILL)
-  doc.rect(LEFT, top + header, RIGHT - LEFT, body, 'F')
+  doc.rect(LEFT, totalTop, RIGHT - LEFT, body, 'F')
 
   doc.setDrawColor(...BLACK)
   doc.setLineWidth(0.75)
   doc.rect(LEFT, top, RIGHT - LEFT, bottom - top)
   doc.line(SPLIT, top, SPLIT, bottom)
+  items.forEach((_, index) => {
+    if (index) doc.line(LEFT, itemsTop + index * ITEM_ROW, RIGHT, itemsTop + index * ITEM_ROW)
+  })
+  if (items.length) doc.line(LEFT, totalTop, RIGHT, totalTop)
   doc.setLineWidth(2.2)
-  doc.line(LEFT, top + header, RIGHT, top + header)
+  doc.line(LEFT, itemsTop, RIGHT, itemsTop)
 
   setStyle(doc, 'bold', 11, BLACK)
   drawText(doc, 'Description', TEXT_X, top + BASELINE + 0.3, 'bold')
   drawText(doc, 'Amount', VALUE_X, top + BASELINE + 0.3, 'bold')
 
-  const rowBaseline = top + header + BASELINE + 1.2
+  setStyle(doc, 'normal', 11, BLACK)
+  items.forEach(([name, amount], index) => {
+    const baseline = itemsTop + index * ITEM_ROW + BASELINE + 0.8
+    drawText(doc, name, TEXT_X, baseline, 'normal')
+    drawText(doc, amount, VALUE_X, baseline, 'normal')
+  })
+
+  const rowBaseline = totalTop + BASELINE + 1.2
+  setStyle(doc, 'bold', 11, BLACK)
   drawText(doc, total[0], TEXT_X, rowBaseline, 'bold')
   setStyle(doc, 'normal', 11, BLACK)
   drawText(doc, total[1], VALUE_X, rowBaseline, 'normal')
+
+  return bottom
 }
 
 function centered(doc: Doc, text: string, centre: number, y: number, style: Style) {
@@ -280,7 +315,10 @@ export async function renderPayslip(input: PayslipInput): Promise<Blob> {
   const monthName = MONTHS_LONG[input.month - 1]
   const lastDay = daysInMonth(input.month, input.year)
   const shortMonth = MONTHS_SHORT[input.month - 1]
-  const net = Math.round((input.earnings - input.deductions) * 100) / 100
+  const breakdown = input.breakdown ?? null
+  const earnings = breakdown ? sumLines(breakdown.earnings) : input.earnings
+  const deductions = breakdown ? sumLines(breakdown.deductions) : input.deductions
+  const net = Math.round((earnings - deductions) * 100) / 100
 
   // Logo — the square badge, top left.
   if (org.logo) {
@@ -295,44 +333,84 @@ export async function renderPayslip(input: PayslipInput): Promise<Blob> {
   setStyle(doc, 'bold', 13, ACCENT)
   drawText(doc, `Salary Slip for the Month of ${monthName} ${input.year}`, TEXT_X, 193.6, 'bold')
 
-  drawGrid(doc, 199.1, [
-    ['Emp Name', input.employeeName],
-    ['Emp Email', input.employeeEmail],
-    ['Designation', input.designation],
-    [
-      input.basis === 'annual' ? 'Annual Salary' : 'Monthly Salary',
-      payslipMoney(input.salary, currency, { cents: false }),
-    ],
-    ['Working Days in Period', `${input.workingDays} days`],
-    [
-      'Pay Period',
-      `01-${shortMonth}-${input.year} to ${lastDay}-${shortMonth}-${input.year}`,
-    ],
-  ])
-
   const money = (amount: number) => payslipMoney(amount, currency)
-  drawSection(doc, 320.8, 'Earnings', ['Net Payable', money(input.earnings)])
-  drawSection(doc, 393.0, 'Deductions', ['Total Deductions', money(input.deductions)])
+  const optional = (label: string, value: string | undefined): Array<[string, string]> =>
+    value?.trim() ? [[label, value.trim()]] : []
+
+  const gridRows: Array<[string, string]> = breakdown
+    ? [
+        ['Emp Name', input.employeeName],
+        ...optional('Emp ID', breakdown.employeeCode),
+        ['Emp Email', input.employeeEmail],
+        ['Designation', input.designation],
+        ...optional('Date of Joining', breakdown.dateOfJoining),
+        ...optional('PF No', breakdown.pfNumber),
+        ...optional('Bank Details', breakdown.bankDetails),
+        ['Gross Monthly Salary', money(earnings)],
+      ]
+    : [
+        ['Emp Name', input.employeeName],
+        ['Emp Email', input.employeeEmail],
+        ['Designation', input.designation],
+        [
+          input.basis === 'annual' ? 'Annual Salary' : 'Monthly Salary',
+          payslipMoney(input.salary, currency, { cents: false }),
+        ],
+      ]
+  gridRows.push(
+    ['Working Days in Period', `${input.workingDays} days`],
+    ['Pay Period', `01-${shortMonth}-${input.year} to ${lastDay}-${shortMonth}-${input.year}`]
+  )
+
+  const gridTop = 199.1
+  drawGrid(doc, gridTop, gridRows)
+
+  /*
+   * Everything below the grid flows from it. The simple slip's gaps are the
+   * measured originals, so it lands on exactly the coordinates it always did;
+   * the itemised slip is taller, so its gaps tighten to keep clear of the footer.
+   */
+  const gap = breakdown
+    ? { section: 24, between: 24, net: 22, note: 22, queries: 18 }
+    : { section: 36.7, between: 37.2, net: 36.6, note: 34.2, queries: 25.8 }
+
+  const earningsBottom = drawSection(
+    doc,
+    gridTop + gridRows.length * ROW + gap.section,
+    'Earnings',
+    (breakdown?.earnings ?? []).map((line) => [line.label, money(line.amount)]),
+    [breakdown ? 'Gross Salary' : 'Net Payable', money(earnings)]
+  )
+  const deductionsBottom = drawSection(
+    doc,
+    earningsBottom + gap.between,
+    'Deductions',
+    (breakdown?.deductions ?? []).map((line) => [line.label, money(line.amount)]),
+    ['Total Deductions', money(deductions)]
+  )
 
   // The net line and its blue underline.
+  const netY = deductionsBottom + gap.net
   setStyle(doc, 'bolditalic', 11, ACCENT)
   drawText(
     doc,
     `Net Salary Payable: ${payslipMoney(net, currency, { spaced: true })}`,
-    137.2, 464.6, 'bolditalic'
+    137.2, netY, 'bolditalic'
   )
   doc.setDrawColor(...ACCENT)
   doc.setLineWidth(0.75)
-  doc.line(137.2, 474.1, 477.4, 474.1)
+  doc.line(137.2, netY + 9.5, 477.4, netY + 9.5)
 
+  const noteY = netY + gap.note
   setStyle(doc, 'bold', 11, BLACK)
-  drawText(doc, 'Note: This is a system-generated salary slip. No signature required.', TEXT_X, 498.8, 'bold')
+  drawText(doc, 'Note: This is a system-generated salary slip. No signature required.', TEXT_X, noteY, 'bold')
 
   if (org.queriesEmail) {
+    const queriesY = noteY + gap.queries
     setStyle(doc, 'normal', 11, BLACK)
     const lead = 'For queries, contact: '
-    const width = drawText(doc, lead, TEXT_X, 524.6, 'normal')
-    drawLink(doc, org.queriesEmail, `mailto:${org.queriesEmail}`, TEXT_X + width, 524.6, 11)
+    const width = drawText(doc, lead, TEXT_X, queriesY, 'normal')
+    drawLink(doc, org.queriesEmail, `mailto:${org.queriesEmail}`, TEXT_X + width, queriesY, 11)
   }
 
   /* Footer — centred on the text block, not the page, as in the original. */

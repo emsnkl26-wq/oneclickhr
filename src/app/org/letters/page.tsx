@@ -21,6 +21,8 @@ interface LetterWithEmployee {
   file_name: string | null
   employee_id: string | null
   recipient_name: string
+  recipient_email: string | null
+  sent_at: string | null
   created_at: string
   employee: { full_name: string | null; email: string | null; photo_url: string | null } | null
   author: { full_name: string | null; email: string | null } | null
@@ -57,7 +59,7 @@ export default async function LettersPage({
   let query = supabase
     .from('generated_documents')
     .select(
-      'id, doc_type, title, file_url, file_name, employee_id, recipient_name, created_at, employee:profiles!generated_documents_employee_id_fkey(full_name, email, photo_url), author:profiles!generated_documents_created_by_fkey(full_name, email)',
+      'id, doc_type, title, file_url, file_name, employee_id, recipient_name, recipient_email, sent_at, created_at, employee:profiles!generated_documents_employee_id_fkey(full_name, email, photo_url), author:profiles!generated_documents_created_by_fkey(full_name, email)',
       { count: 'exact' }
     )
     .order('created_at', { ascending: false })
@@ -80,6 +82,8 @@ export default async function LettersPage({
     employeePhoto: letter.employee?.photo_url ?? null,
     authorName: letter.author?.full_name || letter.author?.email || null,
     createdAt: letter.created_at,
+    recipientEmail: letter.recipient_email,
+    sentAt: letter.sent_at,
   }))
 
   return (

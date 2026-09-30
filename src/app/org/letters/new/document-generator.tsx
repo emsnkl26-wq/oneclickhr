@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
   FileText, FileSignature, GraduationCap, Eye, Download, AlertCircle,
-  ChevronDown, RotateCcw, Info, UserCheck, Sparkles,
+  ChevronDown, RotateCcw, Info, UserCheck, Sparkles, Send,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/primitives'
 import { apiPost, apiPatch, uploadFile, ApiClientError } from '@/lib/fetcher'
 import { useProgressRouter } from '@/lib/use-progress-router'
+import { downloadBlob } from '@/lib/csv'
 import { formatDateLabel } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import {
@@ -202,7 +203,7 @@ export function DocumentGenerator({
   const [signatureImage, setSignatureImage] = React.useState<LogoAsset | null>(null)
 
   const [error, setError] = React.useState<string | null>(null)
-  const [busy, setBusy] = React.useState<'preview' | 'generate' | null>(null)
+  const [busy, setBusy] = React.useState<'preview' | 'send' | 'download' | null>(null)
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null)
 
   const companyAddress = React.useMemo(
@@ -511,14 +512,23 @@ export function DocumentGenerator({
     }
   }
 
-  async function generate() {
+  /**
+   * Save the letter, then deliver it: `send` emails the PDF to the recipient,
+   * `download` saves it to this computer to send by hand. A failed send still
+   * leaves the letter saved, and downloads it so it can go out manually.
+   */
+  async function generate(delivery: 'send' | 'download') {
     const problem = validate()
     if (problem) {
       setError(problem)
       return
     }
+    if (delivery === 'send' && !recipientEmail.trim()) {
+      setError('Add the recipient’s email to send it, or use Generate & download.')
+      return
+    }
     setError(null)
-    setBusy('generate')
+    setBusy(delivery)
 
     try {
       const blob = await build()
@@ -555,13 +565,35 @@ export function DocumentGenerator({
         },
       }
 
+      let letterId: string
       if (existing) {
         await apiPatch(`/api/org/letters/${existing.id}`, body)
+        letterId = existing.id
       } else {
-        await apiPost('/api/org/letters', { ...body, employeeId: employeeId || null })
+        const created = await apiPost<{ id: string }>('/api/org/letters', {
+          ...body,
+          employeeId: employeeId || null,
+        })
+        letterId = created.id
       }
 
-      toast.success(existing ? 'Document updated' : 'Document generated and saved')
+      if (delivery === 'send') {
+        try {
+          await apiPost(`/api/org/letters/${letterId}/send`)
+          toast.success(`Saved and emailed to ${recipientEmail.trim()}`)
+        } catch (err) {
+          downloadBlob(blob, fileName)
+          toast.error(
+            err instanceof ApiClientError
+              ? `Saved, but not emailed: ${err.message}`
+              : 'Saved, but the email could not be sent. The PDF was downloaded to send manually.'
+          )
+        }
+      } else {
+        downloadBlob(blob, fileName)
+        toast.success(existing ? 'Document updated and downloaded' : 'Document saved and downloaded')
+      }
+
       router.refresh()
       progressRouter.push('/org/letters')
     } catch (err) {
@@ -1017,17 +1049,32 @@ export function DocumentGenerator({
         <p className="flex items-start gap-2 text-sm text-ink-muted">
           <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
           {employee
-            ? `Generating saves the PDF to your document library and to ${employee.full_name || employee.email}'s profile.`
-            : 'Generating saves the PDF to your document library, filed under this recipient.'}
+            ? `Generating saves the PDF to your document library and to ${employee.full_name || employee.email}'s profile`
+            : 'Generating saves the PDF to your document library, filed under this recipient'}
+          {recipientEmail.trim() ? `, and sending emails it to ${recipientEmail.trim()}.` : '.'}
         </p>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <Button variant="secondary" loading={busy === 'preview'} disabled={busy !== null} onClick={preview}>
             <Eye />
             Preview
           </Button>
-          <Button loading={busy === 'generate'} disabled={busy !== null} onClick={generate}>
+          <Button
+            variant="secondary"
+            loading={busy === 'download'}
+            disabled={busy !== null}
+            onClick={() => generate('download')}
+          >
             <Download />
-            {existing ? 'Save changes' : 'Generate PDF'}
+            {existing ? 'Save & download' : 'Generate & download'}
+          </Button>
+          <Button
+            loading={busy === 'send'}
+            disabled={busy !== null || !recipientEmail.trim()}
+            title={recipientEmail.trim() ? undefined : 'Add the recipient’s email to send it'}
+            onClick={() => generate('send')}
+          >
+            <Send />
+            {existing ? 'Save & send' : 'Generate & send'}
           </Button>
         </div>
       </div>
@@ -1045,7 +1092,7 @@ export function DocumentGenerator({
           <DialogHeader>
             <DialogTitle>Preview</DialogTitle>
             <DialogDescription>
-              Nothing has been saved yet. Close this and choose Generate PDF to keep it.
+              Nothing has been saved yet. Close this and generate it to keep it.
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 px-6 pb-2">
@@ -1068,14 +1115,15 @@ export function DocumentGenerator({
               Close
             </Button>
             <Button
-              loading={busy === 'generate'}
+              loading={busy === 'send' || busy === 'download'}
               onClick={() => {
                 if (previewUrl) URL.revokeObjectURL(previewUrl)
                 setPreviewUrl(null)
-                void generate()
+                void generate(recipientEmail.trim() ? 'send' : 'download')
               }}
             >
-              Generate PDF
+              {recipientEmail.trim() ? <Send /> : <Download />}
+              {recipientEmail.trim() ? 'Generate & send' : 'Generate & download'}
             </Button>
           </DialogFooter>
         </DialogContent>

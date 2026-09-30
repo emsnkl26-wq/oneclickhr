@@ -39,7 +39,7 @@ export default async function PayrollPage({
     supabase
       .from('profiles')
       .select(
-        'id, full_name, email, photo_url, employee_code, designation, pay_schedule, pay_frequency, country, pay_rate, pay_currency'
+        'id, full_name, email, photo_url, employee_code, designation, pay_schedule, pay_frequency, country, pay_rate, pay_currency, date_of_joining, hire_date, bank_name'
       )
       .eq('role', 'employee')
       .eq('is_active', true)

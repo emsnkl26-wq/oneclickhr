@@ -577,6 +577,22 @@ export const clockActionSchema = z.object({
   action: z.enum(['in', 'out']),
 })
 
+/** A `datetime-local` value, read as wall-clock time in the workspace's zone. */
+const zonedDateTime = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Pick a date and time')
+
+/**
+ * The org correcting a shift — usually closing one somebody forgot to clock
+ * out of. The route converts both times from the workspace's zone and checks
+ * their order and span; the schema only proves they are well-formed.
+ */
+export const editAttendanceSchema = z.object({
+  loginTime: zonedDateTime,
+  logoutTime: zonedDateTime.nullable(),
+  reason: z.string().trim().min(3, 'Say briefly why the times changed').max(500),
+})
+
 // ---------------------------------------------------------------------------
 // Leaves
 // ---------------------------------------------------------------------------
@@ -601,12 +617,29 @@ export const decideLeaveSchema = z.object({
 // Payroll
 // ---------------------------------------------------------------------------
 
+const payslipLineSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  amount: z.number().min(0).max(1_000_000_000),
+})
+
+/** The components of a detailed (PF) slip — see `lib/payslip-breakdown.ts`. */
+export const payslipDetailsSchema = z.object({
+  employeeCode: z.string().trim().max(40).default(''),
+  dateOfJoining: z.string().trim().max(40).default(''),
+  pfNumber: z.string().trim().max(60).default(''),
+  bankDetails: z.string().trim().max(120).default(''),
+  earnings: z.array(payslipLineSchema).min(1).max(12),
+  deductions: z.array(payslipLineSchema).max(12),
+})
+
 export const payslipSchema = z.object({
   employeeId: uuid,
   month: z.coerce.number().int().min(1).max(12),
   year: z.coerce.number().int().min(2000).max(2200),
   key: z.string().trim().min(1).max(300),
   fileName: z.string().trim().min(1).max(255),
+  /** Present for a detailed slip, so next month's can start from it. */
+  details: payslipDetailsSchema.nullable().optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -1106,6 +1139,31 @@ export const createTimesheetSchema = z.object({
   assignmentId: uuid.nullable().optional(),
 })
 
+/**
+ * A DAY cannot exceed 24 hours across the whole grid.
+ *
+ * The column check only bounds one cell of one line, so six lines of five
+ * hours on the same Tuesday passes every per-cell rule and still claims thirty
+ * hours in a day. The cap belongs on the whole-week schemas because they are
+ * the only place that sees every line at once, and the error is pinned to the
+ * first offending cell so the grid can point at it.
+ */
+function refineDailyCaps(
+  entries: Array<Record<(typeof TIMESHEET_DAY_KEYS)[number], number>>,
+  ctx: z.RefinementCtx
+) {
+  TIMESHEET_DAY_KEYS.forEach((key, dayIndex) => {
+    const total = entries.reduce((sum, entry) => sum + (entry[key] || 0), 0)
+    if (total > 24) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${TIMESHEET_DAY_LABELS[dayIndex]} adds up to ${total} hours — a day cannot exceed 24.`,
+        path: ['entries', 0, key],
+      })
+    }
+  })
+}
+
 export const saveTimesheetSchema = z
   .object({
     entries: z.array(timesheetEntrySchema).max(60, 'That is too many lines for one week'),
@@ -1153,28 +1211,25 @@ export const saveTimesheetSchema = z
     message: 'Add your learnings for the week before submitting',
     path: ['weeklyLearnings'],
   })
-  /*
-   * A DAY cannot exceed 24 hours across the whole grid.
-   *
-   * The column check only bounds one cell of one line, so six lines of five
-   * hours on the same Tuesday passes every per-cell rule and still claims thirty
-   * hours in a day. The cap belongs here because it is the only place that sees
-   * the whole week at once, and the error is pinned to the first offending cell
-   * so the grid can point at it.
-   */
-  .superRefine((value, ctx) => {
-    TIMESHEET_DAY_KEYS.forEach((key, dayIndex) => {
-      const total = value.entries.reduce((sum, entry) => sum + (entry[key] || 0), 0)
-      if (total > 24) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `${TIMESHEET_DAY_LABELS[dayIndex]} adds up to ${total} hours — a day cannot exceed 24.`,
-          path: ['entries', 0, key],
-        })
-      }
-    })
-  })
+  .superRefine((value, ctx) => refineDailyCaps(value.entries, ctx))
 export type SaveTimesheetInput = z.infer<typeof saveTimesheetSchema>
+
+/**
+ * The reviewer correcting a submitted week before deciding on it.
+ *
+ * Only the LINES — the learnings, files and placement are the employee's own
+ * account of the week. A reason is required: the employee sees their hours
+ * change, and "why" is the first thing they will ask.
+ */
+export const orgEditTimesheetSchema = z
+  .object({
+    entries: z
+      .array(timesheetEntrySchema)
+      .min(1, 'A timesheet needs at least one line')
+      .max(60, 'That is too many lines for one week'),
+    reason: z.string().trim().min(3, 'Say briefly why the hours changed').max(500),
+  })
+  .superRefine((value, ctx) => refineDailyCaps(value.entries, ctx))
 
 export const reviewTimesheetSchema = z
   .object({

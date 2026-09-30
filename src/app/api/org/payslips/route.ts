@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from '@/lib/api'
+import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { payslipSchema } from '@/lib/schemas'
@@ -52,7 +52,12 @@ async function handlePOST(request: NextRequest) {
   if (previous) {
     const { error: updateError } = await supabase
       .from('payslips')
-      .update({ file_url: input.key, file_name: input.fileName, uploaded_by: ctx.userId })
+      .update({
+        file_url: input.key,
+        file_name: input.fileName,
+        details: input.details ?? null,
+        uploaded_by: ctx.userId,
+      })
       .eq('id', previous.id)
     if (updateError) {
       await deleteObject(input.key)
@@ -82,6 +87,7 @@ async function handlePOST(request: NextRequest) {
       year: input.year,
       file_url: input.key,
       file_name: input.fileName,
+      details: input.details ?? null,
       uploaded_by: ctx.userId,
     })
     .select('id')
@@ -111,4 +117,31 @@ async function handlePOST(request: NextRequest) {
   return jsonOk({ id: data.id }, 201)
 }
 
+/**
+ * The breakdown of an employee's most recent detailed slip, so the next one
+ * starts from last month's Basic, PF number and bank line instead of blank.
+ */
+async function handleGET(request: NextRequest) {
+  const gate = await apiRequireOrg()
+  if (!gate.ok) return gate.response
+  const { ctx } = gate
+
+  const employeeId = uuidSchema.parse(new URL(request.url).searchParams.get('employeeId'))
+  const supabase = await createSupabaseServerClient()
+
+  const { data } = await supabase
+    .from('payslips')
+    .select('details')
+    .eq('tenant_id', ctx.tenantId)
+    .eq('employee_id', employeeId)
+    .not('details', 'is', null)
+    .order('year', { ascending: false })
+    .order('month', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return jsonOk({ details: data?.details ?? null })
+}
+
 export const POST = withErrorHandler(handlePOST)
+export const GET = withErrorHandler(handleGET)

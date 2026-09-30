@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader, LoadError } from '@/components/ui/patterns'
 import { LinkTabs } from '@/components/ui/link-tabs'
 import { HoursSheet, type SheetRow } from '@/components/timesheet/hours-sheet'
-import { TimesheetQueue, type QueueRow } from './timesheet-queue'
+import { TimesheetQueue, type QueueRow, type QueueTotals } from './timesheet-queue'
 import { todayIn, weekStartSunday, addDays } from '@/lib/time'
 import type { TimesheetStatus } from '@/types/db'
 
@@ -24,6 +24,8 @@ const DEFAULT_WEEKS = 12
  */
 const DEFAULT_WEEKS_AHEAD = 4
 const MAX_SHEET_ROWS = 500
+/** Timesheets summed for the queue's totals; past this they are a floor. */
+const MAX_TOTAL_ROWS = 5000
 
 interface TimesheetWithEmployee {
   id: string
@@ -206,11 +208,35 @@ export default async function OrgTimesheetsPage({
   if (from) query = query.gte('week_start', from)
   if (to) query = query.lte('week_end', to)
 
+  /*
+   * Hours across EVERY timesheet the filters match, not just this page — the
+   * figure someone reconciling an invoice needs ("approved, March, Priya").
+   * Only the three numbers are read, so this stays cheap even over a quarter.
+   */
+  let totalsQuery = supabase
+    .from('timesheets')
+    .select('total_hours, billable_hours, overtime_hours, employee:profiles!timesheets_employee_id_fkey!inner(full_name)')
+    .limit(MAX_TOTAL_ROWS)
+  if (filter !== 'all') totalsQuery = totalsQuery.eq('status', filter)
+  if (search) totalsQuery = totalsQuery.ilike('employee.full_name', `%${search}%`)
+  if (from) totalsQuery = totalsQuery.gte('week_start', from)
+  if (to) totalsQuery = totalsQuery.lte('week_end', to)
+
   // The pending badge has to survive the other tabs, so it is its own count.
-  const [{ data, count }, pending] = await Promise.all([
+  const [{ data, count }, pending, { data: totalRows }] = await Promise.all([
     query,
     supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
+    totalsQuery,
   ])
+
+  const sum = (key: 'total_hours' | 'billable_hours' | 'overtime_hours') =>
+    Math.round((totalRows ?? []).reduce((acc, row) => acc + Number(row[key] ?? 0), 0) * 100) / 100
+  const totals: QueueTotals = {
+    total: sum('total_hours'),
+    billable: sum('billable_hours'),
+    overtime: sum('overtime_hours'),
+    capped: (totalRows?.length ?? 0) >= MAX_TOTAL_ROWS,
+  }
 
   const rows: QueueRow[] = ((data ?? []) as unknown as TimesheetWithEmployee[]).map((sheet) => ({
     id: sheet.id,
@@ -239,6 +265,7 @@ export default async function OrgTimesheetsPage({
         perPage={PER_PAGE}
         filter={filter}
         pendingCount={pending.count ?? 0}
+        totals={totals}
         searching={!!search || !!from || !!to}
         from={from}
         to={to}

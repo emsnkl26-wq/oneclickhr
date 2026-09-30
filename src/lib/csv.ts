@@ -35,10 +35,15 @@ export { toCsv, type CsvValue }
  */
 export function downloadCsv(fileName: string, csv: string): void {
   const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' })
+  downloadBlob(blob, fileName.endsWith('.csv') ? fileName : `${fileName}.csv`)
+}
+
+/** Save any in-memory file (a generated PDF, an export) to the user's computer. */
+export function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = fileName.endsWith('.csv') ? fileName : `${fileName}.csv`
+  link.download = fileName
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FileSignature, Download, Eye, Trash2, Pencil } from 'lucide-react'
+import { FileSignature, Download, Eye, Trash2, Pencil, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,7 @@ import {
 import { LinkTabs } from '@/components/ui/link-tabs'
 import { SearchField } from '@/components/ui/search-field'
 import { Pagination } from '@/components/ui/pagination'
-import { apiDelete, ApiClientError } from '@/lib/fetcher'
+import { apiDelete, apiPost, ApiClientError } from '@/lib/fetcher'
 import { DOCUMENT_TYPE_LABELS } from '@/lib/document-templates'
 import { formatLocal } from '@/lib/time'
 import { initials } from '@/lib/utils'
@@ -32,6 +32,9 @@ export interface LetterRow {
   employeePhoto: string | null
   authorName: string | null
   createdAt: string
+  recipientEmail: string | null
+  /** When it was last emailed from the app (055); null if never. */
+  sentAt: string | null
 }
 
 export function LettersList({
@@ -48,6 +51,20 @@ export function LettersList({
   const router = useRouter()
   const [removing, setRemoving] = React.useState<LetterRow | null>(null)
   const [busy, setBusy] = React.useState(false)
+  const [sending, setSending] = React.useState<string | null>(null)
+
+  async function send(row: LetterRow) {
+    setSending(row.id)
+    try {
+      await apiPost(`/api/org/letters/${row.id}/send`)
+      toast.success(`Emailed to ${row.recipientEmail}`)
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'The email could not be sent')
+    } finally {
+      setSending(null)
+    }
+  }
 
   async function remove() {
     if (!removing) return
@@ -132,11 +149,36 @@ export function LettersList({
       ),
     },
     {
+      key: 'sent',
+      header: 'Emailed',
+      cell: (row) =>
+        row.sentAt ? (
+          <span title={row.recipientEmail ?? undefined}>
+            <StatusChip status="approved" label={`Sent ${formatLocal(row.sentAt, timezone, 'd MMM')}`} />
+          </span>
+        ) : (
+          <span className="text-xs text-ink-muted">Not sent</span>
+        ),
+    },
+    {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
-      className: 'w-40',
+      className: 'w-48',
       cell: (row) => (
         <div className="flex items-center justify-end gap-0.5">
+          {row.recipientEmail ? (
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={`Email ${row.title} to ${row.recipientEmail}`}
+              title={`${row.sentAt ? 'Send again' : 'Send'} to ${row.recipientEmail}`}
+              loading={sending === row.id}
+              disabled={sending !== null}
+              onClick={() => send(row)}
+            >
+              <Send />
+            </Button>
+          ) : null}
           <Button asChild size="icon" variant="ghost" aria-label={`Preview ${row.title}`}>
             <a
               href={`/api/files/view?key=${encodeURIComponent(row.fileKey)}`}

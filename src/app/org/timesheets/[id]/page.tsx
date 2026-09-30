@@ -33,7 +33,8 @@ interface EntryRow {
 }
 
 /**
- * One submitted week, exactly as the employee filled it in.
+ * One submitted week, as the employee filled it in — or as the reviewer
+ * corrected it, which is allowed only while it awaits a decision.
  *
  * The grid is the SAME component the employee edits, in read-only mode. Two
  * renderers would be two chances for the reviewer and the person being reviewed
@@ -78,6 +79,7 @@ export default async function OrgTimesheetDetailPage({
     { data: projects },
     { data: placement },
     { data: tenantRow },
+    { data: assignments },
   ] =
     await Promise.all([
       supabase
@@ -97,6 +99,8 @@ export default async function OrgTimesheetDetailPage({
             .maybeSingle()
         : Promise.resolve({ data: null }),
       supabase.from('tenants').select('overtime_weekly_threshold').eq('id', ctx.tenantId).maybeSingle(),
+      // What a correction may move hours onto: the employee's own projects.
+      supabase.from('project_assignments').select('project_id').eq('employee_id', sheet.employee_id),
     ])
 
   const overtimeHours = Number(sheet.overtime_hours ?? 0)
@@ -244,6 +248,14 @@ export default async function OrgTimesheetDetailPage({
           name: project.name,
           clientName: project.client_name,
         }))}
+        editableProjectIds={Array.from(
+          new Set([
+            ...(assignments ?? []).map((row) => row.project_id as string),
+            ...((entries ?? []) as unknown as EntryRow[])
+              .map((entry) => entry.project_id)
+              .filter((projectId): projectId is string => !!projectId),
+          ])
+        )}
         timezone={ctx.tenant.timezone}
       />
     </div>

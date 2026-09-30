@@ -3,7 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Timer, Download, Paperclip } from 'lucide-react'
-import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
+import { DataTable, EmptyState, StatCard, StatusChip, type Column } from '@/components/ui/patterns'
+import { round2 } from '@/components/timesheet/week-grid'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { LinkTabs } from '@/components/ui/link-tabs'
@@ -12,7 +13,7 @@ import { DateRangeFilter } from '@/components/ui/date-range-filter'
 import { Pagination } from '@/components/ui/pagination'
 import { toCsv, downloadCsv } from '@/lib/csv'
 import { formatPeriod } from '@/lib/time'
-import { initials, truncate } from '@/lib/utils'
+import { formatHours, initials, truncate } from '@/lib/utils'
 import type { TimesheetStatus } from '@/types/db'
 
 export interface QueueRow {
@@ -33,8 +34,17 @@ export interface QueueRow {
   hasAttachment: boolean
 }
 
+/** Hours summed over every timesheet the current filters match, across all pages. */
+export interface QueueTotals {
+  total: number
+  billable: number
+  overtime: number
+  /** True when the sum hit its row cap, so the figures are a floor. */
+  capped: boolean
+}
+
 export function TimesheetQueue({
-  timesheets, total, page, perPage, filter, pendingCount, searching, from, to,
+  timesheets, total, page, perPage, filter, pendingCount, totals, searching, from, to,
 }: {
   timesheets: QueueRow[]
   total: number
@@ -42,6 +52,7 @@ export function TimesheetQueue({
   perPage: number
   filter: string
   pendingCount: number
+  totals: QueueTotals
   searching: boolean
   from: string
   to: string
@@ -68,7 +79,17 @@ export function TimesheetQueue({
         row.overtimeHours,
         row.status,
         row.weeklyLearnings ?? '',
-      ])
+      ]).concat([[
+        'Total (this page)',
+        '',
+        '',
+        '',
+        round2(timesheets.reduce((sum, row) => sum + row.totalHours, 0)),
+        round2(timesheets.reduce((sum, row) => sum + row.billableHours, 0)),
+        round2(timesheets.reduce((sum, row) => sum + row.overtimeHours, 0)),
+        '',
+        '',
+      ]])
     )
     const suffix = from || to ? `-${from || 'start'}_${to || 'today'}` : ''
     downloadCsv(`timesheets${suffix}.csv`, csv)
@@ -161,6 +182,8 @@ export function TimesheetQueue({
     },
   ]
 
+  const floor = totals.capped ? '+' : ''
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -191,6 +214,23 @@ export function TimesheetQueue({
             Export page
           </Button>
         </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard
+          label={`Total hours · ${total} ${total === 1 ? 'timesheet' : 'timesheets'}`}
+          value={totals.total ? `${formatHours(totals.total)}${floor}` : '—'}
+          hint={searching ? 'Across every page matching these filters' : 'Across every page of this tab'}
+          accent
+        />
+        <StatCard
+          label="Billable hours"
+          value={totals.billable ? `${formatHours(totals.billable)}${floor}` : '—'}
+        />
+        <StatCard
+          label="Overtime hours"
+          value={totals.overtime ? `${formatHours(totals.overtime)}${floor}` : '—'}
+        />
       </div>
 
       <DataTable

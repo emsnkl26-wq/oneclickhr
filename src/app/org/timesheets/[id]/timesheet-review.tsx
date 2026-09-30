@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, Download, FileText, MessageSquare } from 'lucide-react'
+import { Check, X, Download, FileText, MessageSquare, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
-import { WeekGrid, type GridRow, type GridProject } from '@/components/timesheet/week-grid'
+import {
+  WeekGrid, MAX_HOURS_PER_DAY, round2, rowTotal, type GridRow, type GridProject,
+} from '@/components/timesheet/week-grid'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { addDays, formatLocal } from '@/lib/time'
 import type { TimesheetStatus } from '@/types/db'
@@ -39,7 +41,12 @@ export interface ReviewTimesheet {
 }
 
 /**
- * The read-only week plus the two decisions that can be made about it.
+ * The week plus the two decisions that can be made about it.
+ *
+ * While the week awaits review the reviewer may also CORRECT it — a mistyped
+ * day, a line on the wrong project — rather than bouncing the whole week back
+ * for a one-cell fix. A correction needs a reason, which the employee is
+ * notified with; approval then prices the corrected hours.
  *
  * Approve is one click; reject asks for a reason and will not proceed without
  * one. That asymmetry is deliberate and is enforced server-side too
@@ -48,20 +55,36 @@ export interface ReviewTimesheet {
  * to change, and they will simply resubmit it unchanged.
  */
 export function TimesheetReview({
-  timesheet, entries, projects, timezone,
+  timesheet, entries, projects, editableProjectIds, timezone,
 }: {
   timesheet: ReviewTimesheet
   entries: GridRow[]
   projects: GridProject[]
+  /** Projects a correction may put hours on: the employee's, plus any already on the week. */
+  editableProjectIds: string[]
   timezone: string
 }) {
   const router = useRouter()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState<GridRow[]>(entries)
+  const [reason, setReason] = React.useState('')
+  const [editError, setEditError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  const editableProjects = React.useMemo(() => {
+    const allowed = new Set(editableProjectIds)
+    return projects.filter((project) => allowed.has(project.id))
+  }, [projects, editableProjectIds])
   const [decision, setDecision] = React.useState<'approved' | 'rejected' | null>(null)
   const [note, setNote] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   // Overtime to approve, as typed — all of it unless the reviewer says less.
   const [approvedOvertime, setApprovedOvertime] = React.useState(String(timesheet.overtimeHours))
+  // A correction can change the week's overtime; the default follows it.
+  React.useEffect(() => {
+    setApprovedOvertime(String(timesheet.overtimeHours))
+  }, [timesheet.overtimeHours])
 
   const reviewsOvertime = timesheet.overtimeHours > 0 && timesheet.overtimePayable
   const approvedOvertimeValue = Number(approvedOvertime)
@@ -78,6 +101,62 @@ export function TimesheetReview({
   )
 
   const pending = timesheet.status === 'submitted'
+
+  function startEditing() {
+    setDraft(entries)
+    setReason('')
+    setEditError(null)
+    setEditing(true)
+  }
+
+  /** The server re-checks all of this; here it only saves a round trip. */
+  function validateDraft(): string | null {
+    const lines = draft.filter((row) => row.projectId || row.taskName.trim() || rowTotal(row) > 0)
+    if (!lines.length) return 'A timesheet needs at least one line.'
+    if (lines.some((row) => !row.projectId && !row.taskName.trim())) {
+      return 'Every line needs a project or a task description.'
+    }
+    for (let day = 0; day < 7; day++) {
+      const total = round2(lines.reduce((sum, row) => sum + (row.hours[day] || 0), 0))
+      if (total > MAX_HOURS_PER_DAY) return `A day cannot exceed ${MAX_HOURS_PER_DAY} hours.`
+    }
+    if (reason.trim().length < 3) return 'Say briefly why the hours changed — the employee is told.'
+    return null
+  }
+
+  async function saveEdits() {
+    const problem = validateDraft()
+    if (problem) {
+      setEditError(problem)
+      return
+    }
+    setEditError(null)
+    setSaving(true)
+    try {
+      await apiPatch(`/api/timesheets/${timesheet.id}/entries`, {
+        reason: reason.trim(),
+        entries: draft.map((row) => ({
+          projectId: row.projectId || null,
+          taskName: row.taskName.trim() || undefined,
+          billable: row.billable,
+          hoursSun: row.hours[0],
+          hoursMon: row.hours[1],
+          hoursTue: row.hours[2],
+          hoursWed: row.hours[3],
+          hoursThu: row.hours[4],
+          hoursFri: row.hours[5],
+          hoursSat: row.hours[6],
+        })),
+      })
+      toast.success('Hours updated — the employee has been notified')
+      setEditing(false)
+      router.refresh()
+    } catch (err) {
+      setEditError(err instanceof ApiClientError ? err.message : 'Something went wrong.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function submitDecision() {
     if (!decision) return
@@ -104,7 +183,35 @@ export function TimesheetReview({
 
   return (
     <div className="space-y-6">
-      <WeekGrid days={days} rows={entries} projects={projects} readOnly />
+      {editing ? (
+        <div className="space-y-4 rounded-xl border border-line bg-card p-4 shadow-sm">
+          <FormError message={editError} />
+          <WeekGrid days={days} rows={draft} projects={editableProjects} onChange={setDraft} />
+          <FormField
+            label="Reason for the change"
+            hint="Sent to the employee with the new total."
+            required
+          >
+            <Input
+              value={reason}
+              maxLength={500}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Tuesday was logged as 18 h — corrected to 8 h."
+            />
+          </FormField>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button loading={saving} onClick={saveEdits}>
+              <Check />
+              Save hours
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <WeekGrid days={days} rows={entries} projects={projects} readOnly />
+      )}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
@@ -188,8 +295,12 @@ export function TimesheetReview({
             : `This timesheet has already been ${timesheet.status}.`}
         </p>
 
-        {pending ? (
-          <div className="ml-auto flex items-center gap-2">
+        {pending && !editing ? (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Button variant="ghost" onClick={startEditing}>
+              <Pencil />
+              Edit hours
+            </Button>
             <Button variant="secondary" onClick={() => setDecision('rejected')}>
               <X />
               Reject

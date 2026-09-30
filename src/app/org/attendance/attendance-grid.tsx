@@ -1,14 +1,21 @@
 'use client'
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { useProgressRouter } from '@/lib/use-progress-router'
-import { ChevronLeft, ChevronRight, Search, CalendarCheck } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, CalendarCheck, Check } from 'lucide-react'
+import { toast } from 'sonner'
 import { EmptyState } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
 import { Input, Select } from '@/components/ui/input'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
+import { FormField, FormError } from '@/components/ui/form-field'
+import {
+  Avatar, AvatarFallback, AvatarImage,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
+} from '@/components/ui/primitives'
+import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { cn, initials, formatHours } from '@/lib/utils'
-import { formatLocal } from '@/lib/time'
+import { formatLocal, fromZonedInput, hoursBetween, toZonedInput } from '@/lib/time'
 
 interface EmployeeRow {
   id: string
@@ -27,6 +34,14 @@ interface AttendanceRecord {
   logout_time: string | null
   total_hours: number | null
   is_late: boolean
+  /** Set when the org corrected the times (055). */
+  edited_at: string | null
+}
+
+/** The record being corrected, with who it belongs to for the dialog title. */
+interface Editing {
+  record: AttendanceRecord
+  employeeName: string
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -51,6 +66,7 @@ export function AttendanceGrid({
   const router = useProgressRouter()
   const [query, setQuery] = React.useState('')
   const [department, setDepartment] = React.useState('all')
+  const [editing, setEditing] = React.useState<Editing | null>(null)
 
   // `employeeId|date` -> record, so each cell is an O(1) lookup.
   const byCell = React.useMemo(() => {
@@ -203,7 +219,16 @@ export function AttendanceGrid({
 
                       {week.map((record, i) => (
                         <td key={days[i]} className="px-2 py-3 text-center align-middle">
-                          <AttendanceCell record={record} timezone={timezone} />
+                          <AttendanceCell
+                            record={record}
+                            timezone={timezone}
+                            onEdit={(target) =>
+                              setEditing({
+                                record: target,
+                                employeeName: employee.full_name || employee.email || 'Employee',
+                              })
+                            }
+                          />
                         </td>
                       ))}
 
@@ -231,16 +256,140 @@ export function AttendanceGrid({
             {item.label}
           </span>
         ))}
+        <span>Click a shift to correct its times · * corrected by an admin</span>
       </div>
+
+      <EditShiftDialog editing={editing} timezone={timezone} onClose={() => setEditing(null)} />
     </div>
   )
 }
 
+/**
+ * Correct one shift's clock-in and clock-out, in the workspace's zone.
+ *
+ * Mostly used to close a shift someone forgot to clock out of: an open shift
+ * starts with clock-out blank, and the hours shown update as the times change
+ * so the admin sees what will be recorded before saving.
+ */
+function EditShiftDialog({
+  editing, timezone, onClose,
+}: {
+  editing: Editing | null
+  timezone: string
+  onClose: () => void
+}) {
+  const router = useRouter()
+  const [loginTime, setLoginTime] = React.useState('')
+  const [logoutTime, setLogoutTime] = React.useState('')
+  const [reason, setReason] = React.useState('')
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!editing) return
+    setLoginTime(toZonedInput(editing.record.login_time, timezone))
+    setLogoutTime(editing.record.logout_time ? toZonedInput(editing.record.logout_time, timezone) : '')
+    setReason('')
+    setError(null)
+    setBusy(false)
+  }, [editing, timezone])
+
+  const login = fromZonedInput(loginTime, timezone)
+  const logout = fromZonedInput(logoutTime, timezone)
+  const preview = login && logout ? hoursBetween(login, logout) : null
+
+  async function save() {
+    if (!editing) return
+    if (!loginTime) {
+      setError('Enter the clock-in time.')
+      return
+    }
+    if (reason.trim().length < 3) {
+      setError('Say briefly why the times changed.')
+      return
+    }
+    setError(null)
+    setBusy(true)
+    try {
+      await apiPatch(`/api/org/attendance/${editing.record.id}`, {
+        loginTime,
+        logoutTime: logoutTime || null,
+        reason: reason.trim(),
+      })
+      toast.success('Shift updated')
+      onClose()
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Something went wrong.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!editing} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Correct shift</DialogTitle>
+          <DialogDescription>
+            {editing ? `${editing.employeeName} · ${editing.record.date} · times in ${timezone}` : ''}
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody className="space-y-4">
+          <FormError message={error} />
+          <FormField label="Clock-in" required>
+            <Input
+              type="datetime-local"
+              value={loginTime}
+              onChange={(event) => setLoginTime(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Clock-out"
+            hint={editing && !editing.record.logout_time ? 'Still clocked in — set when they actually left.' : undefined}
+          >
+            <Input
+              type="datetime-local"
+              value={logoutTime}
+              min={loginTime || undefined}
+              onChange={(event) => setLogoutTime(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Reason" required>
+            <Input
+              value={reason}
+              maxLength={500}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Forgot to clock out"
+            />
+          </FormField>
+          {preview !== null ? (
+            <p className="tabular rounded-lg bg-page px-3.5 py-2.5 text-sm">
+              Hours recorded: <span className="font-semibold">{formatHours(preview)}</span>
+            </p>
+          ) : null}
+        </DialogBody>
+
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button loading={busy} onClick={save}>
+            <Check />
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function AttendanceCell({
-  record, timezone,
+  record, timezone, onEdit,
 }: {
   record?: AttendanceRecord
   timezone: string
+  onEdit: (record: AttendanceRecord) => void
 }) {
   if (!record) {
     return <span className="text-ink-muted/50">—</span>
@@ -254,19 +403,22 @@ function AttendanceCell({
       : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
 
   return (
-    <span
+    <button
+      type="button"
+      onClick={() => onEdit(record)}
       className={cn(
-        'tabular inline-flex min-w-[62px] flex-col rounded-lg px-2 py-1 text-[11px] font-medium leading-tight ring-1 ring-inset',
+        'tabular inline-flex min-w-[62px] flex-col rounded-lg px-2 py-1 text-[11px] font-medium leading-tight ring-1 ring-inset transition-shadow hover:shadow-sm focus-visible:outline-none focus-visible:ring-2',
         tone
       )}
       title={`In ${formatLocal(record.login_time, timezone, 'HH:mm')}${
         record.logout_time ? ` · Out ${formatLocal(record.logout_time, timezone, 'HH:mm')}` : ''
-      }`}
+      }${record.edited_at ? ' · corrected by an admin' : ''} — click to correct`}
     >
       <span>{formatLocal(record.login_time, timezone, 'HH:mm')}</span>
       <span className="opacity-80">
         {open ? 'active' : formatHours(record.total_hours)}
+        {record.edited_at ? '*' : ''}
       </span>
-    </span>
+    </button>
   )
 }
