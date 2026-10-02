@@ -4,6 +4,7 @@ import { apiRequireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { paymentConfirmationSchema } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
+import { notifyOrgAdmins } from '@/lib/notify'
 import { audit } from '@/lib/audit'
 import { todayIn } from '@/lib/time'
 import {
@@ -111,6 +112,15 @@ async function handlePOST(request: NextRequest) {
     }
     return jsonError(friendlyDbError(error), 400)
   }
+
+  await notifyOrgAdmins(supabase, {
+    tenantId: ctx.tenantId,
+    createdBy: ctx.userId,
+    event: 'payment.submitted',
+    subjectId: data.id,
+    title: `${ctx.fullName || ctx.email} uploaded a payment confirmation`,
+    description: periodLabel(input.year, input.month, input.period),
+  })
 
   await audit({
     tenantId: ctx.tenantId,

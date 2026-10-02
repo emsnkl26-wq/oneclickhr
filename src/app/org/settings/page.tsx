@@ -4,6 +4,7 @@ import { BadgeCheck, CalendarDays, Globe, Users } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
+import { AppearanceSetting } from '@/components/theme-toggle'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { SettingsForm } from './settings-form'
@@ -57,6 +58,8 @@ export default async function SettingsPage() {
         title="Settings"
         description="Branding, working hours, departments and the details your documents are issued on."
       />
+
+      <AppearanceSetting />
 
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <SettingsForm

@@ -4,6 +4,7 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { payslipSchema } from '@/lib/schemas'
 import { keyBelongsToTenant, deleteObject } from '@/lib/r2'
+import { notifyEmployee } from '@/lib/notify'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -65,6 +66,16 @@ async function handlePOST(request: NextRequest) {
     }
     if (previous.file_url && previous.file_url !== input.key) await deleteObject(previous.file_url)
 
+    await notifyEmployee(supabase, {
+      tenantId: ctx.tenantId,
+      employeeId: input.employeeId,
+      createdBy: ctx.userId,
+      event: 'payslip.issued',
+      subjectId: previous.id,
+      title: `Your payslip for ${periodName(input.month, input.year)} was updated`,
+      description: 'Open Payslips to view or download it.',
+    })
+
     await audit({
       tenantId: ctx.tenantId,
       actorId: ctx.userId,
@@ -102,6 +113,16 @@ async function handlePOST(request: NextRequest) {
     }
     return jsonError(friendlyDbError(error), 400)
   }
+
+  await notifyEmployee(supabase, {
+    tenantId: ctx.tenantId,
+    employeeId: input.employeeId,
+    createdBy: ctx.userId,
+    event: 'payslip.issued',
+    subjectId: data.id,
+    title: `Your payslip for ${periodName(input.month, input.year)} is ready`,
+    description: 'Open Payslips to view or download it.',
+  })
 
   await audit({
     tenantId: ctx.tenantId,
@@ -145,3 +166,11 @@ async function handleGET(request: NextRequest) {
 
 export const POST = withErrorHandler(handlePOST)
 export const GET = withErrorHandler(handleGET)
+
+function periodName(month: number, year: number): string {
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}

@@ -10,6 +10,7 @@ import 'server-only'
 import { loadContext, homeFor } from '@/lib/auth/context'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { JobViewer } from '@/lib/job-viewer'
+import type { ApplicationStatus } from '@/types/db'
 
 export async function loadJobViewer(): Promise<JobViewer> {
   const ctx = await loadContext()
@@ -32,10 +33,17 @@ export async function loadJobViewer(): Promise<JobViewer> {
       : Promise.resolve({ data: null }),
     supabase
       .from('job_applications')
-      .select('job_id')
+      .select('job_id, status, created_at, updated_at')
       .eq('applicant_profile_id', ctx.userId)
       .limit(1000),
   ])
+
+  const appliedRows = (applied ?? []) as Array<{
+    job_id: string
+    status: ApplicationStatus
+    created_at: string
+    updated_at: string | null
+  }>
 
   const p = profile as {
     phone: string | null
@@ -66,6 +74,12 @@ export async function loadJobViewer(): Promise<JobViewer> {
       noticePeriod: p?.notice_period ?? '',
     },
     savedResumeName: p?.resume_key ? (p.resume_name ?? 'Saved CV') : null,
-    appliedJobIds: ((applied ?? []) as Array<{ job_id: string }>).map((row) => row.job_id),
+    appliedJobIds: appliedRows.map((row) => row.job_id),
+    applications: Object.fromEntries(
+      appliedRows.map((row) => [
+        row.job_id,
+        { status: row.status, appliedAt: row.created_at, updatedAt: row.updated_at ?? row.created_at },
+      ])
+    ),
   }
 }

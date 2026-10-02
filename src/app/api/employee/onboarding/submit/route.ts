@@ -6,6 +6,7 @@ import { draftFromRow, EMPLOYEE_STEPS, validateEmployeeStep } from '@/lib/onboar
 import { EMPLOYEE_EDITABLE_STATUSES, EMPLOYEE_VISIBLE_STATUSES } from '@/lib/employee-onboarding'
 import type { OnboardingStatus } from '@/types/db'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
+import { notifyOrgAdmins } from '@/lib/notify'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -98,6 +99,17 @@ async function handlePOST(request: NextRequest) {
     .eq('employee_profile_id', ctx.userId)
 
   if (error) return jsonError(friendlyDbError(error), 400)
+
+  await notifyOrgAdmins(admin, {
+    tenantId,
+    createdBy: ctx.userId,
+    event: 'onboarding.submitted',
+    subjectId: row.id,
+    title: isCorrection
+      ? `${ctx.fullName || ctx.email} updated their onboarding details`
+      : `${ctx.fullName || ctx.email} submitted their onboarding`,
+    description: 'Review it in Employees.',
+  })
 
   await audit({
     tenantId,

@@ -4,6 +4,7 @@ import { ClipboardList, KeyRound } from 'lucide-react'
 import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
+import { AppearanceSetting } from '@/components/theme-toggle'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -133,6 +134,8 @@ export default async function EmployeeProfilePage() {
         employeeCode={profile?.employee_code ?? null}
         isActive={profile?.is_active ?? true}
       />
+
+      <AppearanceSetting />
 
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <div className="space-y-5">

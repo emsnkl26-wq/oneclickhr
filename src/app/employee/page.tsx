@@ -8,6 +8,7 @@ import { requireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { loadEmployeeOnboarding } from '@/lib/employee-onboarding'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { StatCard, PageHeader, EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatLocal, todayIn } from '@/lib/time'
@@ -119,6 +120,7 @@ export default async function EmployeeDashboard() {
       <PageHeader
         title={`Hello${ctx.fullName ? `, ${ctx.fullName.split(' ')[0]}` : ''}`}
         description={formatLocal(new Date(), tz, 'EEEE, d MMMM yyyy')}
+        actions={<ThemeToggle className="border border-line bg-card text-ink-muted hover:bg-page hover:text-ink" />}
       />
 
       {/*

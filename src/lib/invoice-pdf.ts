@@ -103,7 +103,7 @@ function appendTimesheetSummaryPage(doc: JsPDF, rows: TimesheetSummaryRow[]): vo
     y: number,
     opts: { bold?: boolean; size?: number; color?: RGB; align?: 'left' | 'center' | 'right' } = {}
   ) => {
-    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal')
+    useFont(doc, value, opts.bold)
     doc.setFontSize(opts.size ?? 8.5)
     doc.setTextColor(...(opts.color ?? INK))
     doc.text(value, x, y, opts.align ? { align: opts.align } : undefined)
@@ -206,6 +206,7 @@ export async function buildInvoicePdf(
   const { default: jsPDF } = await import('jspdf')
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  await registerUnicodeFont(doc)
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   const left = 44
@@ -218,7 +219,7 @@ export async function buildInvoicePdf(
     y: number,
     opts: { bold?: boolean; size?: number; color?: RGB; align?: 'left' | 'center' | 'right' } = {}
   ) => {
-    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal')
+    useFont(doc, value, opts.bold)
     doc.setFontSize(opts.size ?? 8.5)
     doc.setTextColor(...(opts.color ?? INK))
     doc.text(value, x, y, opts.align ? { align: opts.align } : undefined)
@@ -423,4 +424,58 @@ export async function buildInvoicePdf(
   doc.textWithLink('Powered by OneclickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
 
   return doc
+}
+
+/*
+ * Helvetica — jsPDF's built-in font — only covers WinAnsi. A rupee sign (and
+ * any other symbol outside it) came out as a stray glyph with every following
+ * character spaced apart: "¹ 6 , 0 0 0". Noto Sans is embedded and used for
+ * any string that needs it; everything else keeps Helvetica.
+ */
+let notoCache: Promise<string | null> | null = null
+
+function loadNoto(): Promise<string | null> {
+  notoCache ??= fetch('/fonts/NotoSans-Regular.ttf')
+    .then(async (response) => {
+      if (!response.ok) return null
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      let binary = ''
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+      }
+      return btoa(binary)
+    })
+    .catch(() => {
+      notoCache = null
+      return null
+    })
+  return notoCache
+}
+
+const hasUnicodeFont = new WeakSet<JsPDF>()
+
+async function registerUnicodeFont(doc: JsPDF): Promise<void> {
+  const data = await loadNoto()
+  if (!data) return
+  doc.addFileToVFS('NotoSans-Regular.ttf', data)
+  doc.addFont('NotoSans-Regular.ttf', 'Noto', 'normal')
+  // Bold amounts render in the regular cut; there is no bold Noto shipped.
+  doc.addFont('NotoSans-Regular.ttf', 'Noto', 'bold')
+  hasUnicodeFont.add(doc)
+}
+
+/** Characters WinAnsi (and so Helvetica) can draw beyond Latin-1. */
+const WIN_ANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ')
+
+function needsUnicode(value: string | string[]): boolean {
+  const s = Array.isArray(value) ? value.join('') : value
+  for (const ch of s) {
+    if (ch.charCodeAt(0) > 0xff && !WIN_ANSI_EXTRA.has(ch)) return true
+  }
+  return false
+}
+
+function useFont(doc: JsPDF, value: string | string[], bold?: boolean) {
+  const family = hasUnicodeFont.has(doc) && needsUnicode(value) ? 'Noto' : 'helvetica'
+  doc.setFont(family, bold ? 'bold' : 'normal')
 }

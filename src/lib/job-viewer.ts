@@ -9,6 +9,7 @@
  *   staff       an organization or platform admin — reads applications,
  *               does not send them
  */
+import type { ApplicationStatus } from '@/types/db'
 
 export interface ApplicantPrefill {
   fullName: string
@@ -36,6 +37,8 @@ export type JobViewer =
       savedResumeName: string | null
       /** Jobs this person has already applied to. */
       appliedJobIds: string[]
+      /** Where each of those applications has got to, keyed by job id. */
+      applications: Record<string, { status: ApplicationStatus; appliedAt: string; updatedAt: string }>
     }
 
 /** The sign-in page that returns to `path` afterwards. */

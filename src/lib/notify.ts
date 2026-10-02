@@ -36,6 +36,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { raiseNotification } from '@/lib/notifications/dispatch'
 import type { NotificationEvent } from '@/lib/notifications/events'
+import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
 
 export interface EmployeeNotice {
   tenantId: string
@@ -87,4 +88,41 @@ export async function notifyEmployee(
      */
     deliver: 'after',
   })
+}
+
+/**
+ * Tell every active administrator of the workspace about something an
+ * employee did — a ticket raised, a leave requested, a timesheet submitted.
+ *
+ * Written as one `employee`-addressed row per administrator rather than a new
+ * audience type, so `notifications_select` and the dispatcher need no change:
+ * each admin gets exactly one row, one push and (for important events) one
+ * mail. The admin list is read with the service role because an employee
+ * cannot enumerate profiles; the query is scoped by the session's tenant.
+ */
+export async function notifyOrgAdmins(
+  supabase: SupabaseClient,
+  notice: Omit<EmployeeNotice, 'employeeId'>
+): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const { data, error } = await admin
+      .from('profiles')
+      .select('id')
+      .eq('tenant_id', assertTenantScope(notice.tenantId))
+      .eq('role', 'org')
+      .eq('is_active', true)
+      .limit(50)
+    if (error) {
+      console.error('[notify] could not list administrators', error.message)
+      return
+    }
+    await Promise.all(
+      (data ?? [])
+        .filter((row) => row.id !== notice.createdBy)
+        .map((row) => notifyEmployee(supabase, { ...notice, employeeId: row.id as string }))
+    )
+  } catch (err) {
+    console.error('[notify] admin fan-out failed', err)
+  }
 }

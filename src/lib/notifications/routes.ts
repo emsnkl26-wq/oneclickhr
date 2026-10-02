@@ -22,6 +22,8 @@ export const EMPLOYEE_ROUTES = {
   board: '/employee/tasks',
   profile: '/employee/profile',
   meetings: '/employee/calendar',
+  leaves: '/employee/leaves',
+  payslips: '/employee/payslips',
 } as const
 
 export const ORG_ROUTES = {
@@ -33,6 +35,9 @@ export const ORG_ROUTES = {
   board: '/org/board',
   visa: '/org/visa',
   meetings: '/org/calendar',
+  leaves: '/org/leaves',
+  payslips: '/org/payroll',
+  jobs: '/org/jobs',
 } as const
 
 /*

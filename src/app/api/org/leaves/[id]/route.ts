@@ -4,6 +4,7 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { decideLeaveSchema } from '@/lib/schemas'
 import { sendLeaveDecision, isEmailConfigured } from '@/lib/email'
+import { notifyEmployee } from '@/lib/notify'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -56,6 +57,16 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   if (!updated) return jsonError('That request has already been decided.', 409)
 
   // Tell the employee. Never fatal — the decision is recorded either way.
+  await notifyEmployee(supabase, {
+    tenantId: ctx.tenantId,
+    employeeId: leave.employee_id,
+    createdBy: ctx.userId,
+    event: 'leave.decided',
+    subjectId: id,
+    title: `Your leave request was ${input.status}`,
+    description: `${leave.start_date} → ${leave.end_date}${input.note ? ` · ${input.note}` : ''}`,
+  })
+
   if (isEmailConfigured()) {
     const { data: employee } = await supabase
       .from('profiles')

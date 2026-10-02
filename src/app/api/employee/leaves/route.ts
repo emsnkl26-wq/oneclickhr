@@ -4,6 +4,7 @@ import { apiRequireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { applyLeaveSchema } from '@/lib/schemas'
 import { inclusiveDays, todayIn } from '@/lib/time'
+import { notifyOrgAdmins } from '@/lib/notify'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -65,6 +66,15 @@ async function handlePOST(request: NextRequest) {
     .single()
 
   if (error) return jsonError(friendlyDbError(error), 400)
+
+  await notifyOrgAdmins(supabase, {
+    tenantId: ctx.tenantId,
+    createdBy: ctx.userId,
+    event: 'leave.requested',
+    subjectId: data.id,
+    title: `${ctx.fullName || ctx.email} requested ${days} day${days === 1 ? '' : 's'} of leave`,
+    description: `${input.startDate} → ${input.endDate}${input.reason ? ` · ${input.reason}` : ''}`,
+  })
 
   await audit({
     tenantId: ctx.tenantId,

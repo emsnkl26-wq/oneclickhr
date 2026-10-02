@@ -212,14 +212,16 @@ export async function presignPut(key: string, contentType: string): Promise<stri
 export async function presignGet(
   key: string,
   ttlSeconds: number = DEFAULT_GET_TTL_SECONDS,
-  downloadFilename?: string
+  downloadFilename?: string,
+  /** `inline` opens in the browser but still names the file when saved. */
+  disposition: 'attachment' | 'inline' = 'attachment'
 ): Promise<string> {
   const cmd = new GetObjectCommand({
     Bucket: r2Config.bucket,
     Key: key,
     ...(downloadFilename
       ? {
-          ResponseContentDisposition: `attachment; filename="${sanitizeDispositionName(
+          ResponseContentDisposition: `${disposition}; filename="${sanitizeDispositionName(
             downloadFilename
           )}"`,
         }

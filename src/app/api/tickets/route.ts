@@ -5,6 +5,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { ticketSchema } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
+import { notifyOrgAdmins } from '@/lib/notify'
+import { truncate } from '@/lib/utils'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -55,6 +57,15 @@ async function handlePOST(request: NextRequest) {
     .single()
 
   if (error) return jsonError(friendlyDbError(error), 400)
+
+  await notifyOrgAdmins(supabase, {
+    tenantId: ctx.tenantId,
+    createdBy: ctx.userId,
+    event: 'ticket.created',
+    subjectId: data.id,
+    title: `New ticket ${data.code}: ${truncate(input.subject, 120)}`,
+    description: input.description ? truncate(input.description, 240) : null,
+  })
 
   await audit({
     tenantId: ctx.tenantId,

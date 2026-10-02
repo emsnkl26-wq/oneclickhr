@@ -4,7 +4,7 @@ import { apiRequireTenantUser } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { ticketMessageSchema } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
-import { notifyEmployee } from '@/lib/notify'
+import { notifyEmployee, notifyOrgAdmins } from '@/lib/notify'
 import { truncate } from '@/lib/utils'
 import { audit } from '@/lib/audit'
 
@@ -22,9 +22,9 @@ type Params = { params: Promise<{ id: string }> }
  * org membership or ownership of the ticket, so an employee can only ever reply
  * to their own.
  *
- * The employee is notified when the ORG replies. The reverse direction needs no
- * notification: the ticket rises in the org's queue by `last_activity_at`, which
- * the message trigger bumps.
+ * Whoever did NOT write the reply is notified: the employee when the org
+ * replies, every administrator when the employee does (the ticket also rises
+ * in the queue by `last_activity_at`, which the message trigger bumps).
  */
 async function handlePOST(request: NextRequest, { params }: Params) {
   const gate = await apiRequireTenantUser()
@@ -87,6 +87,15 @@ async function handlePOST(request: NextRequest, { params }: Params) {
       event: 'ticket.replied',
       // Tagged by ticket: a burst of replies on one thread collapses into a
       // single badge on the device rather than stacking.
+      subjectId: id,
+    })
+  } else {
+    await notifyOrgAdmins(supabase, {
+      tenantId: ctx.tenantId,
+      createdBy: ctx.userId,
+      title: `New reply on ticket ${ticket.code}`,
+      description: truncate(input.body, 240),
+      event: 'ticket.replied',
       subjectId: id,
     })
   }

@@ -44,7 +44,15 @@ export type NotificationEvent =
   | 'announcement'
   | 'timesheet.decided'
   | 'payment.decided'
+  | 'ticket.created'
   | 'ticket.replied'
+  | 'leave.requested'
+  | 'leave.decided'
+  | 'payslip.issued'
+  | 'timesheet.submitted'
+  | 'payment.submitted'
+  | 'onboarding.submitted'
+  | 'job.applied'
   | 'ticket.status'
   | 'onboarding.changes_requested'
   | 'task.assigned'
@@ -106,6 +114,49 @@ const CATALOG: Record<NotificationEvent, EventSpec> = {
   'payment.decided': {
     importance: 'important',
     path: employeeOrOrg(EMPLOYEE_ROUTES.payments, ORG_ROUTES.payments),
+  },
+
+  // Someone is waiting on a human. Emailed so it is seen even when nobody has
+  // the portal open; the replies and status changes that follow are push-only.
+  'ticket.created': {
+    importance: 'important',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.helpdesk, ORG_ROUTES.helpdesk),
+    tag: (targetId) => (targetId ? `ticket:${targetId}` : undefined),
+  },
+
+  // Time off. The decision already sends its own mail (sendLeaveDecision), so
+  // both are push-only here.
+  'leave.requested': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.leaves, ORG_ROUTES.leaves),
+  },
+  'leave.decided': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.leaves, ORG_ROUTES.leaves),
+  },
+
+  // Money.
+  'payslip.issued': {
+    importance: 'important',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.payslips, ORG_ROUTES.payslips),
+  },
+
+  // Work arriving in an administrator's queue — a push is enough.
+  'timesheet.submitted': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.timesheets, ORG_ROUTES.timesheets),
+  },
+  'payment.submitted': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.payments, ORG_ROUTES.payments),
+  },
+  'onboarding.submitted': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.onboarding, ORG_ROUTES.onboarding),
+  },
+  'job.applied': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.notifications, ORG_ROUTES.jobs),
   },
 
   // A reply is a conversation in progress; the person is likely to come back on
@@ -231,6 +282,8 @@ export function cardPathFor(
 
   const DEEP_LINKABLE: NotificationEvent[] = [
     'timesheet.decided',
+    'timesheet.submitted',
+    'ticket.created',
     'ticket.replied',
     'ticket.status',
   ]

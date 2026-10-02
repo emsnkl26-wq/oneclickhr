@@ -54,6 +54,9 @@ async function handleGET(request: NextRequest) {
 
   const key = new URL(request.url).searchParams.get('key')
   const download = new URL(request.url).searchParams.get('download')
+  // A display name for a file viewed in the browser, so saving it from the PDF
+  // viewer gives "Payslip-Jane-August-2026.pdf" rather than the storage uuid.
+  const name = new URL(request.url).searchParams.get('name')
 
   if (!key) return jsonError('Missing file reference', 400)
 
@@ -81,7 +84,11 @@ async function handleGET(request: NextRequest) {
     if (!allowed) return jsonError('Not found', 404)
   }
 
-  const url = await presignGet(key, SIGNED_URL_TTL_SECONDS, download ? download : undefined)
+  const url = download
+    ? await presignGet(key, SIGNED_URL_TTL_SECONDS, download)
+    : name
+      ? await presignGet(key, SIGNED_URL_TTL_SECONDS, name, 'inline')
+      : await presignGet(key, SIGNED_URL_TTL_SECONDS)
 
   const response = NextResponse.redirect(url, { status: 302 })
   response.headers.set('Cache-Control', `private, max-age=${REDIRECT_CACHE_SECONDS}`)

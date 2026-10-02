@@ -24,6 +24,7 @@ import { cn, initials } from '@/lib/utils'
 import { AttendanceTrend, HoursTrend } from './dashboard-charts-loader'
 import { AttendanceGauge } from './dashboard-gauge'
 import type { AttendancePoint, HoursPoint } from './dashboard-charts'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 export const metadata: Metadata = { title: 'Dashboard' }
 export const dynamic = 'force-dynamic'
@@ -277,9 +278,10 @@ export default async function OrgDashboard() {
           className="pointer-events-none absolute -right-16 -top-24 size-72 rounded-full bg-brand-600/10 blur-3xl"
           aria-hidden
         />
+        <ThemeToggle className="absolute right-4 top-4 z-10 border border-line bg-card/70 text-ink-muted backdrop-blur hover:bg-page hover:text-ink" />
         <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-brand-ink">
+            <p className="pr-10 text-[13px] font-medium uppercase tracking-[0.14em] text-brand-ink">
               {formatLocal(new Date(), tz, 'EEEE, d MMMM yyyy')}
             </p>
             <h1 className="mt-2 text-[26px] font-bold tracking-[-0.02em] text-ink sm:text-[30px]">

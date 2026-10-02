@@ -14,6 +14,7 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/primitives'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { NotificationBell } from '@/components/notifications/notification-bell'
 import { BrandLogo } from '@/components/brand/logo'
 import { cn, initials } from '@/lib/utils'
 import type { UserRole, TrackingMode } from '@/types/db'
@@ -93,6 +94,9 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
   const [open, setOpen] = React.useState(false)
   const [collapsed, setCollapsed] = React.useState(false)
   const sections = React.useMemo(() => navFor(user.role), [user.role])
+  // Workspace members get the notification bell where the theme toggle used
+  // to be; the theme moved to Settings and the dashboard header.
+  const hasInbox = user.role === 'employee' || user.role === 'org'
 
   // Pick up whatever the pre-hydration script decided, without owning it.
   React.useEffect(() => {
@@ -247,7 +251,7 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
         </Link>
 
         <div className={cn('flex shrink-0 items-center gap-0.5', !inDrawer && 'rail-expanded-only')}>
-          <ThemeToggle />
+          {hasInbox ? <NotificationBell /> : <ThemeToggle />}
           {inDrawer ? (
             <button
               type="button"
@@ -269,11 +273,11 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
     const isCollapsed = collapsed && !inDrawer
     return (
       <div className="shrink-0 border-t border-sidebar-border p-3">
-        {/* Collapsed, the theme toggle loses its home in the header, so it
+        {/* Collapsed, the bell loses its home in the header, so it
             joins the account row where there is still a spare slot. */}
         {isCollapsed ? (
           <div className="mb-1 flex justify-center">
-            <ThemeToggle />
+            {hasInbox ? <NotificationBell /> : <ThemeToggle />}
           </div>
         ) : null}
 
@@ -379,7 +383,11 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
             </>
           )}
         </Link>
-        <ThemeToggle className="text-ink-muted hover:bg-page hover:text-ink" />
+        {hasInbox ? (
+          <NotificationBell className="text-ink-muted hover:bg-page hover:text-ink" />
+        ) : (
+          <ThemeToggle className="text-ink-muted hover:bg-page hover:text-ink" />
+        )}
       </div>
 
       {/* Desktop rail */}

@@ -4,6 +4,7 @@ import { apiRequireEmployee } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { saveTimesheetSchema, isBlankEntry } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
+import { notifyOrgAdmins } from '@/lib/notify'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -158,11 +159,22 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   const { error } = await supabase.from('timesheets').update(patch).eq('id', id)
   if (error) return jsonError(friendlyDbError(error), 400)
 
+  if (input.submit) {
+    await notifyOrgAdmins(supabase, {
+      tenantId: ctx.tenantId,
+      createdBy: ctx.userId,
+      event: 'timesheet.submitted',
+      subjectId: id,
+      title: `Timesheet ${sheet.code} submitted for review`,
+      description: `${ctx.fullName || ctx.email} · week of ${sheet.week_start}`,
+    })
+  }
+
   await audit({
     tenantId: ctx.tenantId,
     actorId: ctx.userId,
     actorEmail: ctx.email,
-    action: input.submit ? 'timesheet.submitted' : 'timesheet.saved',
+    action: input.submit ?'timesheet.submitted' : 'timesheet.saved',
     entity: 'timesheets',
     entityId: id,
     meta: { code: sheet.code, weekStart: sheet.week_start, lines: entries.length },

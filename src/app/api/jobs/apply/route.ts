@@ -10,6 +10,7 @@ import {
 } from '@/lib/jobs'
 import { sendApplicationReceived, sendNewApplicationAlert } from '@/lib/email'
 import { deleteObject } from '@/lib/r2'
+import { notifyOrgAdmins } from '@/lib/notify'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -234,6 +235,16 @@ async function notify(
             brandColor,
           })
         : Promise.resolve(null),
+      // Email already covers this; the push is for the admins' devices.
+      job.tenantId
+        ? notifyOrgAdmins(admin, {
+            tenantId: job.tenantId,
+            event: 'job.applied',
+            subjectId: applicationId,
+            title: `New application: ${job.title}`,
+            description: `${applicantName} applied`,
+          })
+        : Promise.resolve(),
     ])
   } catch (err) {
     console.error('[jobs/apply] notification failed', err)

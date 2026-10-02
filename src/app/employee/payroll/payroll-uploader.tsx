@@ -160,7 +160,7 @@ export function PayrollUploader({
                   <Button asChild size="icon" variant="ghost" aria-label="Download">
                     <a
                       href={`/api/files/view?key=${encodeURIComponent(slip.file_url)}&download=${encodeURIComponent(
-                        slip.file_name || 'payslip.pdf'
+                        slip.file_name || `Payslip-${label(slip.month, slip.year).replace(/[^A-Za-z0-9]+/g, '-')}.pdf`
                       )}`}
                     >
                       <Download />

@@ -239,6 +239,7 @@ export function PayrollReview({
           {row.period === Math.min(...periodsOf(row.schedule)) ? (
             <PayslipActions
               slip={payslipOf.get(row.id) ?? null}
+              fileName={payslipFileName(row.full_name || row.email?.split('@')[0] || 'employee', month, year)}
               onGenerate={() => setIssuing(row)}
             />
           ) : null}
@@ -495,7 +496,15 @@ function ReviewDialog({ row, onClose }: { row: Row | null; onClose: () => void }
   )
 }
 
-function PayslipActions({ slip, onGenerate }: { slip: PayslipRow | null; onGenerate: () => void }) {
+function PayslipActions({
+  slip, fileName, onGenerate,
+}: {
+  slip: PayslipRow | null
+  /** Always derived from the person and month, so older slips stored under a
+      bare uuid still save as "Payslip-<name>-<Month>-<year>.pdf". */
+  fileName: string
+  onGenerate: () => void
+}) {
   if (!slip) {
     return (
       <Button size="sm" variant="secondary" onClick={onGenerate}>
@@ -508,10 +517,10 @@ function PayslipActions({ slip, onGenerate }: { slip: PayslipRow | null; onGener
     <>
       <Button asChild size="sm" variant="ghost">
         <a
-          href={`/api/files/view?key=${encodeURIComponent(slip.file_url)}`}
+          href={`/api/files/view?key=${encodeURIComponent(slip.file_url)}&name=${encodeURIComponent(fileName)}`}
           target="_blank"
           rel="noopener noreferrer"
-          title={slip.file_name ?? undefined}
+          title={fileName}
         >
           <FileText />
           Payslip
@@ -544,12 +553,22 @@ function BreakdownLines({
   lines: LineDraft[]
   onChange: (lines: LineDraft[]) => void
 }) {
+  const total = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
+  // `min-w-0` matters: a <fieldset> defaults to `min-width: min-content`, which
+  // let long labels push it out of its grid track and over the next column.
   return (
-    <fieldset className="space-y-2">
-      <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">{title}</legend>
+    <fieldset className="min-w-0 overflow-hidden rounded-xl border border-line">
+      <legend className="sr-only">{title}</legend>
+      <div className="flex items-center justify-between border-b border-line bg-page px-3.5 py-2.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{title}</span>
+        <span className="tabular text-xs font-semibold text-ink">
+          {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+      </div>
+      <div className="divide-y divide-line">
       {lines.map((line, index) => (
-        <div key={line.label} className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-sm" title={line.label}>
+        <div key={line.label} className="flex items-center gap-3 px-3.5 py-2">
+          <span className="min-w-0 flex-1 text-sm leading-snug text-ink" title={line.label}>
             {line.label}
           </span>
           <Input
@@ -558,7 +577,7 @@ function BreakdownLines({
             step="0.01"
             inputMode="decimal"
             aria-label={line.label}
-            className="w-32 text-right"
+            className="h-9 w-28 shrink-0 text-right tabular"
             value={line.amount}
             onChange={(event) =>
               onChange(
@@ -568,6 +587,7 @@ function BreakdownLines({
           />
         </div>
       ))}
+      </div>
     </fieldset>
   )
 }
@@ -804,7 +824,7 @@ function PayslipDialog({
 
   return (
     <Dialog open={!!employee} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
             Payslip — {MONTHS_LONG[month - 1]} {year}
@@ -923,15 +943,16 @@ function PayslipDialog({
                 </FormField>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid items-start gap-4 md:grid-cols-2">
                 <BreakdownLines title="Earnings" lines={earningLines} onChange={setEarningLines} />
                 <BreakdownLines title="Deductions" lines={deductionLines} onChange={setDeductionLines} />
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span className="tabular text-ink-muted">
-                  Gross {payslipMoney(earnings, code || 'INR')} · Deductions{' '}
-                  {payslipMoney(deductionValue, code || 'INR')}
+                  Gross <span className="font-medium text-ink">{payslipMoney(earnings, code || 'INR')}</span>
+                  {' · '}Deductions{' '}
+                  <span className="font-medium text-ink">{payslipMoney(deductionValue, code || 'INR')}</span>
                 </span>
                 <Button
                   size="sm"
@@ -947,12 +968,12 @@ function PayslipDialog({
           ) : null}
 
           {earnings > 0 && /^[A-Z]{3}$/.test(code) ? (
-            <p className="tabular rounded-lg bg-page px-3.5 py-3 text-sm">
-              Net salary payable:{' '}
-              <span className="font-medium">
+            <div className="tabular flex items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm dark:border-brand-500/30 dark:bg-brand-500/10">
+              <span className="font-medium text-ink">Net salary payable</span>
+              <span className="text-base font-semibold text-ink">
                 {payslipMoney(Math.max(0, earnings - deductionValue), code, { spaced: true })}
               </span>
-            </p>
+            </div>
           ) : null}
         </DialogBody>
 
