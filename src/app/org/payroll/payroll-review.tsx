@@ -35,6 +35,8 @@ import {
 import {
   suggestBreakdown, sumLines, type PayslipBreakdown, type PayslipLine,
 } from '@/lib/payslip-breakdown'
+import { renderUsPayslip, usTotals, type UsPayslipDetails } from '@/lib/payslip-us-pdf'
+import { UsPayslipFields, defaultUsDraft, usDetailsFromDraft, type UsDraft } from './us-payslip-fields'
 import { MONTH_NAMES } from '@/lib/time'
 import { initials, formatMoney } from '@/lib/utils'
 import { periodLabel, periodsOf, type PayPeriod, type PaySchedule } from '@/lib/pay-schedule'
@@ -54,6 +56,14 @@ export interface EmployeeRow {
   date_of_joining: string | null
   hire_date: string | null
   bank_name: string | null
+  /** Prefill for a US earnings statement (056). */
+  street_address?: string | null
+  apartment?: string | null
+  city?: string | null
+  state_province?: string | null
+  zip_postal?: string | null
+  pay_type?: string | null
+  account_type?: string | null
 }
 
 /** A payslip already issued for the month on screen. */
@@ -71,6 +81,11 @@ export interface PayslipCompany {
   address: string
   email: string | null
   website: string | null
+  /** Footer of the Indian slip (056). */
+  phone?: string | null
+  /** The company block of a US statement: street, then "City, ST 21043" (056). */
+  addressLines?: string[]
+  orgCode?: string | null
 }
 
 export interface ConfirmationRow {
@@ -648,6 +663,8 @@ function PayslipDialog({
   const [bankDetails, setBankDetails] = React.useState('')
   const [earningLines, setEarningLines] = React.useState<LineDraft[]>([])
   const [deductionLines, setDeductionLines] = React.useState<LineDraft[]>([])
+  // The US earnings statement (056), used whenever the slip is in dollars.
+  const [usDraft, setUsDraft] = React.useState<UsDraft | null>(null)
 
   React.useEffect(() => {
     if (!employee) return
@@ -658,7 +675,8 @@ function PayslipDialog({
         ? (code === 'INR' ? Number(employee.pay_rate) / 12 : Number(employee.pay_rate))
         : 0
     const suggested = suggestBreakdown(Number.isFinite(monthly) ? monthly : 0)
-    setDetailed(false)
+    // Rupee slips are itemised by default — that is the layout they are issued in.
+    setDetailed(code === 'INR')
     setEmployeeCode(employee.employee_code ?? '')
     setDateOfJoining(formatJoiningDate(employee.date_of_joining ?? employee.hire_date))
     setPfNumber('')
@@ -666,13 +684,36 @@ function PayslipDialog({
     setEarningLines(toDrafts(suggested.earnings))
     setDeductionLines(toDrafts(suggested.deductions))
 
+    const hourly = /hour/i.test(employee.pay_type ?? '')
+    const usSource = {
+      month,
+      year,
+      orgCode: company.orgCode ?? null,
+      monthlyPay: Number.isFinite(monthly) ? monthly : 0,
+      hourly,
+      hourlyRate: hourly && employee.pay_rate != null ? Number(employee.pay_rate) : null,
+      addressLines: [
+        [employee.street_address, employee.apartment].filter(Boolean).join(', '),
+        [employee.city, [employee.state_province, employee.zip_postal].filter(Boolean).join(' ')]
+          .filter(Boolean)
+          .join(', '),
+      ].filter(Boolean),
+      accountType: employee.account_type ?? null,
+    }
+    setUsDraft(defaultUsDraft({ ...usSource, previous: null }))
+
     // Last detailed slip wins over the defaults: same PF no., same split.
     let cancelled = false
-    apiGet<{ details: PayslipBreakdown | null }>(
+    apiGet<{ details: PayslipBreakdown | UsPayslipDetails | null }>(
       `/api/org/payslips?employeeId=${encodeURIComponent(employee.id)}`
     )
       .then(({ details }) => {
         if (cancelled || !details) return
+        if ('format' in details && details.format === 'us') {
+          setUsDraft(defaultUsDraft({ ...usSource, previous: details }))
+          return
+        }
+        if ('format' in details) return
         setDetailed(true)
         setEmployeeCode(details.employeeCode || employee.employee_code || '')
         setDateOfJoining(details.dateOfJoining)
@@ -701,7 +742,7 @@ function PayslipDialog({
     return () => {
       cancelled = true
     }
-  }, [employee, month, year, company.email])
+  }, [employee, month, year, company.email, company.orgCode])
 
   const salaryValue = Number(salary)
   const monthlySalary = Math.round((basis === 'annual' ? salaryValue / 12 : salaryValue) * 100) / 100
@@ -718,6 +759,9 @@ function PayslipDialog({
   const earnings = breakdown ? sumLines(breakdown.earnings) : monthlySalary
   const deductionValue = breakdown ? sumLines(breakdown.deductions) : Number(deductions || 0)
   const code = currency.trim().toUpperCase()
+  const isUs = code === 'USD'
+  const usDetails = isUs && usDraft ? usDetailsFromDraft(usDraft) : null
+  const usNet = usDetails ? usTotals(usDetails) : null
 
   function autoSplit() {
     const pfLine = deductionLines.find((line) => line.label === 'PF Employee')
@@ -729,6 +773,16 @@ function PayslipDialog({
   function validate(): string | null {
     if (!name.trim()) return 'Enter the employee name.'
     if (!/^[A-Z]{3}$/.test(code)) return 'Currency must be a three-letter code, like INR or USD.'
+    if (isUs) {
+      if (!usDetails) return 'Fill in the statement.'
+      if (!usDetails.periodStart || !usDetails.periodEnd || !usDetails.payDate) return 'Enter the period and pay date.'
+      if (usDetails.periodEnd < usDetails.periodStart) return 'The period cannot end before it starts.'
+      if (!usDetails.earnings.length) return 'Add at least one earnings line.'
+      const totals = usTotals(usDetails)
+      if (totals.gross <= 0) return 'Enter this period’s earnings.'
+      if (totals.deductions > totals.gross) return 'Deductions cannot exceed the period’s earnings.'
+      return null
+    }
     const days = Number(workingDays)
     if (!Number.isInteger(days) || days < 0 || days > 31) return 'Working days must be 0–31.'
     if (breakdown) {
@@ -755,6 +809,17 @@ function PayslipDialog({
       // Remembering the footer is a convenience; blocked storage is fine.
     }
     const logo = await loadOrgLogo(company.logoUrl)
+    if (isUs && usDetails) {
+      return renderUsPayslip({
+        org: {
+          name: company.name,
+          logo,
+          addressLines: company.addressLines?.length ? company.addressLines : [company.address].filter(Boolean),
+        },
+        employeeName: name.trim(),
+        details: usDetails,
+      })
+    }
     return renderPayslip({
       org: {
         name: company.name,
@@ -764,6 +829,7 @@ function PayslipDialog({
         email: company.email,
         website: company.website,
         queriesEmail: queriesEmail.trim() || null,
+        phone: company.phone ?? null,
       },
       employeeName: name.trim(),
       employeeEmail: email.trim(),
@@ -809,7 +875,7 @@ function PayslipDialog({
         year,
         key: uploaded.key,
         fileName,
-        details: breakdown,
+        details: isUs ? usDetails : breakdown,
       })
       toast.success(replacing ? 'Payslip replaced' : 'Payslip issued')
       onClose()
@@ -856,6 +922,8 @@ function PayslipDialog({
                 onChange={(event) => setCurrency(event.target.value.toUpperCase())}
               />
             </FormField>
+            {isUs ? null : (
+            <>
             <FormField label="Salary stated as">
               <Select value={basis} onChange={(event) => setBasis(event.target.value as SalaryBasis)}>
                 <option value="annual">Annual salary</option>
@@ -881,7 +949,7 @@ function PayslipDialog({
                 onChange={(event) => setWorkingDays(event.target.value)}
               />
             </FormField>
-            {detailed ? null : (
+            {detailed || isUs ? null : (
               <FormField label="Total deductions">
                 <Input
                   type="number"
@@ -903,8 +971,21 @@ function PayslipDialog({
                 onChange={(event) => setQueriesEmail(event.target.value)}
               />
             </FormField>
+            </>
+            )}
           </div>
 
+          {isUs && usDraft ? (
+            <>
+              <p className="rounded-lg bg-page px-3.5 py-2.5 text-xs text-ink-muted">
+                Dollar slips are issued as a US earnings statement. Year-to-date figures are what was
+                paid before this period; the slip adds this period to them.
+              </p>
+              <UsPayslipFields value={usDraft} onChange={setUsDraft} />
+            </>
+          ) : null}
+
+          {isUs ? null : (
           <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line px-3.5 py-3 text-sm">
             <Checkbox checked={detailed} onChange={(event) => setDetailed(event.target.checked)} />
             <span>
@@ -915,8 +996,9 @@ function PayslipDialog({
               </span>
             </span>
           </label>
+          )}
 
-          {detailed ? (
+          {detailed && !isUs ? (
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField label="Emp ID">
@@ -967,7 +1049,17 @@ function PayslipDialog({
             </div>
           ) : null}
 
-          {earnings > 0 && /^[A-Z]{3}$/.test(code) ? (
+          {isUs && usNet && usNet.gross > 0 ? (
+            <div className="tabular flex items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm dark:border-brand-500/30 dark:bg-brand-500/10">
+              <span className="font-medium text-ink">
+                Net pay
+                <span className="ml-2 font-normal text-ink-muted">
+                  gross ${usNet.gross.toFixed(2)} · deductions ${usNet.deductions.toFixed(2)}
+                </span>
+              </span>
+              <span className="text-base font-semibold text-ink">${usNet.net.toFixed(2)}</span>
+            </div>
+          ) : !isUs && earnings > 0 && /^[A-Z]{3}$/.test(code) ? (
             <div className="tabular flex items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm dark:border-brand-500/30 dark:bg-brand-500/10">
               <span className="font-medium text-ink">Net salary payable</span>
               <span className="text-base font-semibold text-ink">

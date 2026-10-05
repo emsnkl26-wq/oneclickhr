@@ -11,7 +11,7 @@ import { LinkTabs } from '@/components/ui/link-tabs'
 import { SearchField } from '@/components/ui/search-field'
 import { JobFilters } from './job-filters'
 import { Pagination } from '@/components/ui/pagination'
-import { JobDialog, type JobFormValues, type DepartmentOption } from './job-dialog'
+import { JobDialog, type JobFormValues, type DepartmentOption, type RecruiterOption } from './job-dialog'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatDateLabel, formatInstantLabel } from '@/lib/time'
 import type { JobStatus, JobType, JobWorkplace } from '@/types/db'
@@ -42,7 +42,7 @@ const WORKPLACE_LABELS = JOB_WORKPLACE_LABELS
  */
 export function JobWorkspace({
   jobs, departments, total, page, perPage, filter, searching, endpoint = '/api/org/jobs',
-  detailBase = '/org/jobs', canCreate = true,
+  detailBase = '/org/jobs', canCreate = true, recruiters, companyLinkedinUrl,
 }: {
   jobs: JobRow[]
   departments: DepartmentOption[]
@@ -54,6 +54,10 @@ export function JobWorkspace({
   endpoint?: string
   detailBase?: string
   canCreate?: boolean
+  /** The workspace's recruiters, offered in the dialog's contact section (056). */
+  recruiters?: RecruiterOption[]
+  /** Settings' company LinkedIn, prefilled on a new posting (056). */
+  companyLinkedinUrl?: string | null
 }) {
   const router = useRouter()
   const [creating, setCreating] = React.useState(false)
@@ -254,6 +258,8 @@ export function JobWorkspace({
       <JobDialog
         open={creating}
         departments={departments}
+        recruiters={recruiters}
+        companyLinkedinUrl={companyLinkedinUrl}
         endpoint={endpoint}
         onClose={() => setCreating(false)}
         onSaved={(published) => {
@@ -270,6 +276,8 @@ export function JobWorkspace({
       <JobDialog
         open={!!editing}
         departments={departments}
+        recruiters={recruiters}
+        companyLinkedinUrl={companyLinkedinUrl}
         endpoint={endpoint}
         job={editing?.form}
         isPublished={editing?.status === 'published'}

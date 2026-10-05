@@ -19,6 +19,8 @@ export const PUBLIC_HUMAN_PATHS = [
   '/signup',
   '/forgot-password',
   '/auth/confirm',
+  // Google's OAuth return (056). Signed out by definition until it runs.
+  '/auth/callback',
   '/api/auth/login',
   '/api/auth/signup',
   // A job seeker's account (052). Its pages (/jobs/login, /jobs/signup) are

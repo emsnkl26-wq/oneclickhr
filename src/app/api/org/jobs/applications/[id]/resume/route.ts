@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withErrorHandler, jsonError, uuidSchema } from '@/lib/api'
-import { apiRequireUser } from '@/lib/auth/guards'
+import { apiRequireUser, callerIsRecruiter } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { presignGet } from '@/lib/r2'
 import { isResumeKey } from '@/lib/jobs'
@@ -40,18 +40,22 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ i
    * this route serve them means one more path that reaches into the résumé
    * prefix. Reviewing is the org's job and the super admin's.
    */
-  if (ctx.role !== 'org' && ctx.role !== 'super_admin') {
+  // A recruiter (056) reviews too — but only their own workspace's applicants,
+  // never the row for an application they filed somewhere else themselves.
+  const recruiter = ctx.role === 'employee' && !!ctx.tenantId && (await callerIsRecruiter(ctx))
+  if (ctx.role !== 'org' && ctx.role !== 'super_admin' && !recruiter) {
     return jsonError('Not found', 404)
   }
 
   const id = uuidSchema.parse((await params).id)
   const supabase = await createSupabaseServerClient()
 
-  const { data } = await supabase
+  let query = supabase
     .from('job_applications')
     .select('resume_key, resume_name, full_name')
     .eq('id', id)
-    .maybeSingle()
+  if (recruiter) query = query.eq('tenant_id', ctx.tenantId!)
+  const { data } = await query.maybeSingle()
 
   const row = data as { resume_key: string | null; resume_name: string | null; full_name: string } | null
 

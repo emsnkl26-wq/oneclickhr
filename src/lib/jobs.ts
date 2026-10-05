@@ -251,7 +251,7 @@ export const JOB_COLUMNS =
  * leave the card out instead of rendering a column of dashes. Links are only
  * ever passed through when they are https (052 enforces it in the database too).
  */
-function toRecruiter(row: Job): PublicJob['recruiter'] {
+function toRecruiter(row: Job, company: PublicJob['company']): PublicJob['recruiter'] {
   const https = (v: string | null | undefined) => (v && /^https:\/\//i.test(v) ? v : null)
   const recruiter = {
     name: row.recruiter_name ?? null,
@@ -259,7 +259,8 @@ function toRecruiter(row: Job): PublicJob['recruiter'] {
     email: row.recruiter_email ?? null,
     phone: row.recruiter_phone ?? null,
     linkedinUrl: https(row.recruiter_linkedin_url),
-    companyLinkedinUrl: https(row.company_linkedin_url),
+    // A posting's own link wins; otherwise the workspace's, from Settings (056).
+    companyLinkedinUrl: https(row.company_linkedin_url) ?? https(company.linkedinUrl),
   }
   return Object.values(recruiter).some(Boolean) ? recruiter : null
 }
@@ -290,7 +291,7 @@ export function toPublicJob(
     duration: row.duration ?? null,
     startDate: row.start_date_label ?? null,
     workAuthorization: row.work_authorization ?? null,
-    recruiter: toRecruiter(row),
+    recruiter: toRecruiter(row, company),
     company,
   }
 }

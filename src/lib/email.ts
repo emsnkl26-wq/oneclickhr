@@ -50,6 +50,8 @@ interface SendArgs {
   html: string
   text?: string
   replyTo?: string
+  /** Copied, visibly — e.g. the employer on a reminder sent to their employee. */
+  cc?: string[]
   attachments?: EmailAttachment[]
 }
 
@@ -68,7 +70,7 @@ function isRetryable(statusCode: number | undefined): boolean {
 const RETRY_DELAYS_MS = [250, 1000]
 
 export async function sendEmail({
-  to, subject, html, text, replyTo, attachments,
+  to, subject, html, text, replyTo, cc, attachments,
 }: SendArgs): Promise<SendResult> {
   const api = resend()
   const from = process.env.EMAIL_FROM
@@ -93,6 +95,7 @@ export async function sendEmail({
         html,
         text: text || stripHtml(html),
         ...(replyTo ? { replyTo } : {}),
+        ...(cc?.length ? { cc } : {}),
         ...(attachments?.length ? { attachments } : {}),
       })
 
@@ -291,6 +294,57 @@ export async function sendVisaReminder(args: VisaReminderArgs): Promise<SendResu
   )
 
   return sendEmail({ to: args.to, subject: headline, html })
+}
+
+export interface VisaExpiryNoticeArgs {
+  to: string | string[]
+  cc?: string[]
+  employeeName: string
+  visaType: string
+  expiryDate: string
+  /** Negative once it has expired. */
+  daysRemaining: number
+  orgName: string
+  /** An optional line from the platform admin who sent it. */
+  note?: string | null
+}
+
+/**
+ * A visa reminder sent by hand from the platform console (056) — to the
+ * person whose authorization it is, rather than to their employer's admins.
+ */
+export async function sendVisaExpiryNotice(args: VisaExpiryNoticeArgs): Promise<SendResult> {
+  const expired = args.daysRemaining < 0
+  const headline = expired
+    ? `Your ${args.visaType} expired on ${args.expiryDate}`
+    : args.daysRemaining === 0
+      ? `Your ${args.visaType} expires today`
+      : `Your ${args.visaType} expires in ${args.daysRemaining} day${args.daysRemaining === 1 ? '' : 's'}`
+  const urgent = expired || args.daysRemaining <= 30
+
+  const html = layout(
+    `
+    <div style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:${
+      urgent ? '#FEF2F2' : '#FEF3C7'
+    };color:${urgent ? '#B91C1C' : '#92400E'};margin-bottom:14px;">
+      ${expired ? 'Expired' : urgent ? 'Action needed' : 'Upcoming expiry'}
+    </div>
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">${esc(headline)}</h1>
+    <p style="margin:0 0 18px;">Hi ${esc(args.employeeName)}, this is a reminder about the work authorization on record with ${esc(args.orgName)}. Please start the renewal and share the updated documents with your employer.</p>
+    ${args.note ? `<p style="margin:0 0 18px;padding:12px 14px;border-left:3px solid #CBD5E1;background:#F8FAFC;">${esc(args.note)}</p>` : ''}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;border:1px solid #E2E8F0;border-radius:12px;">
+      <tr><td style="padding:16px 18px;font-size:14px;">
+        <strong>Visa type</strong><br>${esc(args.visaType)}<br><br>
+        <strong>Expiry date</strong><br>${esc(args.expiryDate)}
+      </td></tr>
+    </table>
+
+    ${button(`${appUrl()}/employee/profile`, 'Open my profile')}
+  `,
+    { brandName: args.orgName, preheader: headline }
+  )
+
+  return sendEmail({ to: args.to, cc: args.cc, subject: headline, html })
 }
 
 export interface LeaveDecisionArgs {

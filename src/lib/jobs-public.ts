@@ -46,7 +46,7 @@ import {
 import type { Job, PublicCompany, PublicJob } from '@/types/db'
 
 /** The columns the portal needs from `tenants`, and not the domain token. */
-const COMPANY_COLUMNS = 'id, name, slug, logo_url, website, city, country'
+const COMPANY_COLUMNS = 'id, name, slug, logo_url, website, city, country, company_linkedin_url'
 
 interface TenantRow {
   id: string
@@ -56,6 +56,7 @@ interface TenantRow {
   website: string | null
   city: string | null
   country: string | null
+  company_linkedin_url: string | null
 }
 
 /** OneclickHR itself, for a platform posting. */
@@ -67,6 +68,7 @@ const PLATFORM_COMPANY: PublicCompany = {
   logoUrl: null,
   website: 'https://oneclickhr.app',
   location: null,
+  linkedinUrl: null,
 }
 
 function toCompany(row: TenantRow | undefined | null): PublicCompany {
@@ -86,6 +88,7 @@ function toCompany(row: TenantRow | undefined | null): PublicCompany {
     logoUrl: row.logo_url ? `/api/jobs/logo?tenant=${encodeURIComponent(row.id)}` : null,
     website: row.website,
     location: place || null,
+    linkedinUrl: row.company_linkedin_url ?? null,
   }
 }
 

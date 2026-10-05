@@ -3,7 +3,7 @@ import {
   Building2, ShieldCheck, Activity, Settings, KanbanSquare,
   BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
   LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send, Network,
-  CalendarRange, MessageSquare, TrendingDown, ChartLine,
+  CalendarRange, MessageSquare, TrendingDown, ChartLine, HardDrive,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { UserRole, TrackingMode } from '@/types/db'
@@ -43,6 +43,8 @@ const SUPER_NAV: NavSection[] = [
     label: 'Operations',
     items: [
       { href: '/super/support', label: 'Support requests', icon: MessageSquare, prefix: true },
+      // Per-workspace quota and requests for more (056).
+      { href: '/super/storage', label: 'Storage', icon: HardDrive },
       { href: '/super/audit', label: 'Audit log', icon: ShieldCheck },
       { href: '/super/system', label: 'System health', icon: Server },
     ],
@@ -93,6 +95,8 @@ const ORG_NAV: NavSection[] = [
       { href: '/org/notifications', label: 'Notifications', icon: Bell },
       { href: '/org/documents', label: 'Documents', icon: FileText },
       { href: '/org/letters', label: 'Letters', icon: FileSignature, prefix: true },
+      // Requests to the OneclickHR team and their replies (056).
+      { href: '/org/support', label: 'Support', icon: MessageSquare, prefix: true },
     ],
   },
   {
@@ -132,6 +136,7 @@ const EMPLOYEE_NAV: NavSection[] = [
     items: [
       { href: '/employee/payroll', label: 'My pay', icon: Wallet, prefix: true },
       { href: '/employee/notifications', label: 'Notifications', icon: Bell },
+      { href: '/employee/support', label: 'Support', icon: MessageSquare, prefix: true },
     ],
   },
   /*
@@ -180,6 +185,8 @@ export interface NavOptions {
    * organization had configured anything.
    */
   trackingMode?: TrackingMode | null
+  /** A recruiter (056) also runs the workspace's job postings. */
+  isRecruiter?: boolean
 }
 
 /**
@@ -204,8 +211,22 @@ export function navFor(role: UserRole, options: NavOptions = {}): NavSection[] {
       return ORG_NAV
     case 'candidate':
       return CANDIDATE_NAV
-    default:
-      return employeeNav(options.trackingMode ?? null)
+    default: {
+      const nav = employeeNav(options.trackingMode ?? null)
+      if (!options.isRecruiter) return nav
+      // Their workspace's postings, first in the section that is about jobs.
+      return nav.map((section) =>
+        section.label === 'Careers'
+          ? {
+              ...section,
+              items: [
+                { href: '/employee/jobs', label: 'Manage jobs', icon: BriefcaseBusiness, prefix: true },
+                ...section.items,
+              ],
+            }
+          : section
+      )
+    }
   }
 }
 

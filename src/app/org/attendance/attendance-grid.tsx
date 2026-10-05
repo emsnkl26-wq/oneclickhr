@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useProgressRouter } from '@/lib/use-progress-router'
-import { ChevronLeft, ChevronRight, Search, CalendarCheck, Check } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, CalendarCheck, Check, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { EmptyState } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,7 @@ import {
   Avatar, AvatarFallback, AvatarImage,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
-import { apiPatch, ApiClientError } from '@/lib/fetcher'
+import { apiPatch, apiPost, ApiClientError } from '@/lib/fetcher'
 import { cn, initials, formatHours } from '@/lib/utils'
 import { formatLocal, fromZonedInput, hoursBetween, toZonedInput } from '@/lib/time'
 
@@ -38,10 +38,15 @@ interface AttendanceRecord {
   edited_at: string | null
 }
 
-/** The record being corrected, with who it belongs to for the dialog title. */
+/**
+ * The shift being corrected — or, with no `record`, the day being filled in for
+ * somebody who never clocked in at all.
+ */
 interface Editing {
-  record: AttendanceRecord
+  record?: AttendanceRecord
+  employeeId: string
   employeeName: string
+  date: string
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -54,7 +59,7 @@ function shiftWeek(anchor: string, weeks: number): string {
 }
 
 export function AttendanceGrid({
-  employees, departments, records, days, anchor, timezone,
+  employees, departments, records, days, anchor, timezone, today,
 }: {
   employees: EmployeeRow[]
   departments: { id: string; name: string }[]
@@ -62,6 +67,8 @@ export function AttendanceGrid({
   days: string[]
   anchor: string
   timezone: string
+  /** Today in the workspace's zone — later days cannot be filled in. */
+  today: string
 }) {
   const router = useProgressRouter()
   const [query, setQuery] = React.useState('')
@@ -222,10 +229,13 @@ export function AttendanceGrid({
                           <AttendanceCell
                             record={record}
                             timezone={timezone}
+                            canAdd={days[i] <= today}
                             onEdit={(target) =>
                               setEditing({
                                 record: target,
+                                employeeId: employee.id,
                                 employeeName: employee.full_name || employee.email || 'Employee',
+                                date: days[i],
                               })
                             }
                           />
@@ -256,7 +266,7 @@ export function AttendanceGrid({
             {item.label}
           </span>
         ))}
-        <span>Click a shift to correct its times · * corrected by an admin</span>
+        <span>Click a shift to correct it, or an empty past day to add one · * entered by an admin</span>
       </div>
 
       <EditShiftDialog editing={editing} timezone={timezone} onClose={() => setEditing(null)} />
@@ -287,8 +297,14 @@ function EditShiftDialog({
 
   React.useEffect(() => {
     if (!editing) return
-    setLoginTime(toZonedInput(editing.record.login_time, timezone))
-    setLogoutTime(editing.record.logout_time ? toZonedInput(editing.record.logout_time, timezone) : '')
+    // A new shift starts from ordinary office hours on that day, which is what
+    // a forgotten clock-in usually was.
+    setLoginTime(editing.record ? toZonedInput(editing.record.login_time, timezone) : `${editing.date}T09:00`)
+    setLogoutTime(
+      editing.record
+        ? editing.record.logout_time ? toZonedInput(editing.record.logout_time, timezone) : ''
+        : `${editing.date}T18:00`
+    )
     setReason('')
     setError(null)
     setBusy(false)
@@ -311,12 +327,13 @@ function EditShiftDialog({
     setError(null)
     setBusy(true)
     try {
-      await apiPatch(`/api/org/attendance/${editing.record.id}`, {
-        loginTime,
-        logoutTime: logoutTime || null,
-        reason: reason.trim(),
-      })
-      toast.success('Shift updated')
+      const body = { loginTime, logoutTime: logoutTime || null, reason: reason.trim() }
+      if (editing.record) {
+        await apiPatch(`/api/org/attendance/${editing.record.id}`, body)
+      } else {
+        await apiPost('/api/org/attendance', { ...body, employeeId: editing.employeeId, date: editing.date })
+      }
+      toast.success(editing.record ? 'Shift updated' : 'Shift added')
       onClose()
       router.refresh()
     } catch (err) {
@@ -329,9 +346,9 @@ function EditShiftDialog({
     <Dialog open={!!editing} onOpenChange={(open) => !open && onClose()}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Correct shift</DialogTitle>
+          <DialogTitle>{editing?.record ? 'Correct shift' : 'Add shift'}</DialogTitle>
           <DialogDescription>
-            {editing ? `${editing.employeeName} · ${editing.record.date} · times in ${timezone}` : ''}
+            {editing ? `${editing.employeeName} · ${editing.date} · times in ${timezone}` : ''}
           </DialogDescription>
         </DialogHeader>
 
@@ -346,7 +363,7 @@ function EditShiftDialog({
           </FormField>
           <FormField
             label="Clock-out"
-            hint={editing && !editing.record.logout_time ? 'Still clocked in — set when they actually left.' : undefined}
+            hint={editing?.record && !editing.record.logout_time ? 'Still clocked in — set when they actually left.' : undefined}
           >
             <Input
               type="datetime-local"
@@ -360,7 +377,7 @@ function EditShiftDialog({
               value={reason}
               maxLength={500}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="Forgot to clock out"
+              placeholder={editing?.record ? 'Forgot to clock out' : 'Forgot to clock in'}
             />
           </FormField>
           {preview !== null ? (
@@ -385,14 +402,26 @@ function EditShiftDialog({
 }
 
 function AttendanceCell({
-  record, timezone, onEdit,
+  record, timezone, canAdd, onEdit,
 }: {
   record?: AttendanceRecord
   timezone: string
-  onEdit: (record: AttendanceRecord) => void
+  canAdd: boolean
+  onEdit: (record?: AttendanceRecord) => void
 }) {
   if (!record) {
-    return <span className="text-ink-muted/50">—</span>
+    if (!canAdd) return <span className="text-ink-muted/50">—</span>
+    return (
+      <button
+        type="button"
+        onClick={() => onEdit()}
+        className="group inline-flex min-w-[62px] justify-center rounded-lg px-2 py-2 text-ink-muted/50 transition hover:bg-page hover:text-ink focus-visible:outline-none focus-visible:ring-2"
+        title="No shift — click to add one"
+      >
+        <span className="group-hover:hidden">—</span>
+        <Plus className="hidden size-3.5 group-hover:block" aria-label="Add shift" />
+      </button>
+    )
   }
 
   const open = !record.logout_time

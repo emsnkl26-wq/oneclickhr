@@ -24,6 +24,7 @@ export const EMPLOYEE_ROUTES = {
   meetings: '/employee/calendar',
   leaves: '/employee/leaves',
   payslips: '/employee/payslips',
+  support: '/employee/support',
 } as const
 
 export const ORG_ROUTES = {
@@ -38,6 +39,7 @@ export const ORG_ROUTES = {
   leaves: '/org/leaves',
   payslips: '/org/payroll',
   jobs: '/org/jobs',
+  support: '/org/support',
 } as const
 
 /*

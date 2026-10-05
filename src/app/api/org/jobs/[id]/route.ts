@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError, uuidSchema } from '@/lib/api'
-import { apiRequireOrg } from '@/lib/auth/guards'
+import { apiRequireJobsManager } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { jobSchema, jobStatusSchema } from '@/lib/schemas'
 import { formatLocation } from '@/lib/geo'
@@ -23,7 +23,7 @@ type Params = { params: Promise<{ id: string }> }
 const statusOnly = jobStatusSchema.strict()
 
 async function handlePATCH(request: NextRequest, { params }: Params) {
-  const gate = await apiRequireOrg()
+  const gate = await apiRequireJobsManager()
   if (!gate.ok) return gate.response
   const { ctx } = gate
 
@@ -126,7 +126,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
  * off the portal closes it, which is what the status is for.
  */
 async function handleDELETE(request: NextRequest, { params }: Params) {
-  const gate = await apiRequireOrg()
+  const gate = await apiRequireJobsManager()
   if (!gate.ok) return gate.response
   const { ctx } = gate
 

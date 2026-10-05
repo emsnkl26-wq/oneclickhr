@@ -20,7 +20,7 @@ import {
 } from '@/lib/invoice'
 import { buildInvoicePdf, type PrintableInvoice } from '@/lib/invoice-pdf'
 import { loadOrgLogo, type LogoAsset } from '@/lib/document-pdf'
-import type { InvoiceUnit } from '@/types/db'
+import type { InvoiceLayout, InvoiceUnit } from '@/types/db'
 
 export interface PreviewOrg {
   name: string
@@ -43,6 +43,8 @@ export interface PreviewInvoice {
   paymentDetails: string
   billTo: { name: string; email: string; address: string }
   items: Array<{ description: string; quantity: number; rate: number; unit?: InvoiceUnit }>
+  /** Which printed page to preview (056). */
+  layout?: InvoiceLayout | null
 }
 
 const lines = (value: string) =>
@@ -69,6 +71,7 @@ function toPrintable(invoice: PreviewInvoice): PrintableInvoice {
     balance_due: totals.balanceDue,
     notes: invoice.notes.trim() || null,
     payment_details: invoice.paymentDetails,
+    layout: invoice.layout ?? 'classic',
   }
 }
 

@@ -24,7 +24,7 @@ const STATUSES = ['active', 'inactive'] as const
 export default async function PlatformUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; role?: string; status?: string; page?: string }>
+  searchParams: Promise<{ q?: string; role?: string; status?: string; page?: string; visa?: string }>
 }) {
   await requireSuperAdmin()
   const admin = createAdminClient()
@@ -44,6 +44,20 @@ export default async function PlatformUsersPage({
     .order('created_at', { ascending: false })
     .range(offset, offset + PER_PAGE - 1)
 
+  // Work authorization (056): only people with one expiring within 90 days, or
+  // already expired. Resolved to a list of ids first — the expiry lives on
+  // another table, and PostgREST cannot filter a page by a join's column.
+  const visa = params.visa === 'expiring' || params.visa === 'expired' ? params.visa : null
+  if (visa) {
+    const today = new Date().toISOString().slice(0, 10)
+    const cutoff = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10)
+    let visaQuery = admin.from('work_authorizations').select('employee_id')
+    visaQuery = visa === 'expired' ? visaQuery.lt('expiry_date', today) : visaQuery.gte('expiry_date', today).lte('expiry_date', cutoff)
+    const { data: matches } = await visaQuery
+    const ids = Array.from(new Set(((matches ?? []) as Array<{ employee_id: string }>).map((m) => m.employee_id)))
+    query = query.in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000'])
+  }
+
   if (role) query = query.eq('role', role)
   if (status) query = query.eq('is_active', status === 'active')
   // `or` with two ilike branches so a search matches either the person or the
@@ -61,8 +75,37 @@ export default async function PlatformUsersPage({
 
   const tenantName = new Map((tenants ?? []).map((t) => [t.id, t.name]))
 
+  // Each employee's work authorization: the nearest expiry on record, and the
+  // status they gave at onboarding for anyone with no visa row at all.
+  const employeeIds = (profiles ?? []).filter((p) => p.role === 'employee').map((p) => p.id)
+  const [{ data: auths }, { data: onboarding }] = employeeIds.length
+    ? await Promise.all([
+        admin
+          .from('work_authorizations')
+          .select('employee_id, visa_type, expiry_date')
+          .in('employee_id', employeeIds)
+          .order('expiry_date', { ascending: true }),
+        admin
+          .from('employee_onboarding')
+          .select('employee_profile_id, work_auth_status')
+          .in('employee_profile_id', employeeIds),
+      ])
+    : [{ data: [] }, { data: [] }]
+
+  const visaFor = new Map<string, { type: string; expiry: string }>()
+  for (const row of (auths ?? []) as Array<{ employee_id: string; visa_type: string; expiry_date: string }>) {
+    if (!visaFor.has(row.employee_id)) visaFor.set(row.employee_id, { type: row.visa_type, expiry: row.expiry_date })
+  }
+  const statusFor = new Map<string, string>()
+  for (const row of (onboarding ?? []) as Array<{ employee_profile_id: string | null; work_auth_status: string | null }>) {
+    if (row.employee_profile_id && row.work_auth_status) statusFor.set(row.employee_profile_id, row.work_auth_status)
+  }
+
   const rows = (profiles ?? []).map((profile) => ({
     ...profile,
+    visaType: visaFor.get(profile.id)?.type ?? null,
+    visaExpiry: visaFor.get(profile.id)?.expiry ?? null,
+    workAuthStatus: statusFor.get(profile.id) ?? null,
     tenantName: profile.tenant_id
       ? (tenantName.get(profile.tenant_id) ?? '—')
       : profile.role === 'candidate'
@@ -74,14 +117,14 @@ export default async function PlatformUsersPage({
     <div className="space-y-6">
       <PageHeader
         title="Users"
-        description="Every account across the platform. You can deactivate, but not edit, customer accounts."
+        description="Every account across the platform, with each employee's company and work authorization. You can deactivate, but not edit, customer accounts."
       />
       <PlatformUserList
         users={rows}
         total={count ?? rows.length}
         page={page}
         perPage={PER_PAGE}
-        filtered={!!search || !!role || !!status}
+        filtered={!!search || !!role || !!status || !!visa}
       />
     </div>
   )

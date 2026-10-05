@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { GoogleButton, OrDivider } from './google-button'
 import { Input } from '@/components/ui/input'
 import { FormField, FormError, FormSuccess } from '@/components/ui/form-field'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
@@ -73,9 +74,21 @@ export function SignInForm({ portal, title, subtitle, footer }: SignInFormProps)
       <h1 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h1>
       <p className="mt-1.5 text-sm text-ink-muted">{subtitle}</p>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
-        {notice ? <FormSuccess message={notice} /> : null}
-        <FormError message={error ?? linkError} />
+      {/* Organizations only (056); employees are given passwords by their org. */}
+      {portal === 'org' ? (
+        <div className="mt-6">
+          {notice ? <FormSuccess message={notice} /> : null}
+          <FormError message={error ?? linkError} />
+          <div className={notice || error || linkError ? 'mt-4' : undefined}>
+            <GoogleButton intent="login" />
+          </div>
+          <OrDivider />
+        </div>
+      ) : null}
+
+      <form onSubmit={onSubmit} className={portal === 'org' ? 'space-y-4' : 'mt-6 space-y-4'} noValidate>
+        {portal !== 'org' && notice ? <FormSuccess message={notice} /> : null}
+        {portal !== 'org' ? <FormError message={error ?? linkError} /> : null}
 
         <FormField label={portal === 'candidate' ? 'Email' : 'Work email'} error={fields.email} required>
           <Input
