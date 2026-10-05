@@ -6,6 +6,7 @@ import { jobSchema, jobStatusSchema } from '@/lib/schemas'
 import { formatLocation } from '@/lib/geo'
 import { audit } from '@/lib/audit'
 import { engagementColumns } from '@/lib/jobs'
+import { withPublicJobsRevalidation } from '@/lib/jobs-public'
 
 export const dynamic = 'force-dynamic'
 
@@ -184,5 +185,5 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
   return jsonOk({ ok: true })
 }
 
-export const PATCH = withErrorHandler(handlePATCH)
-export const DELETE = withErrorHandler(handleDELETE)
+export const PATCH = withErrorHandler(withPublicJobsRevalidation(handlePATCH))
+export const DELETE = withErrorHandler(withPublicJobsRevalidation(handleDELETE))

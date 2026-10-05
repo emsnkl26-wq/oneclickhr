@@ -6,6 +6,7 @@ import { jobSchema } from '@/lib/schemas'
 import { formatLocation } from '@/lib/geo'
 import { audit } from '@/lib/audit'
 import { engagementColumns } from '@/lib/jobs'
+import { withPublicJobsRevalidation } from '@/lib/jobs-public'
 
 export const dynamic = 'force-dynamic'
 
@@ -81,4 +82,4 @@ async function handlePOST(request: NextRequest) {
   return jsonOk({ id: job.id }, 201)
 }
 
-export const POST = withErrorHandler(handlePOST)
+export const POST = withErrorHandler(withPublicJobsRevalidation(handlePOST))

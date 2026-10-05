@@ -17,7 +17,7 @@ import { headObject, getObjectHead, deleteObject } from '@/lib/r2'
 import { sniffMime } from '@/lib/upload'
 import { SNIFF_BYTES } from '@/lib/upload-policy'
 import { sendApplicationStatusUpdate } from '@/lib/email'
-import type { Job, PublicJob, SalaryPeriod } from '@/types/db'
+import type { Job, PublicCompany, PublicJob, PublicJobCard, SalaryPeriod } from '@/types/db'
 import type { JobInput } from '@/lib/schemas'
 
 // ---------------------------------------------------------------------------
@@ -235,6 +235,24 @@ export function toSkills(value: unknown): string[] {
   return value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).slice(0, 30)
 }
 
+/**
+ * The columns a LIST needs, and not one more (057).
+ *
+ * `JOB_COLUMNS` below is ~40 columns including three long-text fields and the
+ * recruiter's email and phone. Selecting it twenty rows at a time to render
+ * cards that show a title, a place and a salary cost the feed its latency and
+ * published contact details nobody asked to publish. The detail view reads
+ * `JOB_COLUMNS` for the one posting it is actually showing.
+ *
+ * If you add a field to `PublicJobCard`, add its column here — and if you find
+ * yourself adding `description` back, add a detail fetch instead.
+ */
+export const JOB_CARD_COLUMNS =
+  'id, tenant_id, title, employment_type, workplace, location, country, ' +
+  'experience_min, experience_max, ' +
+  'salary_min, salary_max, salary_currency, salary_period, salary_disclosed, ' +
+  'published_at, closes_at, client_name, duration, start_date_label, work_authorization'
+
 /** The row shape every job query in the app selects. Keep it in one place. */
 export const JOB_COLUMNS =
   'id, tenant_id, posted_by, title, description, responsibilities, requirements, ' +
@@ -265,25 +283,36 @@ function toRecruiter(row: Job, company: PublicJob['company']): PublicJob['recrui
   return Object.values(recruiter).some(Boolean) ? recruiter : null
 }
 
-/** Map a `jobs` row to the public shape, resolving the salary rule on the way. */
-export function toPublicJob(
-  row: Job,
-  company: PublicJob['company']
-): PublicJob {
+/** A `JOB_CARD_COLUMNS` row — what `toPublicJobCard` is given. */
+export type JobCardRow = Pick<
+  Job,
+  | 'id' | 'tenant_id' | 'title' | 'employment_type' | 'workplace' | 'location' | 'country'
+  | 'experience_min' | 'experience_max'
+  | 'salary_min' | 'salary_max' | 'salary_currency' | 'salary_period' | 'salary_disclosed'
+  | 'published_at' | 'closes_at'
+> & {
+  client_name?: string | null
+  duration?: string | null
+  start_date_label?: string | null
+  work_authorization?: string | null
+}
+
+/**
+ * Map a `JOB_CARD_COLUMNS` row to the list shape, resolving the salary rule on
+ * the way. Takes the narrow row type on purpose: a caller holding only the card
+ * columns is the normal case, and the compiler should say so rather than let a
+ * missing `description` surface as `undefined` in a response.
+ */
+export function toPublicJobCard(row: JobCardRow, company: PublicCompany): PublicJobCard {
   return {
     id: row.id,
     title: row.title,
-    description: row.description,
-    responsibilities: row.responsibilities,
-    requirements: row.requirements,
     employmentType: row.employment_type,
     workplace: row.workplace,
     location: row.location,
     experienceMin: row.experience_min,
     experienceMax: row.experience_max,
     salaryLabel: salaryLabel(row),
-    openings: row.openings,
-    skills: toSkills(row.skills),
     publishedAt: row.published_at,
     closesAt: row.closes_at,
     country: row.country,
@@ -291,8 +320,20 @@ export function toPublicJob(
     duration: row.duration ?? null,
     startDate: row.start_date_label ?? null,
     workAuthorization: row.work_authorization ?? null,
-    recruiter: toRecruiter(row, company),
     company,
+  }
+}
+
+/** Map a full `jobs` row to the public shape — the card, plus the detail fields. */
+export function toPublicJob(row: Job, company: PublicCompany): PublicJob {
+  return {
+    ...toPublicJobCard(row, company),
+    description: row.description,
+    responsibilities: row.responsibilities,
+    requirements: row.requirements,
+    openings: row.openings,
+    skills: toSkills(row.skills),
+    recruiter: toRecruiter(row, company),
   }
 }
 

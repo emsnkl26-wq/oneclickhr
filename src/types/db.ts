@@ -995,12 +995,23 @@ export interface JobApplication {
  * columns off the page; giving that path its own narrow type means an internal
  * field cannot be rendered by accident, only by someone widening this interface.
  */
-export interface PublicJob {
+/**
+ * What a posting looks like IN A LIST — and nothing more (057).
+ *
+ * The portal feed sends one of these per card. It is deliberately not a
+ * `PublicJob`: the list used to ship every row's full `description`,
+ * `responsibilities`, `requirements` and the recruiter's email and phone to the
+ * browser, twenty at a time, so that a dialog could read them if the visitor
+ * happened to open one. That is a payload the page pays for on every filter
+ * click and a set of contact details handed to every scraper that loads /jobs.
+ *
+ * The long fields and the recruiter block now arrive from `/api/jobs/[id]` when
+ * someone actually opens a posting. Anything a CARD renders belongs here;
+ * anything only the detail view renders belongs on `PublicJob`.
+ */
+export interface PublicJobCard {
   id: string
   title: string
-  description: string
-  responsibilities: string | null
-  requirements: string | null
   employmentType: JobType
   workplace: JobWorkplace
   location: string | null
@@ -1008,19 +1019,27 @@ export interface PublicJob {
   experienceMax: number | null
   /** Already resolved against `salary_disclosed` — null means "do not show". */
   salaryLabel: string | null
-  openings: number
-  skills: string[]
   publishedAt: string | null
   closesAt: string | null
   /** ISO 3166-1 alpha-2, or null for a posting with no country. */
   country: string | null
-  /** 052: engagement details and the recruiter's contact. */
+  /** 052: engagement details. */
   clientName: string | null
   duration: string | null
   startDate: string | null
   workAuthorization: string | null
-  recruiter: PublicRecruiter | null
   company: PublicCompany
+}
+
+/** A whole posting: the card, plus the parts only the detail view shows. */
+export interface PublicJob extends PublicJobCard {
+  description: string
+  responsibilities: string | null
+  requirements: string | null
+  openings: number
+  skills: string[]
+  /** 052: the recruiter's contact. Detail-only — never in a feed response. */
+  recruiter: PublicRecruiter | null
 }
 
 /** Who to contact about a posting (052). Everything here is on the public page. */

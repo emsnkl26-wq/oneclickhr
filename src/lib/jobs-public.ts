@@ -34,8 +34,10 @@ import 'server-only'
  * super-admin console, an employee's browse — do NOT import this. Use
  * `createSupabaseServerClient()` and let `jobs_select` do its job.
  */
+import { cache } from 'react'
+import { unstable_cache, revalidateTag } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { JOB_COLUMNS, toPublicJob } from '@/lib/jobs'
+import { JOB_CARD_COLUMNS, JOB_COLUMNS, toPublicJob, toPublicJobCard, type JobCardRow } from '@/lib/jobs'
 import {
   EXPERIENCE_BANDS,
   POSTED_WITHIN,
@@ -43,7 +45,59 @@ import {
   type JobSort,
   type PostedWithin,
 } from '@/lib/job-form'
-import type { Job, PublicCompany, PublicJob } from '@/types/db'
+import type { Job, PublicCompany, PublicJob, PublicJobCard } from '@/types/db'
+
+/**
+ * The cache tag every public-portal read is stored under (057).
+ *
+ * ONE tag for the whole portal, not one per filter combination. The set of
+ * live postings changes when an org publishes, edits or closes a role — and any
+ * of those can move a job into or out of an unbounded number of cached filter
+ * combinations, so there is no honest way to invalidate a subset. Dropping all
+ * of it costs one cold query per combination that is asked for again; getting
+ * the subset wrong means a closed role stays on the portal.
+ *
+ * Call `revalidatePublicJobs()` from every route that writes a `jobs` row.
+ */
+export const PUBLIC_JOBS_TAG = 'public-jobs'
+
+/**
+ * How long a cached portal read may be served before it is refetched.
+ *
+ * These are short on purpose. The thing being cached is a PUBLIC job board, so
+ * the cost of staleness is that a role posted seconds ago appears a minute
+ * late — and every write path calls `revalidatePublicJobs()` anyway, which makes
+ * the window a backstop rather than the mechanism.
+ */
+const FEED_TTL = 60
+const COUNTRIES_TTL = 300
+const JOB_TTL = 120
+
+/** Drop every cached portal read. Call after any write to `jobs`. */
+export function revalidatePublicJobs(): void {
+  revalidateTag(PUBLIC_JOBS_TAG)
+}
+
+/**
+ * Wrap a `jobs` write handler so a successful write empties the portal cache.
+ *
+ * AT THE EXPORT, not inside the handler, and deliberately: these routes create,
+ * edit, publish, close and delete postings across several branches apiece, and
+ * the one branch somebody forgets is the one that leaves a closed role on a
+ * public page. Wrapping the whole handler cannot be forgotten per-branch.
+ *
+ * Only a 2xx revalidates — a rejected edit changed nothing and should not throw
+ * away a warm cache for every visitor.
+ */
+export function withPublicJobsRevalidation<Args extends unknown[]>(
+  handler: (...args: Args) => Promise<Response>
+): (...args: Args) => Promise<Response> {
+  return async (...args: Args): Promise<Response> => {
+    const response = await handler(...args)
+    if (response.ok) revalidatePublicJobs()
+    return response
+  }
+}
 
 /** The columns the portal needs from `tenants`, and not the domain token. */
 const COMPANY_COLUMNS = 'id, name, slug, logo_url, website, city, country, company_linkedin_url'
@@ -112,7 +166,7 @@ export interface JobFeedFilters {
 }
 
 export interface JobFeed {
-  jobs: PublicJob[]
+  jobs: PublicJobCard[]
   total: number
   page: number
   perPage: number
@@ -142,7 +196,7 @@ function experienceCondition(band: ExperienceBand): string {
  * then the handful of companies they belong to keeps the `status = 'published'`
  * predicate the only thing standing between this function and the whole table.
  */
-export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobFeed> {
+async function fetchPublicJobs(filters: JobFeedFilters): Promise<JobFeed> {
   const admin = createAdminClient()
   const perPage = filters.perPage ?? FEED_PER_PAGE
   const page = Math.max(1, filters.page ?? 1)
@@ -164,7 +218,9 @@ export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobF
 
   let query = admin
     .from('jobs')
-    .select(JOB_COLUMNS, { count: 'exact' })
+    // The CARD columns (057) — a list never selects a description. The detail
+    // view reads the whole row from `getPublicJob` for the one posting it shows.
+    .select(JOB_CARD_COLUMNS, { count: 'exact' })
     .eq('status', 'published')
 
   if (tenantId) query = query.eq('tenant_id', tenantId)
@@ -206,11 +262,13 @@ export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobF
     return { jobs: [], total: 0, page, perPage }
   }
 
-  const rows = (data ?? []) as unknown as Job[]
+  const rows = (data ?? []) as unknown as JobCardRow[]
   const companies = await loadCompanies(rows)
 
   return {
-    jobs: rows.map((row) => toPublicJob(row, companies.get(row.tenant_id ?? '') ?? PLATFORM_COMPANY)),
+    jobs: rows.map((row) =>
+      toPublicJobCard(row, companies.get(row.tenant_id ?? '') ?? PLATFORM_COMPANY)
+    ),
     total: count ?? rows.length,
     page,
     perPage,
@@ -218,53 +276,129 @@ export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobF
 }
 
 /**
+ * A stable cache key for a set of filters.
+ *
+ * Normalised rather than stringified as given: `?type=w2,c2c` and `?type=c2c,w2`
+ * are the same feed, and two keys for one answer halves the hit rate for no
+ * reason. Array order is sorted, the search term is lowercased and trimmed, and
+ * absent values are omitted entirely so that an unfiltered feed has exactly one
+ * key however the page happened to spell it.
+ */
+function feedCacheKey(filters: JobFeedFilters): string {
+  const parts: string[] = []
+  const list = (name: string, values: string[] | undefined) => {
+    if (values?.length) parts.push(`${name}=${[...values].sort().join('.')}`)
+  }
+  const value = (name: string, v: string | number | undefined | null) => {
+    if (v !== undefined && v !== null && v !== '') parts.push(`${name}=${v}`)
+  }
+
+  value('q', filters.q?.trim().toLowerCase())
+  list('type', filters.types)
+  list('mode', filters.workplaces)
+  list('exp', filters.experience)
+  value('posted', filters.posted)
+  value('country', filters.country)
+  value('sort', filters.sort ?? 'newest')
+  value('company', filters.company)
+  value('page', Math.max(1, filters.page ?? 1))
+  value('per', filters.perPage ?? FEED_PER_PAGE)
+  return parts.join('&') || 'all'
+}
+
+/**
+ * The portal feed, cached (057).
+ *
+ * A job board is the one thing in this product where every visitor asking the
+ * same question deserves the same answer: the feed is public, identical for
+ * everyone, and read far more often than it is written. Before this, clicking
+ * "Full time" re-ran the whole query — for every visitor, every time, including
+ * the ones who clicked it a second ago.
+ *
+ * `unstable_cache` keys on the normalised filters, so the handful of
+ * combinations people actually use (the defaults, one country, one type) stay
+ * warm, while an exotic combination costs exactly what it used to. Tagged, so a
+ * publish or a close empties it immediately rather than leaving a dead role up
+ * for a minute.
+ *
+ * NOTHING CACHED HERE MAY DEPEND ON THE CALLER. That is why the viewer, the
+ * geo header and the applied-job set are resolved by the page and not in here —
+ * a cache entry keyed on filters alone must not contain one visitor's data.
+ */
+export async function listPublicJobs(filters: JobFeedFilters = {}): Promise<JobFeed> {
+  const key = feedCacheKey(filters)
+  return unstable_cache(() => fetchPublicJobs(filters), ['public-job-feed', key], {
+    revalidate: FEED_TTL,
+    tags: [PUBLIC_JOBS_TAG],
+  })()
+}
+
+/**
  * Every country with at least one live posting, most postings first — what the
  * portal's country switcher offers. Postings with no country are not counted:
  * they show under "All countries".
+ *
+ * COUNTED BY THE DATABASE (057). This used to select the `country` column of up
+ * to 5000 published rows and tally them in a Map — on every request, including
+ * every filter click, and it ignores the filters, so the work was identical
+ * every time. `public_job_country_counts()` is the same thing as a `group by`,
+ * and the result is cached for five minutes besides.
  */
-export async function listPublicJobCountries(): Promise<Array<{ code: string; count: number }>> {
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from('jobs')
-    .select('country')
-    .eq('status', 'published')
-    .not('country', 'is', null)
-    .limit(5000)
+export const listPublicJobCountries = unstable_cache(
+  async (): Promise<Array<{ code: string; count: number }>> => {
+    const admin = createAdminClient()
+    const { data, error } = await admin.rpc('public_job_country_counts')
 
-  if (error) {
-    console.error('[jobs-public] countries unavailable', error.message)
-    return []
-  }
-
-  const counts = new Map<string, number>()
-  for (const row of (data ?? []) as Array<{ country: string | null }>) {
-    if (row.country && /^[A-Z]{2}$/.test(row.country)) {
-      counts.set(row.country, (counts.get(row.country) ?? 0) + 1)
+    if (error) {
+      console.error('[jobs-public] countries unavailable', error.message)
+      return []
     }
-  }
-  return Array.from(counts, ([code, count]) => ({ code, count })).sort(
-    (a, b) => b.count - a.count || a.code.localeCompare(b.code)
-  )
-}
+
+    // The two-letter check stays: the aggregate returns whatever is stored, and
+    // a malformed code would become a switcher entry that filters to nothing.
+    return ((data ?? []) as Array<{ country: string | null; job_count: number }>)
+      .filter((row): row is { country: string; job_count: number } =>
+        !!row.country && /^[A-Z]{2}$/.test(row.country)
+      )
+      .map((row) => ({ code: row.country, count: Number(row.job_count) }))
+  },
+  ['public-job-countries'],
+  { revalidate: COUNTRIES_TTL, tags: [PUBLIC_JOBS_TAG] }
+)
 
 /** One published job, or null. Null covers "draft", "closed" and "never existed"
  *  alike — the portal must not be able to tell an outsider which. */
-export async function getPublicJob(id: string): Promise<PublicJob | null> {
-  const admin = createAdminClient()
+const fetchPublicJob = unstable_cache(
+  async (id: string): Promise<PublicJob | null> => {
+    const admin = createAdminClient()
 
-  const { data, error } = await admin
-    .from('jobs')
-    .select(JOB_COLUMNS)
-    .eq('id', id)
-    .eq('status', 'published')
-    .maybeSingle()
+    const { data, error } = await admin
+      .from('jobs')
+      .select(JOB_COLUMNS)
+      .eq('id', id)
+      .eq('status', 'published')
+      .maybeSingle()
 
-  if (error || !data) return null
+    if (error || !data) return null
 
-  const row = data as unknown as Job
-  const companies = await loadCompanies([row])
-  return toPublicJob(row, companies.get(row.tenant_id ?? '') ?? PLATFORM_COMPANY)
-}
+    const row = data as unknown as Job
+    const companies = await loadCompanies([row])
+    return toPublicJob(row, companies.get(row.tenant_id ?? '') ?? PLATFORM_COMPANY)
+  },
+  ['public-job'],
+  { revalidate: JOB_TTL, tags: [PUBLIC_JOBS_TAG] }
+)
+
+/**
+ * Wrapped in React `cache()` as well as the data cache, and for a different
+ * reason: `/jobs/[id]` calls this twice per request — once in `generateMetadata`
+ * and once in the page — and Next runs those as two separate invocations. The
+ * request-scoped memo collapses them into one. The data cache underneath it
+ * then collapses the first visitor's query and the next hundred.
+ */
+export const getPublicJob = cache(
+  async (id: string): Promise<PublicJob | null> => fetchPublicJob(id)
+)
 
 /**
  * A company with at least one live posting, by slug.
@@ -273,7 +407,7 @@ export async function getPublicJob(id: string): Promise<PublicJob | null> {
  * public page, which is the difference between a careers page and a directory of
  * every customer this platform has.
  */
-export async function getPublicCompany(slug: string): Promise<PublicCompany | null> {
+export const getPublicCompany = cache(async (slug: string): Promise<PublicCompany | null> => {
   const admin = createAdminClient()
 
   const { data } = await admin
@@ -294,7 +428,7 @@ export async function getPublicCompany(slug: string): Promise<PublicCompany | nu
 
   if (!count) return null
   return toCompany(tenant)
-}
+})
 
 /**
  * Does this job exist and accept applications right now?
@@ -392,7 +526,9 @@ export async function listAdvertisingCompanySlugs(): Promise<string[]> {
 }
 
 /** The companies behind a page of jobs, keyed by tenant id. */
-async function loadCompanies(rows: Job[]): Promise<Map<string, PublicCompany>> {
+async function loadCompanies(
+  rows: Array<{ tenant_id: string | null }>
+): Promise<Map<string, PublicCompany>> {
   const ids = Array.from(new Set(rows.map((row) => row.tenant_id).filter((id): id is string => !!id)))
   const map = new Map<string, PublicCompany>()
   if (!ids.length) return map

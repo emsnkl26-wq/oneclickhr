@@ -21,12 +21,22 @@ export function Pagination({
   total,
   param = 'page',
   className,
+  onNavigate,
 }: {
   page: number
   perPage: number
   total: number
   param?: string
   className?: string
+  /**
+   * Handle the page change in the client instead of navigating (057).
+   *
+   * The controls stay `<Link>`s with real hrefs even then — a middle click, a
+   * "copy link address" and a crawler all still get the shareable URL. Only the
+   * plain left click is intercepted, by the one list in this app that reloads
+   * its own rows rather than the whole page.
+   */
+  onNavigate?: (target: number) => void
 }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -61,7 +71,22 @@ export function Pagination({
       )
     }
     return (
-      <Link href={hrefFor(target)} scroll={false} aria-label={label} className={cn(classes, 'hover:bg-page')}>
+      <Link
+        href={hrefFor(target)}
+        scroll={false}
+        aria-label={label}
+        className={cn(classes, 'hover:bg-page')}
+        onClick={
+          onNavigate
+            ? (event) => {
+                // Leave the modified clicks alone — they mean "open elsewhere".
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                event.preventDefault()
+                onNavigate(target)
+              }
+            : undefined
+        }
+      >
         <Icon className="size-4" aria-hidden />
       </Link>
     )
