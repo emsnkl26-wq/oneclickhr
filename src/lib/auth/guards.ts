@@ -14,9 +14,11 @@ import 'server-only'
  * ACTIVE tenant: filtering on role alone leaves the deactivated-user hole open,
  * because a role does not disappear when someone is switched off.
  */
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { NextResponse } from 'next/server'
 import { resolveContext, homeFor, isUsable, type AppContext } from '@/lib/auth/context'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { safeEqual } from '@/lib/crypto'
 import { rateLimit, limitKey, getClientIp } from '@/lib/rate-limit'
 
@@ -64,6 +66,9 @@ export async function requireRole(role: AppContext['role']): Promise<AppContext>
  * never got provisioned has no portal to go to, so it goes to the dead end.
  */
 function leaveTenantArea(ctx: AppContext, expected: AppContext['role']): never {
+  // A Google sign-up (056) is an org account with no workspace until it names
+  // one — that is the page to finish, not a dead end.
+  if (ctx.role === 'org' && !ctx.tenantId) redirect('/signup/complete')
   redirect(ctx.role === expected ? '/session-invalid' : homeFor(ctx.role))
 }
 
@@ -86,6 +91,36 @@ export async function requireCandidate(): Promise<AppContext> {
   const ctx = await requireUser()
   if (ctx.role !== 'candidate') redirect(homeFor(ctx.role))
   return ctx
+}
+
+/**
+ * Does this designation make someone a recruiter (056)?
+ *
+ * Mirrors `app.is_recruiter()` — the database is what actually grants the
+ * access; this only decides which pages and links to offer.
+ */
+export function isRecruiterDesignation(designation: string | null | undefined): boolean {
+  return !!designation && /recruit/i.test(designation)
+}
+
+/** The caller's own designation says recruiter. Memoized per request. */
+export const callerIsRecruiter = cache(async (ctx: AppContext): Promise<boolean> => {
+  if (ctx.role !== 'employee') return false
+  const supabase = await createSupabaseServerClient()
+  const { data } = await supabase.from('profiles').select('designation').eq('id', ctx.userId).maybeSingle()
+  return isRecruiterDesignation((data as { designation: string | null } | null)?.designation)
+})
+
+/**
+ * Who may run the job portal for a workspace (056): the org, or one of its
+ * recruiters. Everyone else goes back to their own portal.
+ */
+export async function requireJobsManager(): Promise<OrgContext> {
+  const ctx = await requireUser()
+  if (!ctx.tenantId || !ctx.tenant) redirect(homeFor(ctx.role))
+  if (ctx.role === 'org') return ctx as OrgContext
+  if (ctx.role === 'employee' && (await callerIsRecruiter(ctx))) return ctx as OrgContext
+  redirect(homeFor(ctx.role))
 }
 
 export async function requireSuperAdmin(): Promise<AppContext> {
@@ -158,6 +193,19 @@ export async function apiRequireOwner(): Promise<Gate<OrgContext>> {
     return deny('Only the workspace owner can do that.', 403)
   }
   return gate
+}
+
+/** The org, or a recruiter of the same workspace (056) — the job portal's writers. */
+export async function apiRequireJobsManager(): Promise<Gate<OrgContext>> {
+  const gate = await apiRequireUser()
+  if (!gate.ok) return gate
+  const { ctx } = gate
+  if (!ctx.tenantId || !ctx.tenant) return deny('Workspace access required', 403)
+  if (ctx.role === 'org') return { ok: true, ctx: ctx as OrgContext }
+  if (ctx.role === 'employee' && (await callerIsRecruiter(ctx))) {
+    return { ok: true, ctx: ctx as OrgContext }
+  }
+  return deny('Only administrators and recruiters can manage jobs.', 403)
 }
 
 export async function apiRequireEmployee(): Promise<Gate<OrgContext>> {

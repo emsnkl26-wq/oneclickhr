@@ -39,7 +39,7 @@ export default async function PayrollPage({
     supabase
       .from('profiles')
       .select(
-        'id, full_name, email, photo_url, employee_code, designation, pay_schedule, pay_frequency, country, pay_rate, pay_currency, date_of_joining, hire_date, bank_name'
+        'id, full_name, email, photo_url, employee_code, designation, pay_schedule, pay_frequency, country, pay_rate, pay_currency, date_of_joining, hire_date, bank_name, street_address, apartment, city, state_province, zip_postal, pay_type, account_type'
       )
       .eq('role', 'employee')
       .eq('is_active', true)
@@ -58,7 +58,7 @@ export default async function PayrollPage({
       .eq('year', year),
     supabase
       .from('tenants')
-      .select('name, logo_url, address_line1, address_line2, city, state_province, postal_code, company_email, website')
+      .select('name, logo_url, address_line1, address_line2, city, state_province, postal_code, country, company_email, company_phone, website, org_code')
       .eq('id', ctx.tenantId)
       .single(),
   ])
@@ -68,11 +68,20 @@ export default async function PayrollPage({
   const company: PayslipCompany = {
     name: tenant?.name ?? ctx.tenant.name,
     logoUrl: tenant?.logo_url ?? null,
-    address: [tenant?.address_line1, tenant?.address_line2, tenant?.city, region]
+    address: [tenant?.address_line1, tenant?.address_line2, tenant?.city, region, tenant?.country]
       .filter(Boolean)
       .join(', '),
     email: tenant?.company_email ?? null,
     website: tenant?.website ?? null,
+    phone: tenant?.company_phone ?? null,
+    orgCode: tenant?.org_code ?? null,
+    // "8795 Stonehouse Dr" / "Ellicott City, MD 21043" — the US statement's block.
+    addressLines: [
+      [tenant?.address_line1, tenant?.address_line2].filter(Boolean).join(', '),
+      [tenant?.city, [tenant?.state_province, tenant?.postal_code].filter(Boolean).join(' ')]
+        .filter(Boolean)
+        .join(', '),
+    ].filter(Boolean),
   }
 
   // Each person's schedule decides whether the month is one row or two (050).

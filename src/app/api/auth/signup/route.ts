@@ -7,6 +7,7 @@ import { audit } from '@/lib/audit'
 import { appUrl } from '@/lib/env'
 import { findDomainOwner, ownerConflictMessage } from '@/lib/domain-registry'
 import { signupErrorResponse } from '@/lib/signup-errors'
+import { isGoogleOnlyAccount } from '@/lib/auth/providers'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,6 +68,14 @@ async function handlePOST(request: NextRequest) {
   const emailLimit = await rateLimit(limitKey('signup-email', input.email), 5, 60 * 60 * 1000)
   if (!emailLimit.ok) {
     return jsonError('Too many sign-up attempts for that address. Please try again later.', 429)
+  }
+
+  // One address, one way in (056): a Google account cannot also get a password.
+  if (await isGoogleOnlyAccount(input.email)) {
+    return jsonError(
+      'This email is already registered with Google. Use "Continue with Google" on the sign-in page.',
+      409
+    )
   }
 
   try {

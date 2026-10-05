@@ -7,6 +7,7 @@ import {
 } from '@/lib/rate-limit'
 import { audit } from '@/lib/audit'
 import { homeFor } from '@/lib/auth/context'
+import { isGoogleOnlyAccount, GOOGLE_ONLY_MESSAGE } from '@/lib/auth/providers'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,7 +57,11 @@ async function handlePOST(request: NextRequest) {
       meta: { reason: error?.message ?? 'unknown' },
       request,
     })
-    // Deliberately identical for every failure mode.
+    // An account created through Google has no password to match (056).
+    if (portal !== 'employee' && portal !== 'candidate' && (await isGoogleOnlyAccount(email))) {
+      return jsonError(GOOGLE_ONLY_MESSAGE, 401)
+    }
+    // Otherwise deliberately identical for every failure mode.
     return jsonError('Those details did not match. Please check and try again.', 401)
   }
 

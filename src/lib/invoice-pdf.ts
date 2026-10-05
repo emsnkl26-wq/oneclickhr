@@ -25,7 +25,7 @@ import {
 import { loadOrgLogo, ONECLICKHR_URL, type LogoAsset } from '@/lib/document-pdf'
 import { apiGet } from '@/lib/fetcher'
 import { formatPeriod } from '@/lib/time'
-import type { Invoice } from '@/types/db'
+import type { Invoice, InvoiceLayout } from '@/types/db'
 import type { jsPDF as JsPDF } from 'jspdf'
 
 /** Everything the printed page reads. A saved row satisfies it; so does the form. */
@@ -34,7 +34,10 @@ export type PrintableInvoice = Pick<
   | 'invoice_number' | 'issue_date' | 'due_date' | 'currency' | 'bill_to' | 'subject'
   | 'items' | 'subtotal' | 'tax_percent' | 'total' | 'amount_paid' | 'balance_due'
   | 'notes' | 'payment_details'
->
+> & {
+  /** Which page to draw (056). Absent or 'classic' is the boxed staffing invoice. */
+  layout?: InvoiceLayout | null
+}
 
 export interface InvoiceOrgBranding {
   logoUrl: string | null
@@ -207,6 +210,7 @@ export async function buildInvoicePdf(
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   await registerUnicodeFont(doc)
+  if (invoice.layout === 'modern') return drawModernInvoice(doc, invoice, orgName, org, logo)
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   const left = 44
@@ -421,6 +425,234 @@ export async function buildInvoicePdf(
   doc.setFontSize(6.5)
   doc.setTextColor(...MUTED)
   // Clickable — this is the only branding on an invoice that isn't the org's own.
+  doc.textWithLink('Powered by OneclickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
+
+  return doc
+}
+
+/* ------------------------------------------------------------ Modern layout */
+
+/** `#F97316` → [249, 115, 22]; anything unreadable falls back to slate. */
+function hexToRgb(hex: string | null | undefined): RGB {
+  const match = /^#?([0-9a-f]{6})$/i.exec((hex ?? '').trim())
+  if (!match) return [30, 41, 59]
+  const n = parseInt(match[1], 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+const SLATE_900: RGB = [15, 23, 42]
+const SLATE_500: RGB = [100, 116, 139]
+const SLATE_200: RGB = [226, 232, 240]
+const SLATE_50: RGB = [248, 250, 252]
+
+/**
+ * The modern invoice (056) — for invoices written on the Invoices page.
+ *
+ * No ruled grid. A thin brand-coloured band, the company and a large
+ * "Invoice" heading, a row of key facts (issued, due, amount due), the billed
+ * party, then line items separated by hairlines, a right-aligned totals stack
+ * with the balance due in the brand colour, and notes and payment details in
+ * soft panels. Invoices generated from an employee's timesheets keep the
+ * classic boxed layout above; `invoices.layout` says which one a row uses.
+ */
+function drawModernInvoice(
+  doc: JsPDF,
+  invoice: PrintableInvoice,
+  orgName: string,
+  org: InvoiceOrgBranding | undefined,
+  logo: LogoAsset | null
+): JsPDF {
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const left = 48
+  const right = pageWidth - 48
+  const currency = invoice.currency || 'USD'
+  const brand = hexToRgb(org?.primaryColor)
+
+  const text = (
+    value: string | string[],
+    x: number,
+    y: number,
+    opts: { bold?: boolean; size?: number; color?: RGB; align?: 'left' | 'center' | 'right' } = {}
+  ) => {
+    useFont(doc, value, opts.bold)
+    doc.setFontSize(opts.size ?? 9)
+    doc.setTextColor(...(opts.color ?? SLATE_900))
+    doc.text(value, x, y, opts.align ? { align: opts.align } : undefined)
+  }
+  const label = (value: string, x: number, y: number, align: 'left' | 'right' = 'left') =>
+    text(value.toUpperCase(), x, y, { bold: true, size: 7, color: SLATE_500, align })
+
+  // --- Brand band ---------------------------------------------------------
+  doc.setFillColor(...brand)
+  doc.rect(0, 0, pageWidth, 6, 'F')
+
+  // --- Company (left) and title (right) -------------------------------------
+  let y = 48
+  let companyX = left
+  if (logo) {
+    const box = 44
+    const ratio = logo.width / logo.height
+    const w = ratio >= 1 ? box : box * ratio
+    const h = ratio >= 1 ? box / ratio : box
+    doc.addImage(logo.dataUrl, logo.format, left, y, w, h)
+    companyX = left + w + 12
+  }
+  text(orgName, companyX, y + 14, { bold: true, size: 13 })
+  let addressY = y + 14
+  for (const line of org?.addressLines ?? []) {
+    addressY += 11.5
+    text(line, companyX, addressY, { size: 8.5, color: SLATE_500 })
+  }
+
+  text('Invoice', right, y + 20, { bold: true, size: 26, align: 'right' })
+  text(`#${invoice.invoice_number}`, right, y + 36, { size: 10, color: SLATE_500, align: 'right' })
+
+  // --- Key facts --------------------------------------------------------------
+  y = Math.max(addressY, y + 44) + 30
+  const balance = Number(invoice.balance_due ?? invoice.total) || 0
+  doc.setFillColor(...SLATE_50)
+  doc.setDrawColor(...SLATE_200)
+  doc.setLineWidth(0.6)
+  doc.roundedRect(left, y, right - left, 52, 8, 8, 'FD')
+  const factW = (right - left) / 3
+  const facts: Array<[string, string, boolean]> = [
+    ['Issued', invoiceDate(invoice.issue_date) || '—', false],
+    ['Due', invoiceDate(invoice.due_date) || 'On receipt', false],
+    ['Amount due', invoiceMoney(balance, currency), true],
+  ]
+  facts.forEach(([name, value, strong], index) => {
+    const x = left + 16 + index * factW
+    label(name, x, y + 19)
+    text(value, x, y + 37, { bold: true, size: strong ? 14 : 11, color: strong ? brand : SLATE_900 })
+  })
+  y += 52 + 30
+
+  // --- Billed to / For --------------------------------------------------------
+  label('Billed to', left, y)
+  let toY = y + 15
+  if (invoice.bill_to?.name) text(invoice.bill_to.name, left, toY, { bold: true, size: 10.5 })
+  for (const line of linesOf(invoice.bill_to?.address)) {
+    for (const wrapped of doc.splitTextToSize(line, 230) as string[]) {
+      toY += 12
+      text(wrapped, left, toY, { size: 9, color: SLATE_500 })
+    }
+  }
+  if (invoice.bill_to?.email) {
+    toY += 12
+    text(invoice.bill_to.email, left, toY, { size: 9, color: SLATE_500 })
+  }
+
+  let forY = y
+  if (invoice.subject) {
+    const forX = left + factW * 1.6
+    label('For', forX, y)
+    const wrapped = doc.splitTextToSize(invoice.subject, right - forX) as string[]
+    text(wrapped, forX, y + 15, { bold: true, size: 10 })
+    forY = y + 15 + 12 * (wrapped.length - 1)
+  }
+
+  // --- Line items ---------------------------------------------------------------
+  const items = invoice.items ?? []
+  const cols = { desc: left, qty: right - 210, rate: right - 110, amount: right }
+  const pageBottom = pageHeight - 64
+
+  const drawHeader = (at: number) => {
+    label('Description', cols.desc, at)
+    label(quantityHeading(items), cols.qty, at, 'right')
+    label('Rate', cols.rate, at, 'right')
+    label('Amount', cols.amount, at, 'right')
+    doc.setDrawColor(...SLATE_900)
+    doc.setLineWidth(0.9)
+    doc.line(left, at + 7, right, at + 7)
+    return at + 24
+  }
+
+  let rowY = drawHeader(Math.max(toY, forY) + 40)
+  for (const item of items) {
+    const description = doc.splitTextToSize(item.description || '', cols.qty - cols.desc - 70) as string[]
+    const height = Math.max(1, description.length) * 12
+    if (rowY + height > pageBottom) {
+      doc.addPage()
+      doc.setFillColor(...brand)
+      doc.rect(0, 0, pageWidth, 6, 'F')
+      rowY = drawHeader(56)
+    }
+    text(description, cols.desc, rowY, { size: 9.5 })
+    text(invoiceQuantity(Number(item.quantity) || 0, item.unit), cols.qty, rowY, { size: 9.5, color: SLATE_500, align: 'right' })
+    text(invoiceRate(Number(item.rate) || 0, currency, item.unit), cols.rate, rowY, { size: 9.5, color: SLATE_500, align: 'right' })
+    text(invoiceMoney(Number(item.amount) || 0, currency), cols.amount, rowY, { bold: true, size: 9.5, align: 'right' })
+    rowY += height + 6
+    doc.setDrawColor(...SLATE_200)
+    doc.setLineWidth(0.5)
+    doc.line(left, rowY, right, rowY)
+    rowY += 16
+  }
+
+  // --- Totals -------------------------------------------------------------------
+  const total = Number(invoice.total) || 0
+  const subtotal = Number(invoice.subtotal) || 0
+  const paid = Number(invoice.amount_paid) || 0
+  const rows: Array<[string, number]> = [['Subtotal', subtotal]]
+  if (Number(invoice.tax_percent) > 0) rows.push([`Tax (${invoice.tax_percent}%)`, total - subtotal])
+  rows.push(['Total', total])
+  if (paid > 0) rows.push(['Paid', -paid])
+
+  let ty = rowY + 4
+  if (ty + rows.length * 18 + 50 > pageHeight - 48) {
+    doc.addPage()
+    ty = 56
+  }
+  const labelX = right - 200
+  for (const [name, value] of rows) {
+    const isTotal = name === 'Total'
+    text(name, labelX, ty, { bold: isTotal, size: isTotal ? 10.5 : 9.5, color: isTotal ? SLATE_900 : SLATE_500 })
+    text(invoiceMoney(value, currency), right, ty, { bold: isTotal, size: isTotal ? 10.5 : 9.5, align: 'right' })
+    ty += 18
+  }
+  // The figure that matters, in the brand colour.
+  doc.setFillColor(...brand)
+  doc.roundedRect(labelX - 12, ty - 4, right - labelX + 12, 30, 6, 6, 'F')
+  text('Balance due', labelX, ty + 15, { bold: true, size: 10.5, color: [255, 255, 255] })
+  text(invoiceMoney(balance, currency), right - 10, ty + 15, { bold: true, size: 12, color: [255, 255, 255], align: 'right' })
+  ty += 56
+
+  // --- Notes and payment details -------------------------------------------------
+  const payment = linesOf(invoice.payment_details ?? org?.paymentDetails)
+  const notes = invoice.notes ? (doc.splitTextToSize(invoice.notes, (right - left) / 2 - 36) as string[]) : []
+  const panels: Array<{ title: string; lines: string[] }> = []
+  if (payment.length) panels.push({ title: 'Payment details', lines: payment })
+  if (notes.length) panels.push({ title: 'Notes', lines: notes })
+
+  if (panels.length) {
+    const gap = 14
+    const width = panels.length === 1 ? right - left : (right - left - gap) / 2
+    const height = 30 + Math.max(...panels.map((p) => p.lines.length)) * 12
+    if (ty + height > pageHeight - 60) {
+      doc.addPage()
+      ty = 56
+    }
+    panels.forEach((panel, index) => {
+      const x = left + index * (width + gap)
+      doc.setFillColor(...SLATE_50)
+      doc.setDrawColor(...SLATE_200)
+      doc.roundedRect(x, ty, width, height, 8, 8, 'FD')
+      label(panel.title, x + 14, ty + 18)
+      panel.lines.forEach((line, i) => text(line, x + 14, ty + 33 + i * 12, { size: 8.5 }))
+    })
+    ty += height + 28
+  }
+
+  if (ty > pageHeight - 70) {
+    doc.addPage()
+    ty = 56
+  }
+  text('Thank you for your business.', left, ty, { bold: true, size: 10 })
+  text(orgName, left, ty + 13, { size: 9, color: SLATE_500 })
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(...MUTED)
   doc.textWithLink('Powered by OneclickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
 
   return doc

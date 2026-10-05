@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
 import { deriveOrgCode } from '@/lib/org-code'
+import { GoogleButton, OrDivider } from '../_components/google-button'
 
 export default function SignupPage() {
   const [orgName, setOrgName] = React.useState('')
@@ -21,6 +22,14 @@ export default function SignupPage() {
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
   const [sent, setSent] = React.useState(false)
+
+  // A failed Google round trip comes back as ?error=… (see /auth/callback).
+  // Read once on mount rather than with useSearchParams, which would need a
+  // Suspense boundary around this whole page.
+  React.useEffect(() => {
+    const linkError = new URLSearchParams(window.location.search).get('error')
+    if (linkError) setError(linkError)
+  }, [])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -90,7 +99,12 @@ export default function SignupPage() {
         Set up your organization in under a minute.
       </p>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
+      <div className="mt-6">
+        <GoogleButton intent="signup" />
+      </div>
+      <OrDivider />
+
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <FormError message={error} />
 
         <FormField label="Organization name" error={fields.orgName} required>

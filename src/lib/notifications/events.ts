@@ -60,6 +60,7 @@ export type NotificationEvent =
   | 'board.member_added'
   | 'visa.expiring'
   | 'meeting.invited'
+  | 'support.replied'
   | 'generic'
 
 interface EventSpec {
@@ -225,6 +226,13 @@ const CATALOG: Record<NotificationEvent, EventSpec> = {
    * An unknown notification emailing the whole company is not a mistake anyone
    * should be able to make by omission, so the default cannot be `important`.
    */
+  // The platform answered a support request (056). Emailed: the person asked us
+  // something and may not open the portal until they hear back.
+  'support.replied': {
+    importance: 'important',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.support, ORG_ROUTES.support),
+  },
+
   generic: {
     importance: 'normal',
     path: employeeOrOrg(EMPLOYEE_ROUTES.notifications, ORG_ROUTES.notifications),

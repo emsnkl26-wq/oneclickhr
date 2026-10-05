@@ -52,6 +52,7 @@ const COMPANY_COLUMNS = {
   signatoryTitle: 'signatory_title',
   signatoryPhone: 'signatory_phone',
   invoicePaymentDetails: 'invoice_payment_details',
+  companyLinkedinUrl: 'company_linkedin_url',
 } as const
 
 /** Update workspace settings: name, branding, timezone, shift start, letterhead. */

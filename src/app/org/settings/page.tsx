@@ -11,6 +11,8 @@ import { SettingsForm } from './settings-form'
 import { CompanyForm } from './company-form'
 import { DepartmentManager } from './department-manager'
 import { OvertimeForm } from './overtime-form'
+import { StorageCard, type StorageRequestRow } from './storage-card'
+import { getStorageUsage } from '@/lib/storage-quota'
 import type { CompanyDetails } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Settings' }
@@ -20,15 +22,21 @@ export default async function SettingsPage() {
   const ctx = await requireOrg()
   const supabase = await createSupabaseServerClient()
 
-  const [{ data: departments }, { data: tenant }] = await Promise.all([
+  const [{ data: departments }, { data: tenant }, storage, { data: storageRequests }] = await Promise.all([
     supabase.from('departments').select('id, name').order('name'),
     // The letterhead fields are not in the session context — that RPC carries
     // only what every page needs, and these are read on this one screen.
     supabase
       .from('tenants')
-      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details, overtime_weekly_threshold')
+      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details, overtime_weekly_threshold, company_linkedin_url')
       .eq('id', ctx.tenantId)
       .single(),
+    getStorageUsage(ctx.tenantId),
+    supabase
+      .from('storage_requests')
+      .select('id, requested_bytes, reason, status, granted_bytes, admin_note, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10),
   ])
 
   const company: CompanyDetails = {
@@ -50,6 +58,7 @@ export default async function SettingsPage() {
     signatoryTitle: tenant?.signatory_title ?? null,
     signatoryPhone: tenant?.signatory_phone ?? null,
     invoicePaymentDetails: tenant?.invoice_payment_details ?? null,
+    companyLinkedinUrl: tenant?.company_linkedin_url ?? null,
   }
 
   return (
@@ -75,6 +84,16 @@ export default async function SettingsPage() {
 
         <div className="space-y-5">
           <DepartmentManager departments={departments ?? []} />
+
+          <StorageCard
+            used={storage.used}
+            limit={storage.limit}
+            requests={((storageRequests ?? []) as StorageRequestRow[]).map((r) => ({
+              ...r,
+              requested_bytes: Number(r.requested_bytes),
+              granted_bytes: r.granted_bytes == null ? null : Number(r.granted_bytes),
+            }))}
+          />
 
           <OvertimeForm
             threshold={

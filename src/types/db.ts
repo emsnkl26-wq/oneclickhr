@@ -263,6 +263,8 @@ export interface InvoiceItem {
   unit?: InvoiceUnit
 }
 
+export type InvoiceLayout = 'classic' | 'modern'
+
 export interface Invoice {
   id: string
   tenant_id: string
@@ -277,6 +279,11 @@ export interface Invoice {
   bill_to: { name?: string; email?: string; address?: string }
   /** The "FOR:" line on the printed invoice (042). */
   subject: string | null
+  /**
+   * Which printed page it uses (056): 'classic' for invoices generated from an
+   * employee's timesheets, 'modern' for those written on the Invoices page.
+   */
+  layout?: InvoiceLayout | null
   /** The bank block printed at the foot, snapshotted per invoice (042). */
   payment_details: string | null
   items: InvoiceItem[]
@@ -863,6 +870,8 @@ export interface CompanyDetails {
   signatoryTitle: string | null
   /** Default bank / remittance block a new invoice prints (042). Settings only. */
   invoicePaymentDetails?: string | null
+  /** 056: the company's LinkedIn page, defaulted onto its job postings. */
+  companyLinkedinUrl?: string | null
   signatoryPhone: string | null
 }
 
@@ -874,6 +883,8 @@ export type JobType =
   | 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary'
   // 051: the US staffing engagement types.
   | 'contract_to_hire' | 'c2c' | 'w2'
+  // 056: independent contractor.
+  | '1099'
 export type JobWorkplace = 'onsite' | 'remote' | 'hybrid'
 export type JobStatus = 'draft' | 'published' | 'closed'
 export type SalaryPeriod = 'hour' | 'day' | 'month' | 'year'
@@ -1033,6 +1044,8 @@ export interface PublicCompany {
   logoUrl: string | null
   website: string | null
   location: string | null
+  /** 056: the workspace's LinkedIn page, the default for its postings. */
+  linkedinUrl?: string | null
 }
 
 // ---------------------------------------------------------------------------

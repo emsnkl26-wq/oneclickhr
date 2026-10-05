@@ -82,7 +82,8 @@ export function SupportButton() {
         // in a support record.
         pageUrl: pathname,
       })
-      toast.success('Thank you — your message is with us')
+      // Replies arrive under Support in the sidebar (056).
+      toast.success('Thank you — your message is with us. Our replies appear under Support in your menu.')
       setOpen(false)
       reset()
     } catch (err) {

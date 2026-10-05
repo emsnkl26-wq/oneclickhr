@@ -11,6 +11,7 @@ import { buildKey, extensionOf, presignPut, r2ConfigProblem } from '@/lib/r2'
  */
 import { checkPresignClaims } from '@/lib/upload-policy'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
+import { getStorageUsage, quotaMessage } from '@/lib/storage-quota'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,6 +95,13 @@ async function handlePOST(request: NextRequest) {
   const ext = extensionOf(input.fileName)
   const claims = checkPresignClaims(input.purpose, input.contentType, input.sizeBytes, ext)
   if (!claims.ok) return jsonError(claims.error, 400)
+
+  // The workspace's storage quota (056). Checked against the CLAIMED size here,
+  // which is all there is before the bytes exist; finalize records the real one.
+  const usage = await getStorageUsage(ctx.tenantId)
+  if (usage.used + input.sizeBytes > usage.limit) {
+    return jsonError(quotaMessage(usage, ctx.role === 'org'), 413)
+  }
 
   const key = buildKey(ctx.tenantId, FOLDERS[input.purpose] ?? 'files', ext)
 

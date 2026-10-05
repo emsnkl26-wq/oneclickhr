@@ -28,6 +28,15 @@ export interface DepartmentOption {
   name: string
 }
 
+/** A recruiter in the workspace, as the contact picker offers them (056). */
+export interface RecruiterOption {
+  id: string
+  name: string
+  title: string | null
+  email: string | null
+  phone: string | null
+}
+
 const TYPE_LABELS = JOB_TYPE_LABELS
 const WORKPLACE_LABELS = JOB_WORKPLACE_LABELS
 
@@ -46,11 +55,15 @@ const WORKPLACE_LABELS = JOB_WORKPLACE_LABELS
  * /api/super/jobs. The two forms ask for exactly the same things.
  */
 export function JobDialog({
-  open, job, departments = [], endpoint = '/api/org/jobs', isPublished = false, onClose, onSaved,
+  open, job, departments = [], recruiters = [], companyLinkedinUrl, endpoint = '/api/org/jobs',
+  isPublished = false, onClose, onSaved,
 }: {
   open: boolean
   job?: JobFormValues
   departments?: DepartmentOption[]
+  recruiters?: RecruiterOption[]
+  /** Prefilled on a NEW posting; an existing one keeps what it saved. */
+  companyLinkedinUrl?: string | null
   endpoint?: string
   /** True when the job being edited is already live — hides the publish action. */
   isPublished?: boolean
@@ -58,7 +71,11 @@ export function JobDialog({
   /** `published` says which button finished the job, so the toast can match. */
   onSaved: (published: boolean) => void
 }) {
-  const [values, setValues] = React.useState<JobFormValues>(job ?? EMPTY)
+  const blank = React.useMemo<JobFormValues>(
+    () => ({ ...EMPTY, companyLinkedinUrl: companyLinkedinUrl ?? '' }),
+    [companyLinkedinUrl]
+  )
+  const [values, setValues] = React.useState<JobFormValues>(job ?? blank)
   const [skillDraft, setSkillDraft] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
@@ -67,11 +84,11 @@ export function JobDialog({
 
   React.useEffect(() => {
     if (!open) return
-    setValues(job ?? EMPTY)
+    setValues(job ?? blank)
     setSkillDraft('')
     setError(null)
     setFields({})
-  }, [open, job])
+  }, [open, job, blank])
 
   /** Nothing to offer when the role is already live. */
   const showPublish = !isPublished
@@ -473,6 +490,40 @@ export function JobDialog({
               <p className="-mt-2 text-xs text-ink-muted">
                 Shown to candidates on the posting. Leave a field empty to keep it off.
               </p>
+              {recruiters.length ? (
+                <FormField
+                  label="Recruiter"
+                  hint="Pick one of your recruiters to fill in their details, or type them below."
+                >
+                  <Select
+                    value={
+                      recruiters.find(
+                        (r) =>
+                          r.email && r.email.toLowerCase() === values.recruiterEmail.trim().toLowerCase()
+                      )?.id ?? ''
+                    }
+                    onChange={(e) => {
+                      const picked = recruiters.find((r) => r.id === e.target.value)
+                      if (!picked) return
+                      setValues((current) => ({
+                        ...current,
+                        recruiterName: picked.name,
+                        recruiterTitle: picked.title ?? '',
+                        recruiterEmail: picked.email ?? '',
+                        recruiterPhone: picked.phone ?? '',
+                      }))
+                    }}
+                  >
+                    <option value="">Choose a recruiter</option>
+                    {recruiters.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                        {r.title ? ` — ${r.title}` : ''}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+              ) : null}
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField label="Recruiter name" error={fields.recruiterName}>
                   <Input

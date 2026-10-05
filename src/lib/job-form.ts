@@ -179,6 +179,7 @@ export const JOB_TYPE_LABELS: Record<JobType, string> = {
   contract_to_hire: 'Contract to hire',
   c2c: 'C2C (Corp-to-Corp)',
   w2: 'W2',
+  '1099': '1099 (Independent contractor)',
   internship: 'Internship',
   temporary: 'Temporary',
 }

@@ -1,15 +1,16 @@
 import type { Metadata } from 'next'
+import { EmployeeDocuments, type EmployeeDocument } from './employee-documents'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { effectivePaySchedule } from '@/lib/pay-schedule'
 import {
-  ArrowLeft, ArrowRight, ClipboardList, Download, FileText, FileSignature, FilePlus2,
+  ArrowLeft, ArrowRight, ClipboardList, Download, FileSignature, FilePlus2,
   Eye, Briefcase, Timer, Building2, Pencil,
 } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader, StatCard, StatusChip, EmptyState } from '@/components/ui/patterns'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import {
@@ -478,48 +479,11 @@ export default async function EmployeeDetailPage({
             )}
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Documents</CardTitle>
-            </CardHeader>
-            {(documents ?? []).length === 0 ? (
-              <EmptyState
-                icon={FileText}
-                title="No documents"
-                description="Files uploaded for this person appear here."
-              />
-            ) : (
-              <ul className="divide-y divide-line">
-                {(documents ?? []).map((doc) => (
-                  <li key={doc.id} className="flex items-center gap-3 px-5 py-2.5">
-                    <FileText className="size-4 shrink-0 text-ink-muted" aria-hidden />
-                    {/* The label says what the file IS; the file name is
-                        whatever their scanner called it, so it drops to a
-                        subtitle once there is something better to lead with. */}
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">
-                        {doc.label || doc.file_name || 'Untitled'}
-                      </span>
-                      {doc.label && doc.file_name ? (
-                        <span className="block truncate text-xs text-ink-muted">
-                          {doc.file_name}
-                        </span>
-                      ) : null}
-                    </span>
-                    <Button asChild size="icon" variant="ghost" aria-label="Download">
-                      <a
-                        href={`/api/files/view?key=${encodeURIComponent(doc.file_url)}&download=${encodeURIComponent(
-                          doc.file_name || 'document'
-                        )}`}
-                      >
-                        <Download />
-                      </a>
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+          <EmployeeDocuments
+            employeeId={employee.id}
+            employeeName={employee.full_name || employee.email || 'this employee'}
+            documents={(documents ?? []) as EmployeeDocument[]}
+          />
         </div>
       </div>
 

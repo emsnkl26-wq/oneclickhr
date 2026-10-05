@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from '@/lib/api'
-import { apiRequireOrg } from '@/lib/auth/guards'
+import { apiRequireJobsManager } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { jobSchema } from '@/lib/schemas'
 import { formatLocation } from '@/lib/geo'
@@ -23,7 +23,7 @@ export const dynamic = 'force-dynamic'
  * attaching another tenant's department.
  */
 async function handlePOST(request: NextRequest) {
-  const gate = await apiRequireOrg()
+  const gate = await apiRequireJobsManager()
   if (!gate.ok) return gate.response
   const { ctx } = gate
 

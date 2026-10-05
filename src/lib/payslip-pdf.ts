@@ -3,19 +3,15 @@
 /**
  * Monthly salary slips, rendered in the browser.
  *
- * The layout is a point-for-point copy of the slip the org already issues by
- * hand (a Word document exported to PDF): the square logo top-left, a blue
- * title, a six-row details grid, an Earnings and a Deductions table each with a
- * heavy header rule and a grey total row, the italic "Net Salary Payable" line,
- * and the centred company footer. Every coordinate below was measured off that
- * original on a US Letter page, so change them only against it.
+ * Two layouts (056): rupee and other non-US slips use the Indian table layout
+ * below; US-dollar slips use the earnings statement in `payslip-us-pdf.ts`.
  *
  * FONTS
  * -----
- * The original is set in Calibri, which cannot be shipped. Carlito is its
- * metric-compatible open-source twin — same advance widths — so lines break and
- * align exactly where Calibri's would. Carlito has no ₹ glyph, so the rupee sign
- * alone is drawn in Noto Sans (see `drawText`). All fonts live in
+ * Calibri cannot be shipped. Carlito is its metric-compatible open-source
+ * twin, so lines break where Calibri's would. Carlito has no ₹ glyph, so the
+ * rupee sign alone is drawn in Noto Sans (see `drawText`). The table itself is
+ * set in Helvetica, standing in for the original's Arial. All fonts live in
  * `/public/fonts` and are fetched only when a slip is actually generated.
  */
 
@@ -33,8 +29,10 @@ export interface PayslipOrg {
   address: string
   email: string | null
   website: string | null
-  /** "For queries, contact: …" — usually an accounts mailbox. */
+  /** "Mail to …" under the table — usually an accounts mailbox. */
   queriesEmail: string | null
+  /** Printed in the footer beside the address. */
+  phone?: string | null
 }
 
 export type SalaryBasis = 'annual' | 'monthly'
@@ -75,6 +73,7 @@ type Doc = {
   rect(x: number, y: number, w: number, h: number, style?: string): void
   link(x: number, y: number, w: number, h: number, options: { url: string }): void
   getTextWidth(text: string): number
+  splitTextToSize(text: string, width: number): string[]
   addImage(data: string, format: string, x: number, y: number, w: number, h: number): void
   addFileToVFS(name: string, data: string): void
   addFont(file: string, family: string, style: string): void
@@ -85,11 +84,7 @@ type RGB = [number, number, number]
 type Style = 'normal' | 'bold' | 'italic' | 'bolditalic'
 
 const BLACK: RGB = [0, 0, 0]
-/** Word's "Accent 1" blue — the title, section labels and net line. */
-const ACCENT: RGB = [79, 129, 189]
 const LINK: RGB = [5, 99, 193]
-const FILL: RGB = [191, 191, 191]
-const FOOTER_RULE: RGB = [160, 160, 160]
 
 const FONT_FILES: Array<[family: string, style: Style, file: string]> = [
   ['Carlito', 'normal', 'Carlito-Regular.ttf'],
@@ -135,7 +130,6 @@ export const MONTHS_LONG = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
-const MONTHS_SHORT = MONTHS_LONG.map((name) => name.slice(0, 3))
 
 export function daysInMonth(month: number, year: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate()
@@ -216,91 +210,62 @@ function drawLink(doc: Doc, text: string, url: string, x: number, y: number, siz
 
 /* ------------------------------------------------------------------ Layout */
 
-// US Letter, in points. Measured off the original slip.
-const LEFT = 85.2
-const RIGHT = 519.2
-const SPLIT = 302.2
-const TEXT_X = 90.2
-const VALUE_X = 307.3
-const ROW = 14.17
-const BASELINE = 10.4
-
-function drawGrid(doc: Doc, top: number, rows: Array<[string, string]>) {
-  doc.setDrawColor(...BLACK)
-  doc.setLineWidth(0.75)
-  const bottom = top + rows.length * ROW
-  doc.rect(LEFT, top, RIGHT - LEFT, bottom - top)
-  doc.line(SPLIT, top, SPLIT, bottom)
-  rows.forEach(([label, value], index) => {
-    const y = top + index * ROW
-    if (index) doc.line(LEFT, y, RIGHT, y)
-    setStyle(doc, 'normal', 11, BLACK)
-    drawText(doc, label, TEXT_X, y + BASELINE, 'normal')
-    drawText(doc, value, VALUE_X, y + BASELINE, 'normal')
-  })
-}
-
-/** Height of one itemised line (Basic, HRA, PF …) inside a section. */
-const ITEM_ROW = 14.2
-
-/**
- * "Earnings" / "Deductions": blue label, header row, heavy rule, any itemised
- * lines, then the grey total. Returns the section's bottom edge so the next
- * block can follow it. With no items this draws exactly the original layout.
+/*
+ * The Indian slip (056) — a copy of the layout the org issued before this
+ * product existed (the Dhatsol "Sukruthi" slip): the logo top-right, a
+ * label / bold-value list of the employee's details with the working days on
+ * the right of the last line, then ONE bordered three-column table — the
+ * month as its title, Gross Salary and its components, the gross carried to
+ * the right-hand column, "Less : Deduction" and its lines, the deductions
+ * carried right, and the net. A short note and the company footer follow.
+ *
+ * US Letter, in points. Coordinates were measured off the original at
+ * 0.643 pt per pixel; change them only against it.
  */
-function drawSection(
-  doc: Doc,
-  labelBaseline: number,
-  label: string,
-  items: Array<[string, string]>,
-  total: [string, string]
-): number {
-  setStyle(doc, 'bold', 11, ACCENT)
-  drawText(doc, label, TEXT_X, labelBaseline, 'bold')
-
-  const top = labelBaseline + 4.8
-  const header = 14.8
-  const body = 15.4
-  const itemsTop = top + header
-  const totalTop = itemsTop + items.length * ITEM_ROW
-  const bottom = totalTop + body
-
-  doc.setFillColor(...FILL)
-  doc.rect(LEFT, totalTop, RIGHT - LEFT, body, 'F')
-
-  doc.setDrawColor(...BLACK)
-  doc.setLineWidth(0.75)
-  doc.rect(LEFT, top, RIGHT - LEFT, bottom - top)
-  doc.line(SPLIT, top, SPLIT, bottom)
-  items.forEach((_, index) => {
-    if (index) doc.line(LEFT, itemsTop + index * ITEM_ROW, RIGHT, itemsTop + index * ITEM_ROW)
-  })
-  if (items.length) doc.line(LEFT, totalTop, RIGHT, totalTop)
-  doc.setLineWidth(2.2)
-  doc.line(LEFT, itemsTop, RIGHT, itemsTop)
-
-  setStyle(doc, 'bold', 11, BLACK)
-  drawText(doc, 'Description', TEXT_X, top + BASELINE + 0.3, 'bold')
-  drawText(doc, 'Amount', VALUE_X, top + BASELINE + 0.3, 'bold')
-
-  setStyle(doc, 'normal', 11, BLACK)
-  items.forEach(([name, amount], index) => {
-    const baseline = itemsTop + index * ITEM_ROW + BASELINE + 0.8
-    drawText(doc, name, TEXT_X, baseline, 'normal')
-    drawText(doc, amount, VALUE_X, baseline, 'normal')
-  })
-
-  const rowBaseline = totalTop + BASELINE + 1.2
-  setStyle(doc, 'bold', 11, BLACK)
-  drawText(doc, total[0], TEXT_X, rowBaseline, 'bold')
-  setStyle(doc, 'normal', 11, BLACK)
-  drawText(doc, total[1], VALUE_X, rowBaseline, 'normal')
-
-  return bottom
+const IN = {
+  labelX: 72.6,
+  valueX: 166.5,
+  detailsTop: 135.7,
+  detailsRow: 15.1,
+  tableLeft: 70.7,
+  col2: 254,
+  col3: 366,
+  tableRight: 535,
+  titleRow: 27,
+  firstRow: 22.5,
+  row: 16.7,
+  carryRow: 23,
 }
 
-function centered(doc: Doc, text: string, centre: number, y: number, style: Style) {
-  drawText(doc, text, centre - measure(doc, text, style) / 2, y, style)
+/** Amounts as the original prints them: "58,200.00" — grouped, two places, no symbol. */
+export function tableAmount(amount: number, currency: string): string {
+  const locale = currency.toUpperCase() === 'INR' ? 'en-IN' : 'en-US'
+  return amount.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** The month as the title spells it: "November’2024". */
+function monthTitle(month: number, year: number): string {
+  return `${MONTHS_LONG[month - 1]}’${year}`
+}
+
+function helvetica(doc: Doc, style: 'normal' | 'bold', size: number) {
+  doc.setFont('helvetica', style)
+  doc.setFontSize(size)
+  doc.setTextColor(...BLACK)
+}
+
+function rightText(doc: Doc, text: string, right: number, y: number) {
+  doc.text(text, right - doc.getTextWidth(text), y)
+}
+
+interface TableRow {
+  label: string
+  /** The amount column. */
+  mid?: string
+  /** The carried-total column. */
+  right?: string
+  bold?: boolean
+  height: number
 }
 
 export async function renderPayslip(input: PayslipInput): Promise<Blob> {
@@ -312,148 +277,138 @@ export async function renderPayslip(input: PayslipInput): Promise<Blob> {
   }
 
   const { org, currency } = input
-  const monthName = MONTHS_LONG[input.month - 1]
-  const lastDay = daysInMonth(input.month, input.year)
-  const shortMonth = MONTHS_SHORT[input.month - 1]
   const breakdown = input.breakdown ?? null
   const earnings = breakdown ? sumLines(breakdown.earnings) : input.earnings
   const deductions = breakdown ? sumLines(breakdown.deductions) : input.deductions
   const net = Math.round((earnings - deductions) * 100) / 100
+  const amount = (value: number) => tableAmount(value, currency)
 
-  // Logo — the square badge, top left.
+  /* Logo — top right, as in the original. */
   if (org.logo) {
-    const boxW = 108.9
-    const boxH = 92.8
+    const boxW = 175
+    const boxH = 58
     const ratio = org.logo.width / org.logo.height
     const w = ratio >= boxW / boxH ? boxW : boxH * ratio
     const h = ratio >= boxW / boxH ? boxW / ratio : boxH
-    doc.addImage(org.logo.dataUrl, org.logo.format, 91.5, 73.4, w, h)
+    doc.addImage(org.logo.dataUrl, org.logo.format, IN.tableRight - w, 44, w, h)
   }
 
-  setStyle(doc, 'bold', 13, ACCENT)
-  drawText(doc, `Salary Slip for the Month of ${monthName} ${input.year}`, TEXT_X, 193.6, 'bold')
+  /* Employee details: label, then the value in bold. Empty values are left out. */
+  const details: Array<[string, string]> = [
+    ['Emp Name:', input.employeeName],
+    ['Emp ID:', breakdown?.employeeCode ?? ''],
+    ['Designation:', input.designation],
+    ['Date of Joining:', breakdown?.dateOfJoining ?? ''],
+    ['PF No:', breakdown?.pfNumber ?? ''],
+    ['Bank Details:', breakdown?.bankDetails ?? ''],
+  ]
+  const shown = details.filter(([, value]) => value.trim())
+  // The last line carries the working days, so there is always at least one.
+  if (!shown.length) shown.push(['Emp Name:', input.employeeName || '—'])
 
-  const money = (amount: number) => payslipMoney(amount, currency)
-  const optional = (label: string, value: string | undefined): Array<[string, string]> =>
-    value?.trim() ? [[label, value.trim()]] : []
+  shown.forEach(([label, value], index) => {
+    const y = IN.detailsTop + index * IN.detailsRow
+    setStyle(doc, 'normal', 11, BLACK)
+    drawText(doc, label, IN.labelX, y, 'normal')
+    setStyle(doc, 'bold', 11, BLACK)
+    drawText(doc, value.trim(), IN.valueX, y, 'bold')
+  })
 
-  const gridRows: Array<[string, string]> = breakdown
-    ? [
-        ['Emp Name', input.employeeName],
-        ...optional('Emp ID', breakdown.employeeCode),
-        ['Emp Email', input.employeeEmail],
-        ['Designation', input.designation],
-        ...optional('Date of Joining', breakdown.dateOfJoining),
-        ...optional('PF No', breakdown.pfNumber),
-        ...optional('Bank Details', breakdown.bankDetails),
-        ['Gross Monthly Salary', money(earnings)],
-      ]
-    : [
-        ['Emp Name', input.employeeName],
-        ['Emp Email', input.employeeEmail],
-        ['Designation', input.designation],
-        [
-          input.basis === 'annual' ? 'Annual Salary' : 'Monthly Salary',
-          payslipMoney(input.salary, currency, { cents: false }),
-        ],
-      ]
-  gridRows.push(
-    ['Working Days in Period', `${input.workingDays} days`],
-    ['Pay Period', `01-${shortMonth}-${input.year} to ${lastDay}-${shortMonth}-${input.year}`]
-  )
+  const lastY = IN.detailsTop + (shown.length - 1) * IN.detailsRow
+  const daysValue = `${input.workingDays} days`
+  setStyle(doc, 'bold', 11, BLACK)
+  const daysWidth = measure(doc, daysValue, 'bold')
+  drawText(doc, daysValue, IN.tableRight - daysWidth, lastY, 'bold')
+  setStyle(doc, 'normal', 11, BLACK)
+  const daysLabel = 'No. of working days: '
+  drawText(doc, daysLabel, IN.tableRight - daysWidth - measure(doc, daysLabel, 'normal'), lastY, 'normal')
 
-  const gridTop = 199.1
-  drawGrid(doc, gridTop, gridRows)
+  /* The table. A simple slip has no components, so it shows one deduction line. */
+  const earningItems = breakdown?.earnings ?? []
+  const deductionItems = breakdown?.deductions ?? [{ label: 'Deductions', amount: deductions }]
+  const rows: TableRow[] = [
+    { label: 'Gross Salary', mid: amount(earnings), bold: true, height: IN.firstRow },
+    ...earningItems.map((item) => ({ label: item.label, mid: amount(item.amount), height: IN.row })),
+    { label: '', right: amount(earnings), bold: true, height: IN.carryRow },
+    { label: 'Less : Deduction', bold: true, height: IN.row },
+    ...deductionItems.map((item) => ({ label: item.label, mid: amount(item.amount), height: IN.row })),
+    { label: '', right: amount(deductions), bold: true, height: IN.carryRow },
+    { label: 'Net Salary Payable', right: amount(net), bold: true, height: IN.row },
+  ]
 
-  /*
-   * Everything below the grid flows from it. The simple slip's gaps are the
-   * measured originals, so it lands on exactly the coordinates it always did;
-   * the itemised slip is taller, so its gaps tighten to keep clear of the footer.
-   */
-  const gap = breakdown
-    ? { section: 24, between: 24, net: 22, note: 22, queries: 18 }
-    : { section: 36.7, between: 37.2, net: 36.6, note: 34.2, queries: 25.8 }
+  const tableTop = Math.max(221, lastY + 13)
+  const bodyTop = tableTop + IN.titleRow
+  const tableBottom = bodyTop + rows.reduce((sum, row) => sum + row.height, 0)
 
-  const earningsBottom = drawSection(
-    doc,
-    gridTop + gridRows.length * ROW + gap.section,
-    'Earnings',
-    (breakdown?.earnings ?? []).map((line) => [line.label, money(line.amount)]),
-    [breakdown ? 'Gross Salary' : 'Net Payable', money(earnings)]
-  )
-  const deductionsBottom = drawSection(
-    doc,
-    earningsBottom + gap.between,
-    'Deductions',
-    (breakdown?.deductions ?? []).map((line) => [line.label, money(line.amount)]),
-    ['Total Deductions', money(deductions)]
-  )
+  doc.setDrawColor(...BLACK)
+  doc.setLineWidth(0.9)
+  doc.rect(IN.tableLeft, tableTop, IN.tableRight - IN.tableLeft, tableBottom - tableTop)
+  doc.line(IN.tableLeft, bodyTop, IN.tableRight, bodyTop)
+  doc.line(IN.col2, bodyTop, IN.col2, tableBottom)
+  doc.line(IN.col3, bodyTop, IN.col3, tableBottom)
 
-  // The net line and its blue underline.
-  const netY = deductionsBottom + gap.net
-  setStyle(doc, 'bolditalic', 11, ACCENT)
+  helvetica(doc, 'bold', 9.5)
+  const title = `Salary slip for the month of ${monthTitle(input.month, input.year)}`
+  doc.text(title, (IN.tableLeft + IN.tableRight) / 2 - doc.getTextWidth(title) / 2, tableTop + IN.titleRow - 6)
+
+  let cursor = bodyTop
+  rows.forEach((row, index) => {
+    if (index) doc.line(IN.tableLeft, cursor, IN.tableRight, cursor)
+    const baseline = cursor + row.height - 4.5
+    helvetica(doc, row.bold ? 'bold' : 'normal', 9.5)
+    if (row.label) doc.text(row.label, IN.tableLeft + 6.5, baseline)
+    if (row.mid) rightText(doc, row.mid, IN.col3 - 2, baseline)
+    if (row.right) rightText(doc, row.right, IN.tableRight - 2, baseline)
+    cursor += row.height
+  })
+
+  /* The note under the table. */
+  let noteY = tableBottom + 25
+  setStyle(doc, 'normal', 10, BLACK)
   drawText(
     doc,
-    `Net Salary Payable: ${payslipMoney(net, currency, { spaced: true })}`,
-    137.2, netY, 'bolditalic'
+    'As applicable based on savings declaration by employee if any questions,',
+    IN.tableLeft + 1.5, noteY, 'normal'
   )
-  doc.setDrawColor(...ACCENT)
-  doc.setLineWidth(0.75)
-  doc.line(137.2, netY + 9.5, 477.4, netY + 9.5)
-
-  const noteY = netY + gap.note
-  setStyle(doc, 'bold', 11, BLACK)
-  drawText(doc, 'Note: This is a system-generated salary slip. No signature required.', TEXT_X, noteY, 'bold')
-
   if (org.queriesEmail) {
-    const queriesY = noteY + gap.queries
-    setStyle(doc, 'normal', 11, BLACK)
-    const lead = 'For queries, contact: '
-    const width = drawText(doc, lead, TEXT_X, queriesY, 'normal')
-    drawLink(doc, org.queriesEmail, `mailto:${org.queriesEmail}`, TEXT_X + width, queriesY, 11)
+    noteY += 13.5
+    const width = drawText(doc, 'Mail to ', IN.tableLeft + 1.5, noteY, 'normal')
+    drawLink(doc, org.queriesEmail, `mailto:${org.queriesEmail}`, IN.tableLeft + 1.5 + width, noteY, 10)
   }
+  noteY += 15
+  setStyle(doc, 'bold', 10, BLACK)
+  drawText(doc, 'Note: This is system generated mail. Signature not required.', IN.tableLeft + 1.5, noteY, 'bold')
 
-  /* Footer — centred on the text block, not the page, as in the original. */
-  const centre = 325
-  setStyle(doc, 'bold', 14, BLACK)
-  centered(doc, org.name, centre, 678.4, 'bold')
+  /* Footer — company name, a full-width rule, then the address block. */
+  const centre = 306
   if (org.tagline) {
     setStyle(doc, 'italic', 8, BLACK)
-    centered(doc, org.tagline, centre, 689.3, 'italic')
+    centered(doc, org.tagline, centre, 727, 'italic')
   }
-  doc.setDrawColor(...FOOTER_RULE)
-  doc.setLineWidth(0.75)
-  doc.line(93.4, 700.3, 520.5, 700.3)
+  setStyle(doc, 'bold', 12, BLACK)
+  centered(doc, org.name.toUpperCase(), centre, 739, 'bold')
+  doc.setDrawColor(...BLACK)
+  doc.setLineWidth(0.6)
+  doc.line(0, 745, 612, 745)
 
-  if (org.address) {
-    setStyle(doc, 'normal', 11, BLACK)
-    centered(doc, org.address, centre, 728.6, 'normal')
-  }
-
-  // "Email: info@… | Website: https://…", with both addresses as links.
-  const parts: Array<{ text: string; url?: string }> = []
-  if (org.email) parts.push({ text: 'Email: ' }, { text: org.email, url: `mailto:${org.email}` })
-  if (org.website) {
-    const url = /^https?:\/\//i.test(org.website) ? org.website : `https://${org.website}`
-    if (parts.length) parts.push({ text: ' | ' })
-    parts.push({ text: 'Website: ' }, { text: url, url })
-  }
-  if (parts.length) {
-    const y = 742.1
-    setStyle(doc, 'normal', 11, BLACK)
-    const total = parts.reduce((sum, part) => sum + measure(doc, part.text, 'normal'), 0)
-    let x = centre - total / 2
-    for (const part of parts) {
-      if (part.url) {
-        x += drawLink(doc, part.text, part.url, x, y, 11)
-      } else {
-        setStyle(doc, 'normal', 11, BLACK)
-        x += drawText(doc, part.text, x, y, 'normal')
-      }
-    }
-  }
+  const contact = [
+    org.phone ? `Phone: ${org.phone}` : '',
+    org.website ? `website: ${org.website.replace(/^https?:\/\//i, '')}` : '',
+    !org.website && org.email ? `email: ${org.email}` : '',
+  ].filter(Boolean)
+  // The address on one line and the phone / website on the next, as printed.
+  setStyle(doc, 'normal', 8.5, BLACK)
+  const lines = [org.address, contact.join(', ')]
+    .filter(Boolean)
+    .flatMap((part) => doc.splitTextToSize(part, 470))
+    .slice(0, 3)
+  lines.forEach((line, index) => centered(doc, line, centre, 756 + index * 9.5, 'normal'))
 
   return doc.output('blob')
+}
+
+function centered(doc: Doc, text: string, centre: number, y: number, style: Style) {
+  drawText(doc, text, centre - measure(doc, text, style) / 2, y, style)
 }
 
 /** `Payslip-Tushar-Sekharamantri-June-2025.pdf` */

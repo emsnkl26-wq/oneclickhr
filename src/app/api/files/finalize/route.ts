@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { keyBelongsToTenant, extensionOf, deleteObject } from '@/lib/r2'
 import { validateStoredObject, extractPdfText } from '@/lib/upload'
 import { audit } from '@/lib/audit'
+import { addStorageUsed } from '@/lib/storage-quota'
 import type { DocumentKind } from '@/types/db'
 
 export const dynamic = 'force-dynamic'
@@ -80,6 +81,9 @@ async function handlePOST(request: NextRequest) {
    * salary evidence into the org's general Documents screen, which is not
    * where anybody expects to find it or wants it browsed.
    */
+  // Counted against the workspace's storage quota (056), at the size actually stored.
+  await addStorageUsed(ctx.tenantId, result.size)
+
   const kind = DOC_KINDS[input.purpose]
   let documentId: string | undefined
 
@@ -110,6 +114,7 @@ async function handlePOST(request: NextRequest) {
     if (error) {
       // Never leave an object nothing points at.
       await deleteObject(input.key)
+      await addStorageUsed(ctx.tenantId, -result.size)
       return jsonError(friendlyDbError(error), 400)
     }
     documentId = data.id

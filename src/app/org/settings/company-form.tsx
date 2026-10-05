@@ -55,6 +55,7 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
     signatoryTitle: company.signatoryTitle ?? '',
     signatoryPhone: company.signatoryPhone ?? '',
     invoicePaymentDetails: company.invoicePaymentDetails ?? '',
+    companyLinkedinUrl: company.companyLinkedinUrl ?? '',
   })
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
@@ -279,6 +280,18 @@ export function CompanyForm({ company }: { company: CompanyDetails }) {
                   value={values.website}
                   onChange={set('website')}
                   placeholder="www.example.com"
+                />
+              </FormField>
+              <FormField
+                label="Company LinkedIn"
+                error={fields.companyLinkedinUrl}
+                hint="Shown on every job you post, unless a posting names its own."
+              >
+                <Input
+                  type="url"
+                  value={values.companyLinkedinUrl}
+                  onChange={set('companyLinkedinUrl')}
+                  placeholder="https://www.linkedin.com/company/…"
                 />
               </FormField>
             </div>

@@ -4,6 +4,7 @@ import { forgotPasswordSchema } from '@/lib/schemas'
 import { withErrorHandler, parseBody, jsonOk, jsonError } from '@/lib/api'
 import { limitAuthByIp, rateLimit, limitKey } from '@/lib/rate-limit'
 import { appUrl } from '@/lib/env'
+import { isGoogleOnlyAccount } from '@/lib/auth/providers'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,6 +29,14 @@ async function handlePOST(request: NextRequest) {
 
   // Per-address cap so this cannot be used to flood someone's inbox.
   const emailLimit = await rateLimit(limitKey('forgot-email', email), 4, 60 * 60 * 1000)
+
+  // There is no password to reset on a Google account (056) — sending a reset
+  // link would quietly ADD one, and with it a second way in.
+  if (emailLimit.ok && (await isGoogleOnlyAccount(email))) {
+    return jsonOk({
+      message: 'This email signs in with Google, so it has no password to reset. Use "Continue with Google".',
+    })
+  }
 
   if (emailLimit.ok) {
     const supabase = await createSupabaseServerClient()

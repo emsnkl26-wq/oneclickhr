@@ -293,7 +293,7 @@ const draftUuid = uuid.nullish().transform((v) => (v === undefined ? undefined :
  * generic set. The column is plain text, so adding a country is one entry here.
  */
 export const WORK_AUTH_BY_COUNTRY: Record<string, readonly string[]> = {
-  US: ['US Citizen', 'Permanent Resident', 'H-1B', 'L-1', 'EAD', 'OPT', 'Other Visa', 'Not Applicable'],
+  US: ['US Citizen', 'Permanent Resident', 'H-1B', 'L-1', 'L-2', 'EAD', 'OPT', 'Other Visa', 'Not Applicable'],
   IN: ['Indian Citizen', 'OCI Card Holder', 'Employment Visa', 'Other Visa', 'Not Applicable'],
   GB: ['British Citizen', 'Settled / Pre-settled Status', 'Indefinite Leave to Remain', 'Skilled Worker Visa', 'Graduate Visa', 'Other Visa', 'Not Applicable'],
   CA: ['Canadian Citizen', 'Permanent Resident', 'Work Permit', 'Post-Graduation Work Permit', 'Other Visa', 'Not Applicable'],
@@ -593,6 +593,16 @@ export const editAttendanceSchema = z.object({
   reason: z.string().trim().min(3, 'Say briefly why the times changed').max(500),
 })
 
+/**
+ * The org filing a shift nobody clocked — an employee who worked but forgot to
+ * clock in at all. Same times-and-reason shape as a correction, plus whose day
+ * it is.
+ */
+export const addAttendanceSchema = editAttendanceSchema.extend({
+  employeeId: z.string().uuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a date'),
+})
+
 // ---------------------------------------------------------------------------
 // Leaves
 // ---------------------------------------------------------------------------
@@ -632,14 +642,55 @@ export const payslipDetailsSchema = z.object({
   deductions: z.array(payslipLineSchema).max(12),
 })
 
+/** A US earnings statement (056) — see `lib/payslip-us-pdf.ts`. */
+const usMoney = z.number().min(0).max(1_000_000_000)
+const usText = (max: number) => z.string().trim().max(max).default('')
+export const usPayslipDetailsSchema = z.object({
+  format: z.literal('us'),
+  companyCode: usText(40),
+  locDept: usText(20),
+  voucherNumber: usText(20),
+  periodStart: isoDate,
+  periodEnd: isoDate,
+  payDate: isoDate,
+  filingStatus: usText(40),
+  federalAllowances: usText(40),
+  stateAllowances: usText(20),
+  localAllowances: usText(20),
+  federalAdditional: usText(20),
+  addressLines: z.array(z.string().trim().max(120)).max(4).default([]),
+  basisOfPay: usText(40),
+  accountType: usText(20),
+  accountLast4: z.string().trim().regex(/^\d{0,4}$/, 'Only the last four digits').default(''),
+  earnings: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(60),
+        rate: usMoney.nullable(),
+        hours: z.number().min(0).max(10_000).nullable(),
+        amount: usMoney,
+        ytd: usMoney,
+      })
+    )
+    .min(1)
+    .max(12),
+  deductions: z
+    .array(z.object({ label: z.string().trim().min(1).max(60), amount: usMoney, ytd: usMoney }))
+    .max(12),
+})
+
 export const payslipSchema = z.object({
   employeeId: uuid,
   month: z.coerce.number().int().min(1).max(12),
   year: z.coerce.number().int().min(2000).max(2200),
   key: z.string().trim().min(1).max(300),
   fileName: z.string().trim().min(1).max(255),
-  /** Present for a detailed slip, so next month's can start from it. */
-  details: payslipDetailsSchema.nullable().optional(),
+  /**
+   * Present for a detailed slip, so next month's can start from it. The US
+   * shape goes first: it is the one with a discriminator, and the Indian shape
+   * would otherwise accept a US body and silently strip its fields.
+   */
+  details: z.union([usPayslipDetailsSchema, payslipDetailsSchema]).nullable().optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -1360,6 +1411,17 @@ export const companyDetailsSchema = z.object({
   signatoryTitle: optionalText(120),
   signatoryPhone: optionalText(40),
   invoicePaymentDetails: optionalText(1000),
+  /** 056: shown on every job this workspace posts that does not name its own. */
+  companyLinkedinUrl: z
+    .string()
+    .trim()
+    .max(400)
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine(
+      (v) => v === null || /^https:\/\/\S+$/i.test(v),
+      'Paste the full LinkedIn address, starting with https://'
+    ),
 })
 
 // ---------------------------------------------------------------------------
@@ -1412,7 +1474,7 @@ export const generatedDocumentUpdateSchema = generatedDocumentSchema.omit({ empl
 // ---------------------------------------------------------------------------
 
 export const JOB_TYPES = [
-  'full_time', 'part_time', 'contract', 'contract_to_hire', 'c2c', 'w2', 'internship', 'temporary',
+  'full_time', 'part_time', 'contract', 'contract_to_hire', 'c2c', 'w2', '1099', 'internship', 'temporary',
 ] as const
 export const JOB_WORKPLACES = ['onsite', 'remote', 'hybrid'] as const
 export const JOB_STATUSES = ['draft', 'published', 'closed'] as const

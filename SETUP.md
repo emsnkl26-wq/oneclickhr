@@ -105,6 +105,7 @@ Later migrations run the same way, in number order. The most recent batch:
 | 52 | `052_job_portal_candidates.sql` | Job-seeker accounts, candidate profiles, recruiter contact on jobs, and the application history applicants can follow |
 | 53 | `053_super_admin_talent_and_purge.sql` | The platform console's talent directory view (service role only) and `purge_tenant()` for permanently deleting an organization |
 | 54 | `054_brand_refresh.sql` | The OneclickHR rebrand: moves the workspace colour default from the old crimson (`#C41E33`) to the brand orange (`#FF6A00`), and moves every workspace still on the old default. The app already treats the old default as "unset", so this is not urgent — it makes the stored data match what is shown |
+| 56 | `056_recruiters_storage_support.sql` | 1099 job type; company LinkedIn on the workspace; recruiters (employees whose designation contains "recruit") manage job postings and applicants; Sign in with Google helpers (§7b); two-way support threads; the 1 GB per-workspace storage quota and storage requests; the modern invoice layout. **Required** — the job portal, uploads and Google sign-in read its columns |
 
 `009` is not optional either — `/org/documents` and `/super/organizations` call
 `search_documents()` and `platform_tenant_stats()`, and both pages error without
@@ -535,6 +536,32 @@ Google push notifications need a publicly reachable HTTPS address. On
 back to the 15-minute incremental sync — which is exactly the fallback that
 keeps production reliable when a channel expires. To test push locally, tunnel
 with `ngrok http 3000` and set `APP_URL` to the tunnel address.
+
+### 7b. Sign in with Google (organizations)
+
+The login and signup pages show **Continue with Google**. It goes through
+Supabase Auth, so it needs the Google provider switched on there — separate from
+the Calendar OAuth client above (you can reuse the same Google Cloud project).
+
+1. **Google Cloud Console → APIs & Services → Credentials → Create OAuth client
+   ID** (type *Web application*). Under **Authorized redirect URIs** add
+   `https://<your-project-ref>.supabase.co/auth/v1/callback` — Supabase's
+   callback, not the app's.
+2. **Supabase → Authentication → Providers → Google**: enable it and paste the
+   client ID and secret.
+3. **Supabase → Authentication → URL Configuration → Redirect URLs** already
+   allows `https://your-domain.com/**` (§4d), which covers the app's own
+   `/auth/callback`.
+4. Apply migration `056_recruiters_storage_support.sql` — the callback calls
+   its service-role helpers.
+
+The rule the app enforces: **one address, one way in.** An address registered
+with a password cannot sign in through Google (the Google identity Supabase
+auto-links is removed again and the person is told to use their password), and
+an address registered through Google gets "this email is registered with
+Google" on the password form, the signup form and forgot-password. A brand-new
+Google account is sent to `/signup/complete` to name its workspace before
+anything else opens.
 
 ---
 

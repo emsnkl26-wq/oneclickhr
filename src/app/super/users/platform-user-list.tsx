@@ -2,11 +2,11 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, ShieldAlert, Trash2 } from 'lucide-react'
+import { Users, ShieldAlert, Trash2, MailWarning } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/input'
+import { Textarea, Checkbox } from '@/components/ui/input'
 import { SearchField } from '@/components/ui/search-field'
 import { FilterSelect } from '@/components/ui/filter-select'
 import { Pagination } from '@/components/ui/pagination'
@@ -15,7 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
-import { apiPatch, ApiClientError } from '@/lib/fetcher'
+import { apiPatch, apiPost, ApiClientError } from '@/lib/fetcher'
 import { formatLocal } from '@/lib/time'
 import type { UserRole } from '@/types/db'
 import { DeleteUserDialog, type DeletableUser } from '../delete-user-dialog'
@@ -37,6 +37,39 @@ interface UserRow {
   is_active: boolean
   must_change_password: boolean
   created_at: string
+  /** The nearest-expiring work authorization on record (056). */
+  visaType: string | null
+  visaExpiry: string | null
+  /** What they told onboarding, for anyone without a visa row. */
+  workAuthStatus: string | null
+}
+
+/** Whole days from today to an ISO date; negative once it has passed. */
+function daysUntil(iso: string): number {
+  const today = new Date(new Date().toISOString().slice(0, 10)).getTime()
+  return Math.round((new Date(iso).getTime() - today) / 86_400_000)
+}
+
+function VisaCell({ row }: { row: UserRow }) {
+  if (row.role !== 'employee') return <span className="text-ink-muted">—</span>
+  if (!row.visaExpiry) {
+    return <span className="text-ink-muted">{row.workAuthStatus || 'Not recorded'}</span>
+  }
+  const days = daysUntil(row.visaExpiry)
+  const tone =
+    days < 0 ? 'bg-red-50 text-red-700 ring-red-200'
+      : days <= 30 ? 'bg-amber-50 text-amber-700 ring-amber-200'
+        : days <= 90 ? 'bg-yellow-50 text-yellow-800 ring-yellow-200'
+          : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-[13px] font-medium">{row.visaType}</p>
+      <span className={`tabular inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${tone}`}>
+        {days < 0 ? `Expired ${formatLocal(row.visaExpiry, 'UTC', 'd MMM yyyy')}` : `Expires ${formatLocal(row.visaExpiry, 'UTC', 'd MMM yyyy')}`}
+        {days >= 0 ? ` · ${days}d` : ''}
+      </span>
+    </div>
+  )
 }
 
 /**
@@ -59,6 +92,7 @@ export function PlatformUserList({
   const [reason, setReason] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const [deleting, setDeleting] = React.useState<DeletableUser | null>(null)
+  const [reminding, setReminding] = React.useState<UserRow | null>(null)
 
   async function toggleActive() {
     if (!pending) return
@@ -96,6 +130,11 @@ export function PlatformUserList({
       cell: (row) => <span className="truncate text-ink-muted">{row.tenantName}</span>,
     },
     {
+      key: 'visa',
+      header: 'Work authorization',
+      cell: (row) => <VisaCell row={row} />,
+    },
+    {
       key: 'role',
       header: 'Role',
       cell: (row) => (
@@ -130,12 +169,23 @@ export function PlatformUserList({
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
-      className: 'w-44',
+      className: 'w-52',
       cell: (row) =>
         row.role === 'super_admin' ? (
           <span className="block text-right text-xs text-ink-muted">Managed in Supabase</span>
         ) : (
           <div className="flex justify-end gap-1">
+            {row.role === 'employee' && row.visaExpiry && row.email ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={`Email ${row.full_name || row.email} a visa reminder`}
+                title="Send a visa expiry reminder"
+                onClick={() => setReminding(row)}
+              >
+                <MailWarning />
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={() => setPending(row)}>
               {row.is_active ? 'Deactivate' : 'Reactivate'}
             </Button>
@@ -189,6 +239,16 @@ export function PlatformUserList({
             { value: 'inactive', label: 'Deactivated' },
           ]}
         />
+        <FilterSelect
+          param="visa"
+          label="Filter by work authorization"
+          className="sm:w-48"
+          options={[
+            { value: '', label: 'Any visa status' },
+            { value: 'expiring', label: 'Expiring in 90 days' },
+            { value: 'expired', label: 'Expired' },
+          ]}
+        />
       </div>
 
       <DataTable
@@ -211,6 +271,8 @@ export function PlatformUserList({
       <Pagination page={page} perPage={perPage} total={total} />
 
       <DeleteUserDialog user={deleting} onClose={() => setDeleting(null)} />
+
+      <RemindDialog user={reminding} onClose={() => setReminding(null)} />
 
       <Dialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
         <DialogContent size="sm">
@@ -246,5 +308,68 @@ export function PlatformUserList({
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+/** Send one visa reminder by email (056). */
+function RemindDialog({ user, onClose }: { user: UserRow | null; onClose: () => void }) {
+  const [note, setNote] = React.useState('')
+  const [copyEmployer, setCopyEmployer] = React.useState(true)
+  const [busy, setBusy] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!user) return
+    setNote('')
+    setCopyEmployer(true)
+    setBusy(false)
+  }, [user])
+
+  async function send() {
+    if (!user) return
+    setBusy(true)
+    try {
+      await apiPost(`/api/super/users/${user.id}/visa-reminder`, { note, copyEmployer })
+      toast.success(`Reminder sent to ${user.email}`)
+      onClose()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'Could not send the reminder.')
+      setBusy(false)
+    }
+  }
+
+  const days = user?.visaExpiry ? daysUntil(user.visaExpiry) : null
+
+  return (
+    <Dialog open={!!user} onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MailWarning className="size-5 text-brand-600" />
+            Send a visa reminder
+          </DialogTitle>
+          <DialogDescription>
+            {user?.full_name || user?.email} ({user?.tenantName}) — {user?.visaType}{' '}
+            {days === null ? '' : days < 0 ? `expired ${-days} days ago` : `expires in ${days} days`}.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4 pb-4">
+          <FormField label="Message" hint="Optional — added to the email.">
+            <Textarea rows={3} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+          </FormField>
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+            <Checkbox checked={copyEmployer} onChange={(e) => setCopyEmployer(e.target.checked)} />
+            Copy the employer&apos;s administrators
+          </label>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button loading={busy} onClick={send}>
+            Send reminder
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

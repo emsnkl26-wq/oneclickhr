@@ -27,6 +27,8 @@ export interface ShellUser {
   /** Decides which time-tracking entries the sidebar offers (025). */
   /** Null when nobody has chosen — the full sidebar, unchanged. See navFor. */
   trackingMode: TrackingMode | null
+  /** Adds the job-postings screen to an employee's sidebar (056). */
+  isRecruiter?: boolean
 }
 
 export interface ShellBrand {
@@ -93,7 +95,10 @@ export function Sidebar({ user, brand }: { user: ShellUser; brand: ShellBrand })
   const pendingHref = usePendingHref()
   const [open, setOpen] = React.useState(false)
   const [collapsed, setCollapsed] = React.useState(false)
-  const sections = React.useMemo(() => navFor(user.role), [user.role])
+  const sections = React.useMemo(
+    () => navFor(user.role, { isRecruiter: user.isRecruiter }),
+    [user.role, user.isRecruiter]
+  )
   // Workspace members get the notification bell where the theme toggle used
   // to be; the theme moved to Settings and the dashboard header.
   const hasInbox = user.role === 'employee' || user.role === 'org'

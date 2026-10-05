@@ -60,6 +60,7 @@ export default async function AttendancePage({
         days={days}
         anchor={anchor}
         timezone={tz}
+        today={todayIn(tz)}
       />
     </div>
   )

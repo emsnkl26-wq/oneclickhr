@@ -83,9 +83,11 @@ function brandCss(hex: string | null | undefined): string | null {
 
 export function AppShell({
   ctx,
+  isRecruiter = false,
   children,
 }: {
   ctx: AppContext
+  isRecruiter?: boolean
   children: React.ReactNode
 }) {
   const user: ShellUser = {
@@ -94,6 +96,7 @@ export function AppShell({
     role: ctx.role,
     photoUrl: ctx.photoUrl ? `/api/files/view?key=${encodeURIComponent(ctx.photoUrl)}` : null,
     trackingMode: ctx.trackingMode,
+    isRecruiter,
   }
 
   const platform = ctx.role === 'super_admin' || ctx.role === 'candidate'

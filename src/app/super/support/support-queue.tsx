@@ -28,7 +28,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
-import { apiPatch, ApiClientError } from '@/lib/fetcher'
+import { apiGet, apiPatch, ApiClientError } from '@/lib/fetcher'
+import { SupportThreadView, type ThreadMessage } from '@/components/support/support-thread-view'
 
 export interface SupportRow {
   id: string
@@ -157,13 +158,26 @@ function RequestDialog({ row, onClose }: { row: SupportRow | null; onClose: () =
   const [note, setNote] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
+  // The conversation with the requester (056).
+  const [messages, setMessages] = React.useState<ThreadMessage[] | null>(null)
+
+  const loadThread = React.useCallback(async (id: string) => {
+    try {
+      const { messages: thread } = await apiGet<{ messages: ThreadMessage[] }>(`/api/super/support/${id}/messages`)
+      setMessages(thread)
+    } catch {
+      setMessages([])
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!row) return
     setNote(row.resolution_note ?? '')
     setError(null)
     setBusy(null)
-  }, [row])
+    setMessages(null)
+    void loadThread(row.id)
+  }, [row, loadThread])
 
   async function move(status: SupportRow['status']) {
     if (!row) return
@@ -199,9 +213,22 @@ function RequestDialog({ row, onClose }: { row: SupportRow | null; onClose: () =
         <DialogBody className="space-y-4">
           <FormError message={error} />
 
-          <div className="rounded-lg bg-page px-4 py-3">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed">{row?.message}</p>
-          </div>
+          {row ? (
+            messages === null ? (
+              <p className="text-sm text-ink-muted">Loading the conversation…</p>
+            ) : (
+              <SupportThreadView
+                original={{ authorName: row.reporter_name || row.reporter_email, body: row.message, createdAt: row.created_at }}
+                messages={messages}
+                viewer="platform"
+                endpoint={`/api/super/support/${row.id}/messages`}
+                onSent={() => {
+                  void loadThread(row.id)
+                  router.refresh()
+                }}
+              />
+            )
+          ) : null}
 
           <dl className="grid gap-3 text-[13px] sm:grid-cols-2">
             <div>

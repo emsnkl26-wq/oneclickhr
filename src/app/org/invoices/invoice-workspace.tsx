@@ -923,6 +923,9 @@ function InvoiceDialog({
                 subject,
                 paymentDetails,
                 billTo: { name: billToName, email: billToEmail, address: billToAddress },
+                // A new invoice from this page is a modern one; an existing one
+                // keeps whatever it was issued as (056).
+                layout: invoice ? (invoice.layout ?? 'classic') : 'modern',
                 items: items.map((item) => ({
                   description: item.description,
                   quantity: Number(item.quantity) || 0,

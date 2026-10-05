@@ -1,6 +1,6 @@
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { requireEmployee } from '@/lib/auth/guards'
+import { requireEmployee, callerIsRecruiter } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { AppShell } from '@/components/shell/app-shell'
 
@@ -73,5 +73,9 @@ export default async function EmployeeLayout({ children }: { children: React.Rea
     if (pending) redirect('/employee/onboarding')
   }
 
-  return <AppShell ctx={ctx}>{children}</AppShell>
+  return (
+    <AppShell ctx={ctx} isRecruiter={await callerIsRecruiter(ctx)}>
+      {children}
+    </AppShell>
+  )
 }
