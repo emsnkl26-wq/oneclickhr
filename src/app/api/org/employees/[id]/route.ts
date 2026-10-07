@@ -57,6 +57,8 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   if (input.trackingMode !== undefined) patch.tracking_mode = input.trackingMode
   // (050) Also org-only — the profile guard refuses a self-service change.
   if (input.paySchedule !== undefined) patch.pay_schedule = input.paySchedule
+  // (058) Job portal access — toggled by the org, not derived from designation.
+  if (typeof input.isRecruiter === 'boolean') patch.is_recruiter = input.isRecruiter
 
   const { error } = await supabase.from('profiles').update(patch).eq('id', employeeId)
   if (error) return jsonError(friendlyDbError(error), 400)

@@ -89,6 +89,8 @@ export interface Profile extends Partial<ProfileOnboardingFields> {
   tracking_mode: TrackingMode | null
   /** How often they are paid (050). Null = automatic, by country. */
   pay_schedule: 'monthly' | 'semi_monthly' | null
+  /** True when the org has granted this employee job portal access (058). */
+  is_recruiter: boolean
   /** True for the one profile per tenant that created the workspace (027). */
   is_owner: boolean
   /** Free-text skill tags, editable by the employee (012_profiles_and_letters). */

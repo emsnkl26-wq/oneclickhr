@@ -23,7 +23,7 @@ export async function loadJobDialogExtras(tenantId: string): Promise<{
       .eq('tenant_id', tenantId)
       .eq('role', 'employee')
       .eq('is_active', true)
-      .ilike('designation', '%recruit%')
+      .eq('is_recruiter', true)
       .order('full_name'),
     supabase.from('tenants').select('company_linkedin_url').eq('id', tenantId).maybeSingle(),
   ])

@@ -242,6 +242,8 @@ export const updateEmployeeSchema = employeeStep1Schema
       .enum(['monthly', 'semi_monthly', ''])
       .optional()
       .transform((v) => (v === undefined ? undefined : v || null)),
+    /** Grant or revoke job portal access (058). */
+    isRecruiter: z.boolean().optional(),
   })
 
 // ---------------------------------------------------------------------------

@@ -93,22 +93,12 @@ export async function requireCandidate(): Promise<AppContext> {
   return ctx
 }
 
-/**
- * Does this designation make someone a recruiter (056)?
- *
- * Mirrors `app.is_recruiter()` — the database is what actually grants the
- * access; this only decides which pages and links to offer.
- */
-export function isRecruiterDesignation(designation: string | null | undefined): boolean {
-  return !!designation && /recruit/i.test(designation)
-}
-
-/** The caller's own designation says recruiter. Memoized per request. */
+/** The caller has been granted recruiter access (058). Memoized per request. */
 export const callerIsRecruiter = cache(async (ctx: AppContext): Promise<boolean> => {
   if (ctx.role !== 'employee') return false
   const supabase = await createSupabaseServerClient()
-  const { data } = await supabase.from('profiles').select('designation').eq('id', ctx.userId).maybeSingle()
-  return isRecruiterDesignation((data as { designation: string | null } | null)?.designation)
+  const { data } = await supabase.from('profiles').select('is_recruiter').eq('id', ctx.userId).maybeSingle()
+  return !!(data as { is_recruiter: boolean } | null)?.is_recruiter
 })
 
 /**

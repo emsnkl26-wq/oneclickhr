@@ -46,7 +46,7 @@ export default async function EmployeeDetailPage({
   const { data: employee, error: employeeError } = await supabase
     .from('profiles')
     .select(
-      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, must_change_password, created_at, skills, tracking_mode, pay_schedule, pay_frequency, country'
+      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, is_recruiter, must_change_password, created_at, skills, tracking_mode, pay_schedule, pay_frequency, country'
     )
     .eq('id', id)
     .eq('role', 'employee')
@@ -408,6 +408,7 @@ export default async function EmployeeDetailPage({
             dateOfJoining: employee.date_of_joining ?? '',
             timezone: employee.timezone,
             isActive: employee.is_active,
+            isRecruiter: !!(employee as Record<string, unknown>).is_recruiter,
             trackingMode: employee.tracking_mode ?? '',
             paySchedule: employee.pay_schedule ?? '',
             automaticPaySchedule:

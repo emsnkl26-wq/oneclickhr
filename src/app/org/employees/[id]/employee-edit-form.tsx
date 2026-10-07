@@ -20,6 +20,7 @@ interface EmployeeFormState {
   dateOfJoining: string
   timezone: string
   isActive: boolean
+  isRecruiter: boolean
   trackingMode: string
   /** '' = automatic. */
   paySchedule: string
@@ -60,6 +61,7 @@ export function EmployeeEditForm({
         isActive: form.isActive,
         trackingMode: form.trackingMode,
         paySchedule: form.paySchedule,
+        isRecruiter: form.isRecruiter,
       })
       toast.success('Employee updated')
       router.refresh()
@@ -165,6 +167,21 @@ export function EmployeeEditForm({
               <option value="semi_monthly">Twice a month (1st–15th, 16th–end)</option>
             </Select>
           </FormField>
+
+          <div className="flex items-start gap-3 rounded-lg bg-page p-3.5">
+            <Switch
+              id="employee-recruiter"
+              checked={form.isRecruiter}
+              onCheckedChange={(checked) => set('isRecruiter', checked)}
+            />
+            <label htmlFor="employee-recruiter" className="cursor-pointer">
+              <span className="block text-sm font-medium">Job portal access</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
+                Let this employee create, edit and manage job postings and review applicants
+                for your workspace.
+              </span>
+            </label>
+          </div>
 
           <div className="flex items-start gap-3 rounded-lg bg-page p-3.5">
             <Switch

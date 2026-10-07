@@ -77,7 +77,7 @@ export default async function OrgDashboard() {
 
   const [
     employees,
-    todayAttendance,
+    todayOrActive,
     pendingLeaves,
     recentHires,
     expiringVisas,
@@ -94,7 +94,7 @@ export default async function OrgDashboard() {
       .select('id', { count: 'exact', head: true })
       .eq('role', 'employee')
       .eq('is_active', true),
-    supabase.from('attendance').select('id', { count: 'exact', head: true }).eq('date', today),
+    supabase.from('attendance').select('id', { count: 'exact', head: true }).or(`date.eq.${today},logout_time.is.null`),
     supabase
       .from('leaves')
       .select(
@@ -197,7 +197,7 @@ export default async function OrgDashboard() {
   }>
 
   const totalEmployees = employees.count ?? 0
-  const presentToday = todayAttendance.count ?? 0
+  const presentToday = todayOrActive.count ?? 0
 
   /*
    * This month's money, all in the workspace's own currency. Rows in another
@@ -327,7 +327,7 @@ export default async function OrgDashboard() {
           }
         />
         <MetricCard
-          label="Clocked in today"
+          label="Present today"
           value={presentToday}
           icon={CalendarCheck}
           tone="indigo"
