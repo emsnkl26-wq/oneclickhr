@@ -59,6 +59,9 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   if (input.paySchedule !== undefined) patch.pay_schedule = input.paySchedule
   // (058) Job portal access — toggled by the org, not derived from designation.
   if (typeof input.isRecruiter === 'boolean') patch.is_recruiter = input.isRecruiter
+  // (059) Their LinkedIn. `undefined` leaves it alone, null clears it, which is
+  // why this is tested for presence rather than truthiness.
+  if (input.linkedinUrl !== undefined) patch.linkedin_url = input.linkedinUrl
 
   const { error } = await supabase.from('profiles').update(patch).eq('id', employeeId)
   if (error) return jsonError(friendlyDbError(error), 400)

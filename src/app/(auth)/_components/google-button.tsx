@@ -17,14 +17,39 @@ function GoogleMark() {
 }
 
 /**
- * Continue with Google — organization accounts only.
+ * Which door the button sits on. /auth/callback decides what each one allows.
+ *
+ * `candidate` and `candidate-signup` are the SAME rules — continuing with
+ * Google on the job portal signs you in if you have an account and signs you up
+ * if you do not, so there is nothing for the callback to do differently. They
+ * are two intents only so the wording matches the page and, more usefully, so a
+ * refusal sends the person back to the page they actually started on instead of
+ * bouncing them to the other one.
+ */
+export type GoogleIntent = 'login' | 'signup' | 'employee' | 'candidate' | 'candidate-signup'
+
+const LABEL: Record<GoogleIntent, string> = {
+  login: 'Continue with Google',
+  signup: 'Sign up with Google',
+  employee: 'Continue with Google',
+  candidate: 'Continue with Google',
+  'candidate-signup': 'Sign up with Google',
+}
+
+/**
+ * Continue with Google.
  *
  * The browser starts the OAuth round trip (Supabase keeps the PKCE verifier in
- * a cookie), and /auth/callback finishes it on the server, where the
- * one-address-one-way-in rule is enforced. `intent` only changes the wording
- * and where a brand-new Google account is sent; the callback decides the rest.
+ * a cookie), and /auth/callback finishes it on the server, where the rules for
+ * each door are enforced: an organization address registered with a password
+ * cannot come in this way, an employee may use either their password or Google
+ * on the address their organization added, and a job seeker continuing with
+ * Google for the first time is simply signed up.
+ *
+ * `intent` only changes the wording and which door an error is shown on; the
+ * callback decides everything that matters.
  */
-export function GoogleButton({ intent }: { intent: 'login' | 'signup' }) {
+export function GoogleButton({ intent }: { intent: GoogleIntent }) {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -49,7 +74,7 @@ export function GoogleButton({ intent }: { intent: 'login' | 'signup' }) {
     <div className="space-y-2">
       <Button type="button" variant="secondary" size="lg" className="w-full" loading={busy} onClick={start}>
         {busy ? null : <GoogleMark />}
-        {intent === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
+        {LABEL[intent]}
       </Button>
       {error ? <p className="text-center text-xs text-danger">{error}</p> : null}
     </div>

@@ -35,7 +35,11 @@ export default async function AttendancePage({
   const [{ data: employees }, { data: records }, { data: departments }] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, full_name, email, photo_url, employee_code, department_id')
+      // `timezone` is each employee's OWN zone (059). The grid stays in the
+      // workspace's zone, but the correction dialog shows both, because a 9am
+      // clock-in in Kolkata is 11:30pm the night before in Los Angeles and an
+      // admin editing it needs to see which one they are moving.
+      .select('id, full_name, email, photo_url, employee_code, department_id, timezone')
       .eq('role', 'employee')
       .eq('is_active', true)
       .order('full_name'),

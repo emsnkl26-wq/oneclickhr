@@ -11,6 +11,9 @@ import { Button } from '@/components/ui/button'
 import { formatDateLabel, formatPeriod } from '@/lib/time'
 import { formatHours } from '@/lib/utils'
 import { ProjectManagerCard, MANAGER_EMBED } from '@/app/org/projects/project-manager-card'
+import {
+  ProjectUpdates, PROJECT_UPDATE_SELECT, type ProjectUpdateRow,
+} from '@/components/project-updates'
 import type { ProjectStatus, TimesheetStatus, ProjectManagerContact } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Project' }
@@ -54,12 +57,13 @@ export default async function EmployeeProjectDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requireEmployee()
+  const ctx = await requireEmployee()
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
-  // The `projects_select` policy requires membership for an employee, so a
-  // project this person is not on is a 404 rather than a permission error.
+  // The `projects_select` policy requires membership — or, since 059, being the
+  // project's manager — so a project this person has nothing to do with is a 404
+  // rather than a permission error.
   const { data: project, error: projectError } = await supabase
     .from('projects')
     .select(
@@ -78,7 +82,7 @@ export default async function EmployeeProjectDetailPage({
 
   if (!project) notFound()
 
-  const [{ data: entries }, totals, { count: teamSize }] = await Promise.all([
+  const [{ data: entries }, totals, { count: teamSize }, { data: updates }] = await Promise.all([
     supabase
       .from('timesheet_entries')
       .select(
@@ -92,6 +96,12 @@ export default async function EmployeeProjectDetailPage({
       .from('project_assignments')
       .select('employee_id', { count: 'exact', head: true })
       .eq('project_id', id),
+    supabase
+      .from('project_updates')
+      .select(PROJECT_UPDATE_SELECT)
+      .eq('project_id', id)
+      .order('created_at', { ascending: false })
+      .limit(100),
   ])
 
   // Readable through `profiles_select` (the staff directory), so the employee
@@ -169,6 +179,23 @@ export default async function EmployeeProjectDetailPage({
         />
         <StatCard label="People on this project" value={teamSize ?? 0} icon={Users} tone="indigo" />
       </div>
+
+      {/*
+        * Progress, in words (059).
+        *
+        * This is the ONLY place some people can report anything: an employee on
+        * clock-in rather than timesheets has no hours to show, so the timesheet
+        * card below is permanently empty for them and the page said nothing
+        * about the work. `canPost` is true for anyone who can see this page,
+        * which the policy has already decided means membership or management.
+        */}
+      <ProjectUpdates
+        projectId={project.id}
+        updates={(updates ?? []) as unknown as ProjectUpdateRow[]}
+        timezone={ctx.tenant.timezone}
+        canPost
+        currentUserId={ctx.userId}
+      />
 
       <Card>
         <CardHeader>

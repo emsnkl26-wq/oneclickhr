@@ -171,6 +171,49 @@ const ALL_COUNTRY_CODES = (
   'UG UA AE GB US UM UY UZ VU VE VN VG VI WF EH YE ZM ZW XK'
 ).split(' ')
 
+/** Is this an ISO-3166-1 alpha-2 code we recognise? Guards stored values. */
+export function isCountryCode(code: string | null | undefined): boolean {
+  const value = (code ?? '').trim().toUpperCase()
+  return value.length === 2 && ALL_COUNTRY_CODES.includes(value)
+}
+
+/**
+ * The name for an ISO-2 code, from the runtime's own Intl data.
+ *
+ * Falls back to `countryName`'s curated table first — the twenty countries
+ * there have names chosen to match how these workspaces write them — and to the
+ * bare code last, so an unknown value renders as itself rather than blank.
+ */
+export function anyCountryName(code: string | null | undefined): string {
+  const value = (code ?? '').trim().toUpperCase()
+  if (!value) return ''
+  const curated = countryName(value)
+  if (curated !== value) return curated
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(value) ?? value
+  } catch {
+    return value
+  }
+}
+
+let allCountriesCache: Array<{ code: string; name: string }> | null = null
+
+/**
+ * Every country as `{ code, name }`, alphabetically by name — for a dropdown
+ * that STORES the code.
+ *
+ * `allCountryNames()` below returns names only, which suits the address fields
+ * that store the printed name. A screening field wants the code, because the
+ * point of it is to be compared and filtered.
+ */
+export function allCountries(): Array<{ code: string; name: string }> {
+  if (allCountriesCache) return allCountriesCache
+  allCountriesCache = ALL_COUNTRY_CODES.map((code) => ({ code, name: anyCountryName(code) })).sort(
+    (a, b) => a.name.localeCompare(b.name)
+  )
+  return allCountriesCache
+}
+
 let allCountryNamesCache: string[] | null = null
 
 /** Every country name, alphabetically. */

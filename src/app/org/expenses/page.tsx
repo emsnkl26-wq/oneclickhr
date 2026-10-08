@@ -38,6 +38,36 @@ export default async function ExpensesPage({
 
   const { from, to } = monthRange(month)
 
+  /*
+   * BOOK WHAT IS OWED BEFORE TOTALLING IT.
+   *
+   * An auto expense used to appear in the "Auto expenses" tab the moment it was
+   * created and then be missing from the month's total, which read as the stats
+   * being broken. They were not: nothing had minted the line. The only thing
+   * that ever did was a DAILY JOB on an external scheduler (see 004's header),
+   * so if that schedule was not set up — or was paused, or the endpoint failed
+   * for a few days — no row was ever written, and because the job only ever
+   * does the current month, the gap was permanent.
+   *
+   * `catch_up_recurring_expenses` is the same insert scoped to this tenant and
+   * looped over recent periods. It is idempotent via
+   * `expenses_recurring_period_uq`, org-gated, and takes its tenant from the
+   * session rather than an argument — so calling it here costs one cheap
+   * statement and makes the figures below right whether or not the scheduler
+   * ever fired. The scheduled job stays, for the workspace nobody opens.
+   *
+   * The date is TODAY IN THE TENANT'S ZONE: "the 1st" means the 1st where the
+   * org is, not where the database is.
+   */
+  const { error: catchUpError } = await supabase.rpc('catch_up_recurring_expenses', {
+    p_today: today,
+  })
+  if (catchUpError) {
+    // Never fatal. A failure here means the totals may be short by a recurring
+    // line, which is strictly better than a page that will not load at all.
+    console.error('[org/expenses] recurring catch-up failed', catchUpError)
+  }
+
   const [{ data: expenses }, { data: recurring }, { data: confirmations }, { data: invoices }] =
     await Promise.all([
       supabase

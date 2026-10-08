@@ -19,7 +19,7 @@ export async function loadJobDialogExtras(tenantId: string): Promise<{
   const [{ data: people }, { data: tenant }] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, full_name, email, phone, designation')
+      .select('id, full_name, email, phone, designation, linkedin_url')
       .eq('tenant_id', tenantId)
       .eq('role', 'employee')
       .eq('is_active', true)
@@ -34,12 +34,14 @@ export async function loadJobDialogExtras(tenantId: string): Promise<{
     email: string | null
     phone: string | null
     designation: string | null
+    linkedin_url: string | null
   }>).map((p) => ({
     id: p.id,
     name: p.full_name || p.email || 'Recruiter',
     title: p.designation,
     email: p.email,
     phone: p.phone,
+    linkedinUrl: p.linkedin_url,
   }))
 
   return {

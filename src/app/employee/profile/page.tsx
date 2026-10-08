@@ -31,7 +31,7 @@ export default async function EmployeeProfilePage() {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, skills')
+    .select('id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, linkedin_url, is_active, skills')
     .eq('id', ctx.userId)
     .single()
 
@@ -144,6 +144,7 @@ export default async function EmployeeProfilePage() {
               fullName: profile?.full_name ?? '',
               phone: profile?.phone ?? '',
               timezone: profile?.timezone ?? ctx.tenant.timezone,
+              linkedinUrl: profile?.linkedin_url ?? '',
             }}
           />
 

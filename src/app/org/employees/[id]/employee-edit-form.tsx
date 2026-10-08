@@ -9,6 +9,7 @@ import { Input, Select, DateField } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { Switch } from '@/components/ui/primitives'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
+import { TimezoneSelect } from '@/components/ui/timezone-select'
 
 interface EmployeeFormState {
   id: string
@@ -19,6 +20,7 @@ interface EmployeeFormState {
   departmentId: string
   dateOfJoining: string
   timezone: string
+  linkedinUrl: string
   isActive: boolean
   isRecruiter: boolean
   trackingMode: string
@@ -58,6 +60,7 @@ export function EmployeeEditForm({
         departmentId: form.departmentId || null,
         dateOfJoining: form.dateOfJoining || null,
         timezone: form.timezone,
+        linkedinUrl: form.linkedinUrl,
         isActive: form.isActive,
         trackingMode: form.trackingMode,
         paySchedule: form.paySchedule,
@@ -135,10 +138,26 @@ export function EmployeeEditForm({
                 onChange={(e) => set('dateOfJoining', e.target.value)}
               />
             </FormField>
-            <FormField label="Timezone">
-              <Input value={form.timezone} onChange={(e) => set('timezone', e.target.value)} />
+            <FormField
+              label="Timezone"
+              hint="Their own working hours. Attendance is recorded against this zone."
+            >
+              <TimezoneSelect value={form.timezone} onChange={(zone) => set('timezone', zone)} />
             </FormField>
           </div>
+
+          <FormField
+            label="LinkedIn"
+            error={fields.linkedinUrl}
+            hint="Used as their contact link on job postings they recruit for."
+          >
+            <Input
+              type="url"
+              value={form.linkedinUrl}
+              onChange={(e) => set('linkedinUrl', e.target.value)}
+              placeholder="https://www.linkedin.com/in/…"
+            />
+          </FormField>
 
           <FormField
             label="How they track time"

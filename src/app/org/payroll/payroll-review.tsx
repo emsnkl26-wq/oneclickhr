@@ -15,7 +15,7 @@
 import * as React from 'react'
 import { useProgressRouter } from '@/lib/use-progress-router'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Clock, Download, FileText, Search, Wallet, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock, Download, FileText, Search, Upload, Wallet, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -27,7 +27,8 @@ import {
   DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
 import { Checkbox } from '@/components/ui/checkbox'
-import { apiGet, apiPatch, apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
+import { CurrencySelect } from '@/components/ui/currency-select'
+import { apiGet, apiPatch, apiPost, apiPostFile, uploadFile, ApiClientError } from '@/lib/fetcher'
 import { loadOrgLogo } from '@/lib/document-pdf'
 import {
   renderPayslip, payslipFileName, payslipMoney, daysInMonth, MONTHS_LONG, type SalaryBasis,
@@ -39,6 +40,7 @@ import { renderUsPayslip, usTotals, type UsPayslipDetails } from '@/lib/payslip-
 import { UsPayslipFields, defaultUsDraft, usDetailsFromDraft, type UsDraft } from './us-payslip-fields'
 import { MONTH_NAMES } from '@/lib/time'
 import { initials, formatMoney } from '@/lib/utils'
+import type { ExtractedPayslip } from '@/lib/payslip-extracted'
 import { periodLabel, periodsOf, type PayPeriod, type PaySchedule } from '@/lib/pay-schedule'
 
 export interface EmployeeRow {
@@ -607,6 +609,20 @@ function BreakdownLines({
   )
 }
 
+/**
+ * What a parsed line's year-to-date column means to the US form (059).
+ *
+ * The form asks for PRIOR year to date — everything paid before this period —
+ * and adds this period to it, so a slip's printed YTD (which already includes
+ * this period) has to have the period subtracted back out. A slip with no YTD
+ * column says nothing about the year, and '0' is the only answer that does not
+ * invent history.
+ */
+function priorYtdOf(line: { amount: number; ytd?: number }): string {
+  if (line.ytd === undefined) return '0'
+  return String(Math.max(0, Math.round((line.ytd - line.amount) * 100) / 100))
+}
+
 /** A salary component as typed: the amount stays a string until it is used. */
 interface LineDraft {
   label: string
@@ -627,10 +643,132 @@ function formatJoiningDate(date: string | null): string {
 }
 
 /**
+ * Read an existing payslip PDF and fill this form in from it (059).
+ *
+ * WHAT PROBLEM THIS SOLVES. The payslip is usually produced somewhere else —
+ * the organization's billing or payroll package — and the admin's job here is
+ * to get that same slip to the employee. Doing it by hand meant transcribing a
+ * whole earnings and deductions table into the fields below, which is slow and
+ * is the step that introduces wrong figures, because nobody proof-reads their
+ * own typing of a column of money.
+ *
+ * DELIBERATELY NOT AUTOMATIC-AND-SILENT. The file is parsed, the fields are
+ * filled, and then the admin is looking at a populated form they still have to
+ * read before pressing Issue — with a banner saying where the numbers came
+ * from, and a specific warning for anything that did not add up. The parser is
+ * a typist, not an authority; see the box at the top of
+ * src/lib/payslip-extract.ts.
+ *
+ * The file is sent straight to /api/org/payslips/extract and is never stored.
+ */
+function PayslipImport({
+  onExtracted, disabled,
+}: {
+  onExtracted: (data: ExtractedPayslip) => void
+  disabled?: boolean
+}) {
+  const fileRef = React.useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = React.useState(false)
+  const [problem, setProblem] = React.useState<string | null>(null)
+  const [result, setResult] = React.useState<ExtractedPayslip | null>(null)
+  const [fileName, setFileName] = React.useState('')
+
+  async function onPick(file: File | undefined) {
+    if (!file) return
+    setProblem(null)
+    setResult(null)
+    setFileName(file.name)
+    if (file.size > 10 * 1024 * 1024) {
+      setProblem('Keep the payslip PDF under 10MB.')
+      return
+    }
+    setBusy(true)
+    try {
+      // The raw bytes as the body — there is no object to presign, because
+      // nothing is being stored. See the route's header.
+      const { extracted } = await apiPostFile<{ extracted: ExtractedPayslip }>(
+        '/api/org/payslips/extract',
+        file
+      )
+      setResult(extracted)
+      onExtracted(extracted)
+    } catch (err) {
+      setProblem(
+        err instanceof ApiClientError
+          ? err.message
+          : 'That payslip could not be read. Please enter the details by hand.'
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-dashed border-line p-3.5">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          loading={busy}
+          disabled={disabled}
+          onClick={() => fileRef.current?.click()}
+        >
+          <Upload />
+          {result ? 'Upload a different PDF' : 'Autofill from a payslip PDF'}
+        </Button>
+        <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink-muted">
+          {busy
+            ? `Reading ${fileName}…`
+            : 'Already have the slip from your payroll software? Upload it and the fields below fill themselves. The file is not stored.'}
+        </p>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        className="sr-only"
+        tabIndex={-1}
+        onChange={(event) => {
+          void onPick(event.target.files?.[0])
+          // Cleared so picking the same file twice fires `change` again.
+          event.target.value = ''
+        }}
+      />
+
+      {problem ? <p className="mt-2.5 text-xs text-danger">{problem}</p> : null}
+
+      {result ? (
+        <div className="mt-2.5 space-y-1.5 text-xs">
+          <p className={result.confidence === 'high' ? 'text-emerald-600' : 'text-amber-600'}>
+            {result.confidence === 'high'
+              ? `Filled in from ${fileName}. Check the figures, then preview or issue.`
+              : `Partly read from ${fileName}. Fill in whatever is still missing below.`}
+          </p>
+          {/*
+            * Every mismatch the parser found, spelled out. A silent parser that
+            * is 95% right is worse than one that says which 5% to look at.
+            */}
+          {result.warnings.map((warning) => (
+            <p key={warning} className="text-amber-600">
+              • {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
  * Generate one employee's payslip for the month on screen, in the org's
  * salary-slip layout (see `payslip-pdf.ts`). Everything is prefilled from the
  * profile and stays editable; "Preview" opens the PDF without saving, and
  * "Issue payslip" stores it where the employee can download it.
+ *
+ * The form can also be filled from an EXISTING payslip PDF (059) — see
+ * `PayslipImport` above and `applyExtracted` below.
  */
 function PayslipDialog({
   employee, company, month, year, replacing, onClose,
@@ -762,6 +900,79 @@ function PayslipDialog({
   const isUs = code === 'USD'
   const usDetails = isUs && usDraft ? usDetailsFromDraft(usDraft) : null
   const usNet = usDetails ? usTotals(usDetails) : null
+
+  /**
+   * Fold a parsed PDF into this form (059).
+   *
+   * ONLY WHAT WAS ACTUALLY FOUND IS WRITTEN. Every assignment is guarded, so a
+   * field the parser could not read keeps the value already prefilled from the
+   * employee's profile — which is usually right. Overwriting a correct name
+   * with an empty string because the PDF labelled it differently would make the
+   * feature worse than not using it.
+   *
+   * The CURRENCY is applied first and on purpose: it decides which layout the
+   * rest of the form is, so a dollar PDF has to switch the dialog to the US
+   * statement before its lines are loaded into anything.
+   */
+  function applyExtracted(data: ExtractedPayslip) {
+    const code = data.currency || currency
+    if (data.currency) setCurrency(data.currency)
+    if (data.employeeName) setName(data.employeeName)
+    if (data.designation) setDesignation(data.designation)
+    if (data.employeeCode) setEmployeeCode(data.employeeCode)
+    if (data.pfNumber) setPfNumber(data.pfNumber)
+    if (data.bankDetails) setBankDetails(data.bankDetails)
+    if (data.dateOfJoining) setDateOfJoining(formatJoiningDate(data.dateOfJoining))
+
+    if (code === 'USD') {
+      // The US statement carries its own period dates and per-line rate/hours,
+      // so the parsed lines go into the US draft rather than the rupee tables.
+      setUsDraft((current) => {
+        if (!current) return current
+        return {
+          ...current,
+          periodStart: data.periodStart || current.periodStart,
+          periodEnd: data.periodEnd || current.periodEnd,
+          payDate: data.payDate || data.periodEnd || current.payDate,
+          earnings: data.earnings.length
+            ? data.earnings.map((line) => ({
+                label: line.label,
+                rate: '',
+                hours: '',
+                amount: String(line.amount),
+                priorYtd: priorYtdOf(line),
+              }))
+            : current.earnings,
+          deductions: data.deductions.length
+            ? data.deductions.map((line) => ({
+                label: line.label,
+                amount: String(line.amount),
+                priorYtd: priorYtdOf(line),
+              }))
+            : current.deductions,
+        }
+      })
+      return
+    }
+
+    // The itemised layout is the one that can actually hold a parsed table, so
+    // a PDF with lines in it turns the itemised slip on.
+    if (data.earnings.length || data.deductions.length) {
+      setDetailed(true)
+      if (data.earnings.length) setEarningLines(toDrafts(data.earnings))
+      if (data.deductions.length) setDeductionLines(toDrafts(data.deductions))
+    }
+
+    // With no itemised lines, the single-figure layout still needs a salary.
+    // The gross is a MONTHLY figure on a payslip, so the basis says so.
+    if (!data.earnings.length && data.grossPay !== null) {
+      setBasis('monthly')
+      setSalary(String(data.grossPay))
+      if (data.netPay !== null) {
+        setDeductions(String(Math.max(0, Math.round((data.grossPay - data.netPay) * 100) / 100)))
+      }
+    }
+  }
 
   function autoSplit() {
     const pfLine = deductionLines.find((line) => line.label === 'PF Employee')
@@ -905,6 +1116,11 @@ function PayslipDialog({
         <DialogBody className="space-y-4">
           <FormError message={error} />
 
+          <PayslipImport
+            onExtracted={applyExtracted}
+            disabled={!!busy}
+          />
+
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Employee name">
               <Input value={name} onChange={(event) => setName(event.target.value)} />
@@ -915,12 +1131,22 @@ function PayslipDialog({
             <FormField label="Designation">
               <Input value={designation} onChange={(event) => setDesignation(event.target.value)} />
             </FormField>
-            <FormField label="Currency">
-              <Input
-                value={currency}
-                maxLength={3}
-                onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-              />
+            {/*
+              * A PICKER, not a text box.
+              *
+              * The currency is not an incidental detail here — it chooses the
+              * whole LAYOUT. `USD` renders the US earnings statement and `INR`
+              * the itemised Indian salary slip, so a typo was not a cosmetic
+              * error: `UDS` silently produced the generic slip, and `inr`
+              * depended on the uppercasing below to find the right one at all.
+              * The three-letter validation in `validate()` stays as the backstop
+              * for a value that arrives any other way.
+              */}
+            <FormField
+              label="Currency"
+              hint="Dollars print a US earnings statement; rupees an itemised salary slip."
+            >
+              <CurrencySelect value={currency} onChange={setCurrency} />
             </FormField>
             {isUs ? null : (
             <>

@@ -135,6 +135,10 @@ async function handlePOST(request: NextRequest) {
       email: ctx.email,
       phone: input.phone,
       location: input.location,
+      // (059) The two screening fields. `location` is still the applicant's own
+      // sentence about where they are; these two are the comparable version.
+      country: input.country,
+      visa_status: input.visaStatus,
       linkedin_url: input.linkedinUrl,
       portfolio_url: input.portfolioUrl,
       cover_letter: input.coverLetter,

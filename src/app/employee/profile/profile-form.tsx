@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input, Select } from '@/components/ui/input'
+import { Input } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
-import { COMMON_TIMEZONES } from '@/lib/timezones'
+import { TimezoneSelect } from '@/components/ui/timezone-select'
 
 /**
  * Self-service profile edit.
@@ -30,12 +30,14 @@ export function ProfileForm({
     fullName: string
     phone: string
     timezone: string
+    linkedinUrl: string
   }
 }) {
   const router = useRouter()
   const [fullName, setFullName] = React.useState(profile.fullName)
   const [phone, setPhone] = React.useState(profile.phone)
   const [timezone, setTimezone] = React.useState(profile.timezone)
+  const [linkedinUrl, setLinkedinUrl] = React.useState(profile.linkedinUrl)
   const [error, setError] = React.useState<string | null>(null)
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
@@ -50,6 +52,7 @@ export function ProfileForm({
         fullName,
         phone: phone || null,
         timezone,
+        linkedinUrl: linkedinUrl || null,
       })
       toast.success('Profile updated')
       router.refresh()
@@ -84,16 +87,20 @@ export function ProfileForm({
           </FormField>
 
           <FormField label="Timezone" hint="How dates and times are displayed to you.">
-            <Select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-              {!COMMON_TIMEZONES.includes(timezone) ? (
-                <option value={timezone}>{timezone}</option>
-              ) : null}
-              {COMMON_TIMEZONES.map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz}
-                </option>
-              ))}
-            </Select>
+            <TimezoneSelect value={timezone} onChange={setTimezone} />
+          </FormField>
+
+          <FormField
+            label="LinkedIn"
+            error={fields.linkedinUrl}
+            hint="Shown as your contact link on any job posting you recruit for."
+          >
+            <Input
+              type="url"
+              value={linkedinUrl}
+              onChange={(e) => setLinkedinUrl(e.target.value)}
+              placeholder="https://www.linkedin.com/in/…"
+            />
           </FormField>
 
           <Button type="submit" loading={submitting}>

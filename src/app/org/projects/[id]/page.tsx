@@ -12,6 +12,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { formatDateLabel, formatPeriod } from '@/lib/time'
 import { initials, formatHours } from '@/lib/utils'
 import { ProjectManagerCard, MANAGER_EMBED } from '../project-manager-card'
+import {
+  ProjectUpdates, PROJECT_UPDATE_SELECT, type ProjectUpdateRow,
+} from '@/components/project-updates'
 import { WeeklyHoursChart } from './weekly-hours-chart-loader'
 import type { ProjectStatus, TimesheetStatus, ProjectManagerContact } from '@/types/db'
 
@@ -58,7 +61,7 @@ export default async function ProjectDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requireOrg()
+  const ctx = await requireOrg()
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
@@ -81,7 +84,7 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound()
 
-  const [{ data: entries }, totals] = await Promise.all([
+  const [{ data: entries }, totals, { data: updates }] = await Promise.all([
     supabase
       .from('timesheet_entries')
       .select(
@@ -91,6 +94,12 @@ export default async function ProjectDetailPage({
       .order('created_at', { ascending: false })
       .limit(500),
     projectHourTotals(supabase, id),
+    supabase
+      .from('project_updates')
+      .select(PROJECT_UPDATE_SELECT)
+      .eq('project_id', id)
+      .order('created_at', { ascending: false })
+      .limit(100),
   ])
 
   const rows = (entries ?? []) as unknown as EntryRow[]
@@ -199,6 +208,22 @@ export default async function ProjectDetailPage({
       </div>
 
       <ProjectManagerCard manager={manager} />
+
+      {/*
+        * What the team says moved (059), beside what the timesheets say.
+        *
+        * The org can post here too — a note from the account manager belongs in
+        * the same thread as the manager's — and `canDeleteAny` lets an admin
+        * tidy up, which nobody else on the project can do.
+        */}
+      <ProjectUpdates
+        projectId={project.id}
+        updates={(updates ?? []) as unknown as ProjectUpdateRow[]}
+        timezone={ctx.tenant.timezone}
+        canPost
+        currentUserId={ctx.userId}
+        canDeleteAny
+      />
 
       {project.description ? (
         <Card>

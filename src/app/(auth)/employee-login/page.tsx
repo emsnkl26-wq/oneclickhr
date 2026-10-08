@@ -16,7 +16,7 @@ export default function EmployeeLoginPage() {
       <SignInForm
         portal="employee"
         title="Employee sign in"
-        subtitle="Use the email and password your organization sent you."
+        subtitle="Use the email and password your organization sent you — or Google, on that same email."
         footer={
           <p className="mt-6 border-t border-line pt-4 text-center text-xs leading-relaxed text-ink-muted">
             Employees do not sign up here — your organization creates your account and sends your

@@ -26,7 +26,7 @@ export async function loadJobViewer(): Promise<JobViewer> {
       ? supabase
           .from('candidate_profiles')
           .select(
-            'phone, location, linkedin_url, portfolio_url, current_company, years_experience, notice_period, resume_name, resume_key'
+            'phone, location, country, linkedin_url, portfolio_url, current_company, years_experience, notice_period, work_authorization, resume_name, resume_key'
           )
           .eq('id', ctx.userId)
           .maybeSingle()
@@ -48,11 +48,13 @@ export async function loadJobViewer(): Promise<JobViewer> {
   const p = profile as {
     phone: string | null
     location: string | null
+    country: string | null
     linkedin_url: string | null
     portfolio_url: string | null
     current_company: string | null
     years_experience: number | string | null
     notice_period: string | null
+    work_authorization: string | null
     resume_name: string | null
     resume_key: string | null
   } | null
@@ -67,11 +69,13 @@ export async function loadJobViewer(): Promise<JobViewer> {
       email: ctx.email,
       phone: p?.phone ?? '',
       location: p?.location ?? '',
+      country: p?.country ?? '',
       linkedinUrl: p?.linkedin_url ?? '',
       portfolioUrl: p?.portfolio_url ?? '',
       currentCompany: p?.current_company ?? '',
       yearsExperience: p?.years_experience == null ? '' : String(p.years_experience),
       noticePeriod: p?.notice_period ?? '',
+      visaStatus: p?.work_authorization ?? '',
     },
     savedResumeName: p?.resume_key ? (p.resume_name ?? 'Saved CV') : null,
     appliedJobIds: appliedRows.map((row) => row.job_id),

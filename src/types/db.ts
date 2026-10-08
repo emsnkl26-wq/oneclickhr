@@ -964,7 +964,15 @@ export interface JobApplication {
   full_name: string
   email: string
   phone: string | null
+  /** Free text — the applicant's own sentence about where they are. */
   location: string | null
+  /**
+   * ISO-3166-1 alpha-2 (059). The SCREENING version of `location`: a reviewer
+   * can compare it across applicants, which prose cannot be.
+   */
+  country: string | null
+  /** Work authorization as the applicant stated it (059), e.g. `H-1B`. */
+  visa_status: string | null
   linkedin_url: string | null
   portfolio_url: string | null
   cover_letter: string | null

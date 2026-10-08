@@ -3,6 +3,7 @@ import { withErrorHandler, parseBody, jsonOk, jsonError, friendlyDbError } from 
 import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { recurringExpenseSchema } from '@/lib/schemas'
+import { todayIn } from '@/lib/time'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -10,11 +11,16 @@ export const dynamic = 'force-dynamic'
 /**
  * Create an auto expense — a RULE, not a line.
  *
- * Nothing is minted here. The daily job calls `generate_due_expenses()`, which
- * books this month's line if the day has already passed, so a rule added on the
- * 20th for "the 1st" picks the current month up on the next run rather than
- * back-dating one the moment it is saved. That keeps "when did this appear in
- * the ledger" answerable from the rule alone.
+ * The line this month is owed is booked IMMEDIATELY, by the same idempotent
+ * catch-up the expenses page calls (059). It used to be left entirely to the
+ * daily job, on the reasoning that "when did this appear in the ledger" should
+ * be answerable from the rule alone. In practice that reasoning cost more than
+ * it bought: a rule added on the 20th for "the 1st" was visibly active while
+ * the month's total ignored it, and since the job runs on an EXTERNAL schedule
+ * (004) that may not be set up at all, "on the next run" could mean never.
+ *
+ * The booked row still carries the rule's own day of the month as `spent_on`,
+ * so the ledger reads the same either way; only the waiting is gone.
  */
 async function handlePOST(request: NextRequest) {
   const gate = await apiRequireOrg()
@@ -44,6 +50,15 @@ async function handlePOST(request: NextRequest) {
     .single()
 
   if (error) return jsonError(friendlyDbError(error), 400)
+
+  // Best-effort: the rule is saved either way, and the expenses page runs the
+  // same catch-up on load. A failure here delays a line, it does not lose one.
+  const { error: catchUpError } = await supabase.rpc('catch_up_recurring_expenses', {
+    p_today: todayIn(ctx.tenant.timezone),
+  })
+  if (catchUpError) {
+    console.error('[org/expenses/recurring] catch-up failed', catchUpError)
+  }
 
   await audit({
     tenantId: ctx.tenantId,

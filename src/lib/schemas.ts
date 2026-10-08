@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import { normalizeDomain, domainProblem } from '@/lib/domain'
 import { notificationImageProblem } from '@/lib/notification-image'
+import { isCountryCode } from '@/lib/geo'
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -199,6 +200,23 @@ export const departmentSchema = z.object({
 // Employees — editing an existing account
 // ---------------------------------------------------------------------------
 
+/**
+ * An optional `http(s)` address, or null.
+ *
+ * `''` and an absent key both mean null, so a cleared field clears the column
+ * rather than failing validation. Anything present must carry a scheme — a bare
+ * `linkedin.com/in/x` renders as a relative link and silently navigates inside
+ * our own app, which is the one failure a URL field must not have.
+ */
+const optionalHttpUrl = (message: string) =>
+  z
+    .string()
+    .trim()
+    .max(400)
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine((v) => v === null || /^https?:\/\/\S+$/i.test(v), message)
+
 export const employeeStep1Schema = z.object({
   fullName: z.string().trim().min(2, 'Enter the full name').max(120),
   email: emailSchema,
@@ -244,6 +262,12 @@ export const updateEmployeeSchema = employeeStep1Schema
       .transform((v) => (v === undefined ? undefined : v || null)),
     /** Grant or revoke job portal access (058). */
     isRecruiter: z.boolean().optional(),
+    /**
+     * Their own LinkedIn address (059). A property of the PERSON, not of each
+     * posting — the job dialog used to ask a recruiter to retype theirs every
+     * time, and prefills it from here instead.
+     */
+    linkedinUrl: optionalHttpUrl('Enter a full LinkedIn address starting with https://'),
   })
 
 // ---------------------------------------------------------------------------
@@ -1609,14 +1633,8 @@ export const jobStatusSchema = z.object({
 // `javascript:` link cannot be stored and later rendered into an org's inbox.
 // ---------------------------------------------------------------------------
 
-const httpUrl = (message: string) =>
-  z
-    .string()
-    .trim()
-    .max(400)
-    .optional()
-    .transform((v) => (v ? v : null))
-    .refine((v) => v === null || /^https?:\/\/\S+$/i.test(v), message)
+/** The same optional URL rule the employee schemas use, under its older name. */
+const httpUrl = optionalHttpUrl
 
 export const jobApplicationSchema = z.object({
   jobId: uuid,
@@ -1630,6 +1648,25 @@ export const jobApplicationSchema = z.object({
   useSavedResume: z.boolean().default(false),
   phone: optionalText(40),
   location: optionalText(160),
+  /**
+   * The applicant's country, as an ISO-3166-1 alpha-2 code (059).
+   *
+   * `location` stays beside it and still means "the line you would write about
+   * where you live". This is the same fact in a form a reviewer can SCREEN on,
+   * which prose is not — see the chips on the applicant list.
+   *
+   * Validated against the real list rather than just `[A-Z]{2}`, so a typo
+   * cannot store a country that does not exist.
+   */
+  country: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine((v) => v === null || isCountryCode(v), 'Choose a country from the list'),
+  /** Work authorization for the role's country, as the applicant states it. */
+  visaStatus: optionalText(80),
   linkedinUrl: httpUrl('Enter a full LinkedIn address starting with https://'),
   portfolioUrl: httpUrl('Enter a full web address starting with https://'),
   coverLetter: optionalText(8000),

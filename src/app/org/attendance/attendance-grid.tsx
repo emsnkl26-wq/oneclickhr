@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/primitives'
 import { apiPatch, apiPost, ApiClientError } from '@/lib/fetcher'
 import { cn, initials, formatHours } from '@/lib/utils'
-import { formatLocal, fromZonedInput, hoursBetween, toZonedInput } from '@/lib/time'
+import { formatLocal, fromZonedInput, hoursBetween, safeTimezone, toZonedInput } from '@/lib/time'
 
 interface EmployeeRow {
   id: string
@@ -24,6 +24,8 @@ interface EmployeeRow {
   photo_url: string | null
   employee_code: string | null
   department_id: string | null
+  /** The employee's OWN zone — not the workspace's. May be null on old rows. */
+  timezone: string | null
 }
 
 interface AttendanceRecord {
@@ -46,6 +48,8 @@ interface Editing {
   record?: AttendanceRecord
   employeeId: string
   employeeName: string
+  /** Their own zone, so the dialog can show the times as THEY saw them. */
+  employeeTimezone: string | null
   date: string
 }
 
@@ -235,6 +239,7 @@ export function AttendanceGrid({
                                 record: target,
                                 employeeId: employee.id,
                                 employeeName: employee.full_name || employee.email || 'Employee',
+                                employeeTimezone: employee.timezone,
                                 date: days[i],
                               })
                             }
@@ -270,6 +275,50 @@ export function AttendanceGrid({
       </div>
 
       <EditShiftDialog editing={editing} timezone={timezone} onClose={() => setEditing(null)} />
+    </div>
+  )
+}
+
+/**
+ * One shift as read in a single zone: the day, the two wall-clock times, and
+ * the zone's own name.
+ *
+ * `login` and `logout` are INSTANTS (ISO strings, as `fromZonedInput` returns
+ * them), so every line here is the same moment seen from somewhere else. The
+ * date is printed with the time rather than inferred from the row above,
+ * because the two zones routinely disagree about which calendar day a shift
+ * fell on.
+ */
+function ZoneLine({
+  label, zone, login, logout, primary = false,
+}: {
+  label: string
+  zone: string
+  login: string
+  logout: string | null
+  primary?: boolean
+}) {
+  return (
+    <div className={primary ? undefined : 'border-t border-line pt-2'}>
+      <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted">
+        <span className="font-medium uppercase tracking-wider">{label}</span>
+        <span>{zone}</span>
+      </p>
+      <p className="tabular mt-0.5 text-sm">
+        <span className="font-semibold text-ink">
+          {formatLocal(login, zone, 'd MMM, HH:mm')}
+        </span>
+        {logout ? (
+          <>
+            <span className="mx-1.5 text-ink-muted">→</span>
+            <span className="font-semibold text-ink">
+              {formatLocal(logout, zone, 'd MMM, HH:mm')}
+            </span>
+          </>
+        ) : (
+          <span className="ml-1.5 text-ink-muted">— still clocked in</span>
+        )}
+      </p>
     </div>
   )
 }
@@ -314,6 +363,11 @@ function EditShiftDialog({
   const logout = fromZonedInput(logoutTime, timezone)
   const preview = login && logout ? hoursBetween(login, logout) : null
 
+  // Falls back to the workspace's zone for a profile that has none, which then
+  // reads as "same timezone" rather than inventing a second column of times.
+  const employeeZone = safeTimezone(editing?.employeeTimezone ?? timezone)
+  const sameZone = employeeZone === safeTimezone(timezone)
+
   async function save() {
     if (!editing) return
     if (!loginTime) {
@@ -348,7 +402,9 @@ function EditShiftDialog({
         <DialogHeader>
           <DialogTitle>{editing?.record ? 'Correct shift' : 'Add shift'}</DialogTitle>
           <DialogDescription>
-            {editing ? `${editing.employeeName} · ${editing.date} · times in ${timezone}` : ''}
+            {editing
+              ? `${editing.employeeName} · ${editing.date} · you are entering times in ${timezone}`
+              : ''}
           </DialogDescription>
         </DialogHeader>
 
@@ -380,6 +436,45 @@ function EditShiftDialog({
               placeholder={editing?.record ? 'Forgot to clock out' : 'Forgot to clock in'}
             />
           </FormField>
+          {/*
+            * THE SAME SHIFT, IN BOTH ZONES.
+            *
+            * The two fields above are in the WORKSPACE's zone, because that is
+            * the zone the grid and the whole attendance model are built in. But
+            * the person who clocked in experienced their own wall clock, and
+            * the gap is not cosmetic: a 09:00 shift in Kolkata is 22:30 the
+            * PREVIOUS DAY in Los Angeles. An admin correcting a forgotten
+            * clock-out was choosing a time with no way to tell whether it
+            * matched what the employee would say they worked.
+            *
+            * Both readings are derived from the same instant, so they cannot
+            * disagree — only one set of fields is editable, and this is a
+            * restatement of it, not a second input.
+            */}
+          {employeeZone && login ? (
+            <div className="space-y-2 rounded-lg border border-line bg-page px-3.5 py-3 text-sm">
+              <ZoneLine
+                label="Your timezone"
+                zone={timezone}
+                login={login}
+                logout={logout}
+                primary
+              />
+              {sameZone ? (
+                <p className="text-xs text-ink-muted">
+                  {editing?.employeeName.split(' ')[0] ?? 'They'} is in the same timezone.
+                </p>
+              ) : (
+                <ZoneLine
+                  label="Employee's timezone"
+                  zone={employeeZone}
+                  login={login}
+                  logout={logout}
+                />
+              )}
+            </div>
+          ) : null}
+
           {preview !== null ? (
             <p className="tabular rounded-lg bg-page px-3.5 py-2.5 text-sm">
               Hours recorded: <span className="font-semibold">{formatHours(preview)}</span>

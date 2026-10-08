@@ -28,6 +28,8 @@ const schema = z.object({
   phone: z.string().trim().max(32).nullish(),
   photoKey: z.string().trim().max(300).nullish(),
   timezone: z.string().trim().min(3).max(64).optional(),
+  /** Their own LinkedIn address (059). Self-service, like `phone` above. */
+  linkedinUrl: z.string().trim().max(400).nullish(),
 })
 
 async function handlePATCH(request: NextRequest) {
@@ -43,12 +45,19 @@ async function handlePATCH(request: NextRequest) {
   if (input.photoKey && !keyBelongsToTenant(input.photoKey, ctx.tenantId)) {
     return jsonError('That file does not belong to this workspace.', 403)
   }
+  // A scheme is required so the saved value is an absolute link. A bare
+  // `linkedin.com/in/x` renders as a relative URL and navigates inside our own
+  // app, which looks like a broken page rather than a wrong field.
+  if (input.linkedinUrl && !/^https?:\/\/\S+$/i.test(input.linkedinUrl)) {
+    return jsonError('Enter a full LinkedIn address starting with https://', 400)
+  }
 
   const patch: Record<string, unknown> = {}
   if (input.fullName !== undefined) patch.full_name = input.fullName
   if (input.phone !== undefined) patch.phone = input.phone || null
   if (input.photoKey !== undefined) patch.photo_url = input.photoKey || null
   if (input.timezone !== undefined) patch.timezone = input.timezone
+  if (input.linkedinUrl !== undefined) patch.linkedin_url = input.linkedinUrl || null
 
   if (Object.keys(patch).length === 0) return jsonOk({ ok: true, unchanged: true })
 

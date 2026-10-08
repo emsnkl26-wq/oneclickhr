@@ -17,13 +17,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, FileText, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input, Textarea } from '@/components/ui/input'
+import { Input, Textarea, Select } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
 import { apiPost, uploadResume, ApiClientError } from '@/lib/fetcher'
 import { cn } from '@/lib/utils'
+import { allCountries } from '@/lib/geo'
+import { workAuthOptions } from '@/lib/schemas'
 import type { ApplicantPrefill } from '@/lib/job-viewer'
 
 const ACCEPT = '.pdf,.doc,.docx'
@@ -102,6 +104,8 @@ export function ApplyDialog({
         fullName: values.fullName,
         phone: values.phone || undefined,
         location: values.location || undefined,
+        country: values.country || undefined,
+        visaStatus: values.visaStatus || undefined,
         linkedinUrl: values.linkedinUrl || undefined,
         portfolioUrl: values.portfolioUrl || undefined,
         currentCompany: values.currentCompany || undefined,
@@ -185,10 +189,76 @@ export function ApplyDialog({
                     maxLength={40}
                   />
                 </FormField>
-                <FormField label="Where you are based" error={fields.location}>
+                {/*
+                  * COUNTRY IS A DROPDOWN, AND `location` STAYS A TEXT BOX.
+                  *
+                  * They are not the same question. A reviewer screens on the
+                  * country — it is the thing that decides whether the role is
+                  * even possible — so it has to be a value they can compare
+                  * across applicants, and free text ("Bay Area", "remote, UK
+                  * timezone") is not. The city line keeps its box, because
+                  * narrowing it to a list would lose what people actually want
+                  * to say about where they are.
+                  */}
+                <FormField label="Country" error={fields.country} required>
+                  <Select
+                    value={values.country}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setValues((current) => ({
+                        ...current,
+                        country: next,
+                        // The visa options are per country, so a status that
+                        // belongs to the old one is cleared rather than left
+                        // behind as an answer to a different question.
+                        visaStatus: workAuthOptions(next).includes(current.visaStatus)
+                          ? current.visaStatus
+                          : '',
+                      }))
+                    }}
+                    required
+                  >
+                    <option value="">Select your country</option>
+                    {allCountries().map((country) => (
+                      <option key={country.code} value={country.code}>
+                        {country.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField
+                  label="Visa status"
+                  error={fields.visaStatus}
+                  hint={
+                    values.country
+                      ? 'Your work authorization — hiring teams screen on this.'
+                      : 'Choose your country first.'
+                  }
+                  required
+                >
+                  <Select
+                    value={values.visaStatus}
+                    onChange={(e) => set('visaStatus', e.target.value)}
+                    disabled={!values.country}
+                    required
+                  >
+                    <option value="">Select your status</option>
+                    {workAuthOptions(values.country).map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField
+                  label="City or area"
+                  error={fields.location}
+                  hint="Optional — whatever you would tell a recruiter."
+                >
                   <Input
                     value={values.location}
                     onChange={(e) => set('location', e.target.value)}
+                    placeholder="Hyderabad · open to relocating"
                     maxLength={160}
                   />
                 </FormField>

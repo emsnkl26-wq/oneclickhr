@@ -2,7 +2,10 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, Download, Mail, Phone, Linkedin, Globe, Building2, Search } from 'lucide-react'
+import {
+  Users, Download, Mail, Phone, Linkedin, Globe, Building2, Search,
+  BadgeCheck, CalendarClock, FileText, GraduationCap, MapPin, type LucideIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -12,6 +15,7 @@ import { formatInstantLabel } from '@/lib/time'
 import { APPLICATION_STATUSES } from '@/lib/schemas'
 import { cn, initials } from '@/lib/utils'
 import { APPLICATION_STATUS_LABELS } from '@/lib/job-form'
+import { anyCountryName } from '@/lib/geo'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
@@ -24,6 +28,10 @@ export interface ApplicantRow {
   email: string
   phone: string | null
   location: string | null
+  /** ISO-2 code (059). Screened on, so it is shown before the CV is opened. */
+  country: string | null
+  /** Work authorization as the applicant stated it (059). */
+  visaStatus: string | null
   linkedinUrl: string | null
   portfolioUrl: string | null
   coverLetter: string | null
@@ -35,6 +43,105 @@ export interface ApplicantRow {
   status: ApplicationStatus
   orgNotes: string | null
   createdAt: string
+}
+
+/**
+ * One screening fact, as a chip.
+ *
+ * `tone` is the whole point of this existing rather than being a span. A
+ * reviewer is scanning for a reason to STOP, so the facts that commonly
+ * disqualify — no CV, no stated work authorization — are drawn differently from
+ * the ones that are merely informative. Nothing here is a judgement about the
+ * person: the colour marks "this needs a second look", not "reject".
+ */
+function Chip({
+  icon: Icon, label, title, tone = 'neutral',
+}: {
+  icon: LucideIcon
+  label: string
+  /** The full value, when the chip itself is abbreviated. */
+  title?: string
+  tone?: 'neutral' | 'strong' | 'warn'
+}) {
+  const tones = {
+    neutral: 'bg-page text-ink-muted ring-line',
+    strong: 'bg-brand-50 text-brand-ink ring-brand-200 dark:ring-brand-500/30',
+    warn: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30',
+  }
+  return (
+    <span
+      title={title ?? label}
+      className={cn(
+        'inline-flex max-w-[14rem] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+        tones[tone]
+      )}
+    >
+      <Icon className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">{label}</span>
+    </span>
+  )
+}
+
+/**
+ * THE SCREENING ROW — the reason this list changed shape (059).
+ *
+ * The collapsed row used to carry `company · 5 yrs · location` as one grey
+ * sentence, which meant a reviewer had to expand a card and usually DOWNLOAD
+ * the CV before they could tell whether the person cleared the basics. The
+ * facts that decide that — years of experience, where they are, whether they
+ * can legally work, how soon they could start, whether there is even a CV
+ * attached — are all already on the row. Rendering them as separate chips turns
+ * a queue of fifty applications into something that can be triaged by eye, and
+ * a rejection that was always going to happen no longer costs a download.
+ *
+ * Every chip is omitted when its value is missing, rather than rendering a dash:
+ * a row of em dashes is noise, and absence is itself informative — which is why
+ * the two absences that MATTER (no work authorization stated, no CV) are called
+ * out explicitly instead.
+ */
+function ScreeningChips({ row }: { row: ApplicantRow }) {
+  const country = row.country ? anyCountryName(row.country) : null
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {row.yearsExperience !== null ? (
+        <Chip
+          icon={GraduationCap}
+          label={`${row.yearsExperience} ${row.yearsExperience === 1 ? 'yr' : 'yrs'} exp`}
+          tone="strong"
+        />
+      ) : (
+        <Chip icon={GraduationCap} label="Experience not stated" tone="warn" />
+      )}
+      {row.currentCompany ? (
+        <Chip icon={Building2} label={row.currentCompany} title={row.currentCompany} />
+      ) : null}
+      {row.visaStatus ? (
+        <Chip icon={BadgeCheck} label={row.visaStatus} title={`Work authorization: ${row.visaStatus}`} />
+      ) : (
+        <Chip icon={BadgeCheck} label="No visa status" tone="warn" title="Work authorization not stated" />
+      )}
+      {country ? (
+        <Chip
+          icon={MapPin}
+          // The country decides whether the role is possible; the free-text
+          // city line is the detail, so both go in one chip with the comparable
+          // half first.
+          label={row.location ? `${country} · ${row.location}` : country}
+          title={[country, row.location].filter(Boolean).join(' · ')}
+        />
+      ) : row.location ? (
+        <Chip icon={MapPin} label={row.location} title={row.location} />
+      ) : null}
+      {row.noticePeriod ? (
+        <Chip icon={CalendarClock} label={`Notice: ${row.noticePeriod}`} />
+      ) : null}
+      {row.hasResume ? (
+        <Chip icon={FileText} label="CV attached" />
+      ) : (
+        <Chip icon={FileText} label="No CV" tone="warn" />
+      )}
+    </div>
+  )
 }
 
 const STATUS_LABELS: Record<ApplicationStatus, string> = {
@@ -95,7 +202,18 @@ export function ApplicantList({
     (row) =>
       (filter === 'all' || row.status === filter) &&
       (!term ||
-        [row.fullName, row.email, row.phone, row.location, row.currentCompany]
+        [
+          row.fullName,
+          row.email,
+          row.phone,
+          row.location,
+          row.currentCompany,
+          // Searchable by what the chips show (059): "H-1B" and "India" are
+          // things a reviewer types when they are looking for a shortlist.
+          row.visaStatus,
+          row.country,
+          row.country ? anyCountryName(row.country) : null,
+        ]
           .filter(Boolean)
           .some((v) => String(v).toLowerCase().includes(term)))
   )
@@ -205,9 +323,13 @@ export function ApplicantList({
                 type="button"
                 onClick={() => setOpenId(expanded ? null : row.id)}
                 aria-expanded={expanded}
-                className="flex w-full items-center gap-3 p-4 text-left transition hover:bg-page/60"
+                /* `items-start`, not `items-center`: the chips below make this
+                   row two or three lines tall on a narrow screen, and centring
+                   would float the avatar and the status chip in the middle of
+                   it. */
+                className="flex w-full items-start gap-3 p-4 text-left transition hover:bg-page/60"
               >
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-page text-xs font-semibold text-ink-muted">
+                <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-full bg-page text-xs font-semibold text-ink-muted">
                   {initials(row.fullName)}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -221,15 +343,9 @@ export function ApplicantList({
                       </span>
                     ) : null}
                   </span>
-                  <span className="mt-0.5 block truncate text-xs text-ink-muted">
-                    {[
-                      row.currentCompany,
-                      row.yearsExperience !== null ? `${row.yearsExperience} yrs` : null,
-                      row.location,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || row.email}
-                  </span>
+                  {/* The screening facts, in place of the grey sentence that
+                      used to be here. See `ScreeningChips`. */}
+                  <ScreeningChips row={row} />
                 </span>
                 {/*
                   * The date drops out below `sm`. On a phone this row already
@@ -238,10 +354,12 @@ export function ApplicantList({
                   * pushed the chip off the edge. It stays available in the
                   * expanded card's own header for anyone who needs it.
                   */}
-                <span className="hidden shrink-0 text-xs text-ink-muted sm:block">
+                <span className="mt-0.5 hidden shrink-0 text-xs text-ink-muted sm:block">
                   {formatInstantLabel(row.createdAt)}
                 </span>
-                <StatusChip status={row.status} label={STATUS_LABELS[row.status]} />
+                <span className="mt-0.5 shrink-0">
+                  <StatusChip status={row.status} label={STATUS_LABELS[row.status]} />
+                </span>
               </button>
 
               {expanded ? (
@@ -295,10 +413,30 @@ export function ApplicantList({
                         Portfolio
                       </a>
                     ) : null}
-                    {row.noticePeriod ? (
+                    {row.currentCompany ? (
                       <span className="inline-flex items-center gap-1.5 text-ink-muted">
                         <Building2 className="size-3.5" aria-hidden />
+                        {row.currentCompany}
+                      </span>
+                    ) : null}
+                    {row.noticePeriod ? (
+                      <span className="inline-flex items-center gap-1.5 text-ink-muted">
+                        <CalendarClock className="size-3.5" aria-hidden />
                         Notice: {row.noticePeriod}
+                      </span>
+                    ) : null}
+                    {row.visaStatus ? (
+                      <span className="inline-flex items-center gap-1.5 text-ink-muted">
+                        <BadgeCheck className="size-3.5" aria-hidden />
+                        {row.visaStatus}
+                      </span>
+                    ) : null}
+                    {row.country || row.location ? (
+                      <span className="inline-flex items-center gap-1.5 text-ink-muted">
+                        <MapPin className="size-3.5" aria-hidden />
+                        {[row.country ? anyCountryName(row.country) : null, row.location]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </span>
                     ) : null}
                   </div>

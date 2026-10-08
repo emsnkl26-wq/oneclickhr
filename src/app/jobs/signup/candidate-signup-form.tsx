@@ -2,11 +2,13 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { Eye, EyeOff, MailCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FormField, FormError } from '@/components/ui/form-field'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
+import { GoogleButton, OrDivider } from '@/app/(auth)/_components/google-button'
 
 /**
  * Create a job seeker account.
@@ -24,6 +26,9 @@ export function CandidateSignupForm() {
   const [fields, setFields] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
   const [sent, setSent] = React.useState<string | null>(null)
+
+  // A refusal from /auth/callback comes back on the URL — see DOOR there.
+  const linkError = useSearchParams().get('error')
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -71,8 +76,21 @@ export function CandidateSignupForm() {
         Apply to roles in a click, keep one CV on file, and see where every application stands.
       </p>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
-        <FormError message={error} />
+      {/*
+        * Google first, and it SKIPS THE INBOX STEP. The password form below ends
+        * on "check your email", because an address nobody has proved they own
+        * cannot be trusted; Google has already proved it, so that account is
+        * usable immediately. For most people this is the whole signup.
+        */}
+      <div className="mt-6">
+        <FormError message={error ?? linkError} />
+        <div className={error || linkError ? 'mt-4' : undefined}>
+          <GoogleButton intent="candidate-signup" />
+        </div>
+        <OrDivider />
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
 
         <FormField label="Full name" error={fields.fullName} required>
           <Input

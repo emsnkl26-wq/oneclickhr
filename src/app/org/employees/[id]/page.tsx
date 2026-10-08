@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation'
 import { effectivePaySchedule } from '@/lib/pay-schedule'
 import {
   ArrowLeft, ArrowRight, ClipboardList, Download, FileSignature, FilePlus2,
-  Eye, Briefcase, Timer, Building2, Pencil,
+  Eye, Briefcase, Timer, Building2, Pencil, Linkedin,
 } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -46,7 +46,7 @@ export default async function EmployeeDetailPage({
   const { data: employee, error: employeeError } = await supabase
     .from('profiles')
     .select(
-      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, is_active, is_recruiter, must_change_password, created_at, skills, tracking_mode, pay_schedule, pay_frequency, country'
+      'id, full_name, email, phone, photo_url, employee_code, designation, department_id, date_of_joining, timezone, linkedin_url, is_active, is_recruiter, must_change_password, created_at, skills, tracking_mode, pay_schedule, pay_frequency, country'
     )
     .eq('id', id)
     .eq('role', 'employee')
@@ -360,6 +360,19 @@ export default async function EmployeeDetailPage({
             {employee.employee_code ? `${employee.employee_code} · ` : ''}
             {employee.phone || 'No phone'}
           </p>
+          {/* Only an absolute https address becomes a link — the column is plain
+              text, and a relative one would navigate inside this app. */}
+          {employee.linkedin_url && /^https:\/\//i.test(employee.linkedin_url) ? (
+            <a
+              href={employee.linkedin_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex items-center gap-1.5 text-sm text-brand-ink hover:underline"
+            >
+              <Linkedin className="size-3.5 shrink-0" aria-hidden />
+              LinkedIn
+            </a>
+          ) : null}
         </div>
 
         <div className="flex flex-col items-end gap-3 text-right text-sm text-ink-muted">
@@ -407,6 +420,7 @@ export default async function EmployeeDetailPage({
             departmentId: employee.department_id ?? '',
             dateOfJoining: employee.date_of_joining ?? '',
             timezone: employee.timezone,
+            linkedinUrl: employee.linkedin_url ?? '',
             isActive: employee.is_active,
             isRecruiter: !!(employee as Record<string, unknown>).is_recruiter,
             trackingMode: employee.tracking_mode ?? '',

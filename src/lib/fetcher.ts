@@ -80,6 +80,23 @@ export function apiPatch<T>(url: string, body?: unknown): Promise<T> {
   })
 }
 
+/**
+ * POST one file's RAW BYTES to our own API, rather than to R2.
+ *
+ * For the handful of routes that TRANSFORM a file instead of storing it — the
+ * payslip parser (059) is the one — so there is no object to presign and no
+ * multipart envelope to unwrap on the other side. `request` reads the JSON
+ * answer exactly as it does for every other call, so the error shape and the
+ * offline message are the same.
+ */
+export function apiPostFile<T>(url: string, file: File): Promise<T> {
+  return request<T>(url, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  })
+}
+
 /** A body is optional — the platform's permanent deletions carry a confirmation. */
 export function apiDelete<T>(url: string, body?: unknown): Promise<T> {
   return request<T>(

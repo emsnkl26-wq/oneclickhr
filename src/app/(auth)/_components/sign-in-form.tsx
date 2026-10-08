@@ -5,12 +5,22 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { GoogleButton, OrDivider } from './google-button'
+import { GoogleButton, OrDivider, type GoogleIntent } from './google-button'
 import { Input } from '@/components/ui/input'
 import { FormField, FormError, FormSuccess } from '@/components/ui/form-field'
 import { apiPost, ApiClientError } from '@/lib/fetcher'
 
 export type Portal = 'org' | 'employee' | 'candidate'
+
+/**
+ * The portal a door belongs to names itself the same way to /auth/callback,
+ * except the organization door, whose Google intent is the older `login`.
+ */
+const GOOGLE_INTENT: Record<Portal, GoogleIntent> = {
+  org: 'login',
+  employee: 'employee',
+  candidate: 'candidate',
+}
 
 interface SignInFormProps {
   /**
@@ -74,21 +84,28 @@ export function SignInForm({ portal, title, subtitle, footer }: SignInFormProps)
       <h1 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h1>
       <p className="mt-1.5 text-sm text-ink-muted">{subtitle}</p>
 
-      {/* Organizations only (056); employees are given passwords by their org. */}
-      {portal === 'org' ? (
-        <div className="mt-6">
-          {notice ? <FormSuccess message={notice} /> : null}
-          <FormError message={error ?? linkError} />
-          <div className={notice || error || linkError ? 'mt-4' : undefined}>
-            <GoogleButton intent="login" />
-          </div>
-          <OrDivider />
+      {/*
+        Every door offers Google (056). What it means differs by door, and
+        /auth/callback is where that is enforced: an organization address
+        registered with a password is refused, an employee may use Google on
+        the address their organization added, and a job seeker who has never
+        been here is signed up.
+      */}
+      <div className="mt-6">
+        {notice ? <FormSuccess message={notice} /> : null}
+        <FormError message={error ?? linkError} />
+        <div className={notice || error || linkError ? 'mt-4' : undefined}>
+          <GoogleButton intent={GOOGLE_INTENT[portal]} />
         </div>
-      ) : null}
+        {portal === 'employee' ? (
+          <p className="mt-2 text-center text-xs leading-relaxed text-ink-muted">
+            Use the same email your organization added for you.
+          </p>
+        ) : null}
+        <OrDivider />
+      </div>
 
-      <form onSubmit={onSubmit} className={portal === 'org' ? 'space-y-4' : 'mt-6 space-y-4'} noValidate>
-        {portal !== 'org' && notice ? <FormSuccess message={notice} /> : null}
-        {portal !== 'org' ? <FormError message={error ?? linkError} /> : null}
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
 
         <FormField label={portal === 'candidate' ? 'Email' : 'Work email'} error={fields.email} required>
           <Input

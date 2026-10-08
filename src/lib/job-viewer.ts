@@ -16,11 +16,15 @@ export interface ApplicantPrefill {
   email: string
   phone: string
   location: string
+  /** ISO-2 code (059), not a printed name — the screening field stores a code. */
+  country: string
   linkedinUrl: string
   portfolioUrl: string
   currentCompany: string
   yearsExperience: string
   noticePeriod: string
+  /** Work authorization (059), prefilled from the job seeker's own profile. */
+  visaStatus: string
 }
 
 export type JobViewer =

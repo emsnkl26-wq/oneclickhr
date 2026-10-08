@@ -32,24 +32,55 @@ interface AssignedProject {
  * `project_assignments` is how the list stays a list of ASSIGNMENTS, which is
  * what the employee is actually being shown.
  *
+ * `.eq('employee_id', …)` IS LOAD-BEARING, not belt-and-braces. The
+ * `project_assignments_select` policy deliberately lets a project member read
+ * EVERY assignment on a project they are on — that is how a team list is
+ * possible at all — so an unfiltered read returns one row per TEAMMATE, and
+ * this page was showing a fourteen-person project fourteen times. RLS answers
+ * "may I see this row"; which rows this page is ABOUT is its own job.
+ *
  * `project_hour_totals()` runs SECURITY INVOKER, so the hours it returns here
  * are this employee's own approved hours, not the whole project's.
  */
 export default async function EmployeeProjectsPage() {
-  await requireEmployee()
+  const ctx = await requireEmployee()
   const supabase = await createSupabaseServerClient()
 
-  const [{ data: assignments }, totals] = await Promise.all([
+  const PROJECT_COLUMNS =
+    'id, code, name, client_name, end_client_name, start_date, end_date, status'
+
+  const [{ data: assignments }, { data: managed }, totals] = await Promise.all([
     supabase
       .from('project_assignments')
-      .select('project:projects(id, code, name, client_name, end_client_name, start_date, end_date, status)')
+      .select(`project:projects(${PROJECT_COLUMNS})`)
+      .eq('employee_id', ctx.userId)
+      .order('created_at', { ascending: false }),
+    // A project MANAGER is named on the project row and is not always assigned
+    // to it (040). Without this they would run a project that never appeared in
+    // their own list.
+    supabase
+      .from('projects')
+      .select(PROJECT_COLUMNS)
+      .eq('manager_id', ctx.userId)
       .order('created_at', { ascending: false }),
     projectHourTotals(supabase),
   ])
 
-  const projects = ((assignments ?? []) as unknown as Array<{ project: AssignedProject | null }>)
-    .map((row) => row.project)
-    .filter(Boolean) as AssignedProject[]
+  // De-duplicated by id, which both sources need. Somebody assigned to the same
+  // project twice (two roles, two date ranges) is a legitimate pair of
+  // assignment rows and one project, and a manager who is also assigned appears
+  // in both lists.
+  const seen = new Set<string>()
+  const projects = [
+    ...((assignments ?? []) as unknown as Array<{ project: AssignedProject | null }>).map(
+      (row) => row.project
+    ),
+    ...((managed ?? []) as unknown as AssignedProject[]),
+  ].filter((project): project is AssignedProject => {
+    if (!project || seen.has(project.id)) return false
+    seen.add(project.id)
+    return true
+  })
 
   const activeCount = projects.filter((project) => project.status === 'active').length
   const myHours = projects.reduce((sum, project) => sum + (totals.get(project.id) ?? 0), 0)

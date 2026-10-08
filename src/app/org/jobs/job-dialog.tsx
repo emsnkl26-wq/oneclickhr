@@ -35,6 +35,8 @@ export interface RecruiterOption {
   title: string | null
   email: string | null
   phone: string | null
+  /** From their own profile (059), so nobody retypes it per posting. */
+  linkedinUrl: string | null
 }
 
 const TYPE_LABELS = JOB_TYPE_LABELS
@@ -511,6 +513,12 @@ export function JobDialog({
                         recruiterTitle: picked.title ?? '',
                         recruiterEmail: picked.email ?? '',
                         recruiterPhone: picked.phone ?? '',
+                        // (059) From the recruiter's own profile. Only filled in
+                        // when they HAVE one — overwriting a link somebody typed
+                        // on this posting with a blank would be worse than
+                        // leaving the field alone.
+                        recruiterLinkedinUrl:
+                          picked.linkedinUrl ?? current.recruiterLinkedinUrl,
                       }))
                     }}
                   >
@@ -556,7 +564,11 @@ export function JobDialog({
                     maxLength={40}
                   />
                 </FormField>
-                <FormField label="Recruiter LinkedIn" error={fields.recruiterLinkedinUrl}>
+                <FormField
+                  label="Recruiter LinkedIn"
+                  error={fields.recruiterLinkedinUrl}
+                  hint="Prefilled from the recruiter's profile. Set it there once and every posting picks it up."
+                >
                   <Input
                     type="url"
                     value={values.recruiterLinkedinUrl}

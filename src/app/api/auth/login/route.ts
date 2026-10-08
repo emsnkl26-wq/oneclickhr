@@ -57,8 +57,10 @@ async function handlePOST(request: NextRequest) {
       meta: { reason: error?.message ?? 'unknown' },
       request,
     })
-    // An account created through Google has no password to match (056).
-    if (portal !== 'employee' && portal !== 'candidate' && (await isGoogleOnlyAccount(email))) {
+    // An account created through Google has no password to match (056). An
+    // employee always has one, issued by their organization, so that door never
+    // needs the hint; a job seeker who continued with Google does.
+    if (portal !== 'employee' && (await isGoogleOnlyAccount(email))) {
       return jsonError(GOOGLE_ONLY_MESSAGE, 401)
     }
     // Otherwise deliberately identical for every failure mode.

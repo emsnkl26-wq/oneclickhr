@@ -56,7 +56,7 @@ export default async function SuperJobDetailPage({
       ? admin
           .from('job_applications')
           .select(
-            'id, full_name, email, phone, location, linkedin_url, portfolio_url, cover_letter, ' +
+            'id, full_name, email, phone, location, country, visa_status, linkedin_url, portfolio_url, cover_letter, ' +
               'resume_key, years_experience, current_company, notice_period, source, status, ' +
               'org_notes, created_at'
           )
@@ -77,6 +77,8 @@ export default async function SuperJobDetailPage({
     email: row.email,
     phone: row.phone,
     location: row.location,
+    country: row.country ?? null,
+    visaStatus: row.visa_status ?? null,
     linkedinUrl: row.linkedin_url,
     portfolioUrl: row.portfolio_url,
     coverLetter: row.cover_letter,
