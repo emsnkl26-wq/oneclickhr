@@ -63,7 +63,7 @@ const MONTHS = [
  * generic allowance match.
  */
 const DEDUCTION_WORDS = [
-  'deduction', 'tax', 'tds', 'pf', 'provident', 'esi', 'esic', 'pt ', 'professional tax',
+  'deduction', 'tax', 'tds', 'pf', 'provident', 'esi', 'esic', ' pt ', 'professional tax',
   'insurance', 'medicare', 'social security', 'withhold', 'loan', 'advance', 'recovery',
   'lop', 'leave without pay', 'contribution', 'nps', 'gratuity recovery', 'federal',
   'state income', 'local income', 'fica', 'garnish', 'premium', '401k', 'roth',
@@ -159,7 +159,7 @@ function parseAmount(raw: string): number | null {
  * mistaken for an amount column — a figure in a table is always separated from
  * its label by space.
  */
-const TRAILING_COLUMN = /^(.*?)[\s:\u2026]+(\(?-?[\d,.][\d,.]*\)?)$/
+const TRAILING_COLUMN = /^(.*?)[\s:\u2026]+(\(?-?[$₹€£]?\s*[\d,.][\d,.]*\)?)$/
 
 /**
  * Split a table row into its label and its numeric COLUMNS, left to right.
@@ -281,8 +281,99 @@ function detectPeriod(text: string): { month: number | null; year: number | null
  * route can report "no text layer" distinctly from "text we could not make
  * sense of".
  */
+/**
+ * Collapse substrings that PDF renderers duplicate for a bold effect.
+ *
+ * ADP's PDF overlays the same text 2-6 times at slightly different offsets to
+ * simulate bold, and `unpdf` reads all passes concatenated, producing
+ * `Gross PayGross PayGross PayGross Pay` instead of `Gross Pay`.
+ *
+ * Strategy: detect the repetition count from a known marker (e.g.
+ * "Earnings Statement" appearing N times in a row), then scan the text for
+ * any substring repeated exactly N times and collapse it.
+ */
+function deduplicateBoldText(text: string): string {
+  // Detect the repetition count from known markers.
+  const markers = [
+    /(?:Earnings Statement){2,6}/,
+    /(?:Gross Pay){2,6}/,
+    /(?:Net Pay){2,6}/,
+    /(?:Pay Date:){2,6}/,
+  ]
+  let repeatCount = 0
+  for (const marker of markers) {
+    const match = marker.exec(text)
+    if (match) {
+      // Find which known phrase repeated
+      const phrases = ['Earnings Statement', 'Gross Pay', 'Net Pay', 'Pay Date:']
+      for (const phrase of phrases) {
+        if (match[0].startsWith(phrase)) {
+          repeatCount = match[0].length / phrase.length
+          break
+        }
+      }
+      if (repeatCount >= 2) break
+    }
+  }
+  if (repeatCount < 2) return text
+
+  // Now collapse every substring that repeats exactly `repeatCount` times.
+  // Build a regex that matches any 2-80 char chunk repeated exactly N times.
+  const pattern = new RegExp(`(.{2,80}?)\\1{${repeatCount - 1}}`, 'g')
+  return text.replace(pattern, (match, unit) => {
+    // Skip trivial repetitions (same character repeated, or single digits).
+    if (unit.length <= 1 || new Set(unit).size === 1) return match
+    // Verify it's a clean repeat (not a partial overlap).
+    if (unit.repeat(repeatCount) !== match) return match
+    return unit
+  })
+}
+
+/**
+ * Insert line breaks into text that was extracted as a single blob.
+ *
+ * Some PDF text extractors (notably `unpdf` on ADP payslips) return the entire
+ * page as one line. This inserts `\n` before known structural markers so the
+ * parser's per-line logic can work.
+ */
+function insertLineBreaks(text: string): string {
+  // If the text already has a reasonable number of lines, leave it alone.
+  const lineCount = text.split('\n').length
+  if (lineCount > 5) return text
+
+  // Insert breaks before known payslip section/field markers.
+  let result = text
+    .replace(/\s+(Period (?:Starting|Ending|Start|End|From|To):)/gi, '\n$1')
+    .replace(/\s+(Pay Date:)/gi, '\n$1')
+    .replace(/\s+(Employee Name:)/gi, '\n$1')
+    .replace(/\s+(Taxable Filing Status:)/gi, '\n$1')
+    .replace(/\s+(Exemptions\/Allowances:)/gi, '\n$1')
+    .replace(/\s+(Social Security Number:\S*)\s+/gi, '\n$1\n')
+    .replace(/\s+(Deposited to the account)/gi, '\n$1')
+    .replace(/\s+(Important Notes)/gi, '\n$1')
+    .replace(/\s+(Basis of pay:)/gi, '\n$1')
+    .replace(/\s+(Your federal taxable)/gi, '\n$1')
+
+  // Insert breaks before earning/deduction table rows: a label followed by
+  // numbers. Match `word(s) [-]number` patterns preceded by a space.
+  // Key table labels: Regular, Overtime, Gross Pay, Federal Income, etc.
+  result = result
+    .replace(/\s+((?:Regular|Overtime|Holiday|Bonus|Shift|Incentive)\s+[\d($.,-])/gi, '\n$1')
+    .replace(/\s+(Gross Pay\b)/gi, '\n$1')
+    .replace(/\s+(Net Pay\b)/gi, '\n$1')
+    .replace(/\s+(Federal Income\b)/gi, '\n$1')
+    .replace(/\s+(Social Security\b)/gi, '\n$1')
+    .replace(/\s+(Medicare\b)/gi, '\n$1')
+    .replace(/\s+(State Income\b)/gi, '\n$1')
+    .replace(/\s+(Statutory Deductions\b)/gi, '\n$1')
+    .replace(/\s+(Earnings\s+rate\b)/gi, '\n$1')
+    .replace(/\s+(Deposits\b)/gi, '\n$1')
+
+  return result
+}
+
 export function parsePayslipText(raw: string): ExtractedPayslip {
-  const text = raw.replace(/\r/g, '')
+  const text = insertLineBreaks(deduplicateBoldText(raw.replace(/\r/g, '')))
   const lines = text
     .split('\n')
     .map((line) => line.replace(/\s+/g, ' ').trim())
@@ -292,12 +383,47 @@ export function parsePayslipText(raw: string): ExtractedPayslip {
 
   const { month, year } = detectPeriod(text)
 
+  /*
+   * MERGE ORPHANED LABELS WITH THEIR NUMBERS.
+   *
+   * PDF text extraction sometimes puts the label and its numeric columns on
+   * separate lines — ADP's fixed-width layout is especially prone to this,
+   * producing `Regular\n0.00\n3000.00\n25000.00` instead of one row. A line
+   * that is purely alphabetic (a label) followed by one or more purely numeric
+   * lines is merged into a single row before the main loop sees it.
+   */
+  const merged: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    // A label candidate: mostly letters/spaces, no trailing number, and short
+    // enough to be a salary component rather than a paragraph.
+    if (
+      /^[A-Za-z][A-Za-z\s/&\-'.()]+$/.test(line) &&
+      line.length <= 40 &&
+      !splitRow(line)
+    ) {
+      // Collect the numeric lines that follow.
+      let nums = ''
+      let j = i + 1
+      while (j < lines.length && /^[\s$₹€£()\d,.\-]+$/.test(lines[j]) && j - i <= 4) {
+        nums += ' ' + lines[j]
+        j++
+      }
+      if (nums.trim()) {
+        merged.push(line + nums)
+        i = j - 1
+        continue
+      }
+    }
+    merged.push(line)
+  }
+
   const earnings: ExtractedLine[] = []
   const deductions: ExtractedLine[] = []
   let grossPay: number | null = null
   let netPay: number | null = null
 
-  for (const line of lines) {
+  for (const line of merged) {
     /*
      * The TITLE line is skipped before anything else. `Salary Slip for May
      * 2024` ends in a number and contains the word "salary", so it was being
@@ -313,13 +439,21 @@ export function parsePayslipText(raw: string): ExtractedPayslip {
     // A label that is mostly digits is a date, an account number or a column of
     // figures that happened to wrap — not a salary component.
     if ((label.replace(/\D/g, '').length / label.length) > 0.5) continue
+    // A prose sentence is not a table row. ADP prints lines like "Your federal
+    // taxable wages this period are $3,000.00" which match deduction keywords.
+    if (/\b(your|are|is|were|the|this|that|these|those|which|deposited|account)\b/i.test(label) && label.split(/\s+/).length > 4) continue
 
     /*
-     * THE FIRST COLUMN IS THIS PERIOD, the last is year to date. That is the
-     * order both layouts print, and it is the whole reason `splitRow` peels
-     * every column instead of taking one number off the end.
+     * THIS PERIOD is the second-to-last column, and YEAR TO DATE is the last.
+     *
+     * A two-column row (`Basic  25,000  25,000`) prints this-period then YTD,
+     * so second-to-last IS the first. A three- or four-column row adds rate
+     * and hours/units to the LEFT — ADP prints `Regular  0.00  3000.00
+     * 25000.00` — so the first column is NOT the period amount. Taking the
+     * second-to-last handles both layouts without special-casing.
      */
-    const amount = Math.abs(columns[0])
+    const periodIdx = columns.length >= 2 ? columns.length - 2 : 0
+    const amount = Math.abs(columns[periodIdx])
     const ytd = columns.length > 1 ? Math.abs(columns[columns.length - 1]) : undefined
 
     const key = ` ${label.toLowerCase()} `
@@ -376,11 +510,42 @@ export function parsePayslipText(raw: string): ExtractedPayslip {
     warnings.push('No earnings lines were recognised — enter the salary components yourself.')
   }
 
-  const employeeName = fieldAfter(lines, [
+  let employeeName = fieldAfter(lines, [
     /employee\s*name\s*[:\-]?\s*(.+)$/i,
     /\bname\s*of\s*(?:the\s*)?employee\s*[:\-]?\s*(.+)$/i,
     /^name\s*[:\-]\s*(.+)$/i,
   ])
+  // ADP-style: the name appears after the SSN marker, either on its own line
+  // or inline. Try standalone lines first, then extract from the SSN line or
+  // the text immediately following it.
+  if (!employeeName) {
+    const ssnIdx = lines.findIndex((l) => /social\s*security\s*number|SSN/i.test(l))
+    if (ssnIdx >= 0) {
+      // Try subsequent lines that are purely a person's name.
+      for (let i = ssnIdx + 1; i < Math.min(ssnIdx + 4, lines.length); i++) {
+        const candidate = lines[i].trim()
+        if (/^[A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){1,4}$/.test(candidate)) {
+          employeeName = candidate
+          break
+        }
+      }
+      // If not found as a standalone line, extract from inline text. The name
+      // may be on the SSN line itself or on the next line, followed by an
+      // address (starting with a digit) or by the company name.
+      if (!employeeName) {
+        for (let i = ssnIdx; i < Math.min(ssnIdx + 3, lines.length); i++) {
+          const src = i === ssnIdx
+            ? lines[i].replace(/.*social\s*security\s*number:\s*\S+\s*/i, '')
+            : lines[i]
+          const nameMatch = /^([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){1,4})\s+\d/.exec(src)
+          if (nameMatch) {
+            employeeName = nameMatch[1].trim()
+            break
+          }
+        }
+      }
+    }
+  }
   const designation = fieldAfter(lines, [
     /designation\s*[:\-]?\s*(.+)$/i,
     /job\s*title\s*[:\-]?\s*(.+)$/i,

@@ -224,6 +224,176 @@ describe('refusing to invent things', () => {
   })
 })
 
+const ADP_STUB = `
+Company Code
+LU / 6WH 32371905
+NEXTKINLIFE LLC
+8795 Stonehouse Dr
+Ellicott City, MD 21043
+Loc/Dept
+01/
+Number
+6287192
+Page
+1 of 1 Earnings Statement
+Period Starting: 09/11/2026
+Period Ending: 09/27/2026
+Pay Date: 09/30/2026
+Taxable Filing Status: Single
+Exemptions/Allowances: Tax Override:
+Federal: Std W/H Table Federal: 0.00 Addnl
+State: 0 State:
+Local: 0 Local:
+Social Security Number:XXX-XX-XXXX
+Tejaswini Garikipati
+2100 Escorial Place
+Apt 201
+Palm Beach Gardens, FL 33410
+NEXTKINLIFE LLC
+8795 Stonehouse Dr
+Ellicott City, MD 21043
+Your federal taxable wages this period are $3,000.00
+Pay Date: 09/30/2026
+Deposited to the account account number transit/ABA amount
+Checking DirectDeposit XXXXXX3952 XXXXXXXXX 2707.92
+Earnings rate hours/units this period year to date
+Regular 0.00 3000.00 25000.00
+Gross Pay $3,000.00 $25,000.00
+Statutory Deductions this period year to date
+Federal Income -292.08 2109.14
+Net Pay $2,707.92
+Deposits
+account number transit/ABA amount
+XXXXXX3952 XXXXXXXXX 2707.92
+Important Notes
+Basis of pay: Salaried
+`
+
+describe('an ADP earnings statement with rate/hours columns', () => {
+  const result = parsePayslipText(ADP_STUB)
+
+  it('reads the period dates', () => {
+    expect(result.periodStart).toBe('2026-09-11')
+    expect(result.periodEnd).toBe('2026-09-27')
+    expect(result.payDate).toBe('2026-09-30')
+  })
+
+  it('picks this-period from the correct column, not the rate', () => {
+    const regular = result.earnings.find((line) => line.label === 'Regular')
+    expect(regular).toBeDefined()
+    expect(regular!.amount).toBe(3000)
+    expect(regular!.ytd).toBe(25000)
+  })
+
+  it('reads the employee name from the ADP standalone block', () => {
+    expect(result.employeeName).toBe('Tejaswini Garikipati')
+  })
+
+  it('classifies the federal income deduction', () => {
+    expect(result.deductions.map((l) => l.label)).toContain('Federal Income')
+    const fed = result.deductions.find((l) => l.label === 'Federal Income')
+    expect(fed!.amount).toBe(292.08)
+    expect(fed!.ytd).toBe(2109.14)
+  })
+
+  it('reconciles against the printed gross and net', () => {
+    expect(result.grossPay).toBe(3000)
+    expect(result.netPay).toBe(2707.92)
+    expect(result.warnings).toEqual([])
+    expect(result.confidence).toBe('high')
+  })
+
+  it('detects USD currency', () => {
+    expect(result.currency).toBe('USD')
+  })
+})
+
+const ADP_SPLIT_LINES = `
+Earnings Statement
+Period Starting: 09/11/2026
+Period Ending: 09/27/2026
+Pay Date: 09/30/2026
+Social Security Number:XXX-XX-XXXX
+Tejaswini Garikipati
+2100 Escorial Place
+Earnings
+rate
+hours/units
+this period
+year to date
+Regular
+0.00
+3000.00
+25000.00
+Gross Pay
+$3,000.00
+$25,000.00
+Statutory Deductions
+this period
+year to date
+Federal Income
+-292.08
+2109.14
+Net Pay
+$2,707.92
+`
+
+describe('ADP with split lines (unpdf column-per-line extraction)', () => {
+  const result = parsePayslipText(ADP_SPLIT_LINES)
+
+  it('merges the label with its numeric lines and extracts earnings', () => {
+    const regular = result.earnings.find((line) => line.label === 'Regular')
+    expect(regular).toBeDefined()
+    expect(regular!.amount).toBe(3000)
+    expect(regular!.ytd).toBe(25000)
+  })
+
+  it('extracts deductions from merged lines', () => {
+    const fed = result.deductions.find((l) => l.label === 'Federal Income')
+    expect(fed).toBeDefined()
+    expect(fed!.amount).toBe(292.08)
+    expect(fed!.ytd).toBe(2109.14)
+  })
+
+  it('reads gross and net', () => {
+    expect(result.grossPay).toBe(3000)
+    expect(result.netPay).toBe(2707.92)
+  })
+})
+
+const ADP_REAL_TEXT = `Company CodeCompany CodeCompany CodeCompany Code LU / 6WH 32371905LU / 6WH 32371905LU / 6WH 32371905LU / 6WH 32371905 NEXTKINLIFE LLC 8795 Stonehouse Dr Ellicott City, MD 21043 Loc/DeptLoc/DeptLoc/DeptLoc/Dept 01/01/01/01/ NumberNumberNumberNumber 6287192628719262871926287192 PagePagePagePage 1 of 1 Earnings StatementEarnings StatementEarnings StatementEarnings Statement Period Starting: 09/11/2026 Period Ending: 09/27/2026 Pay Date: 09/30/2026 Taxable Filing Status: Single Exemptions/Allowances: Tax Override: Federal: Std W/H Table Federal: 0.00 Addnl State: 0 State: Local: 0 Local: Social Security Number:XXX-XX-XXXX Tejaswini GarikipatiTejaswini GarikipatiTejaswini GarikipatiTejaswini Garikipati 2100 Escorial Place2100 Escorial Place2100 Escorial Place2100 Escorial Place Apt 201Apt 201Apt 201Apt 201 Palm Beach Gardens, FL 33410Palm Beach Gardens, FL 33410Palm Beach Gardens, FL 33410Palm Beach Gardens, FL 33410 NEXTKINLIFE LLC 8795 Stonehouse Dr Ellicott City, MD 21043 Your federal taxable wages this period are $3,000.00 Pay Date:Pay Date:Pay Date:Pay Date: 09/30/2026 Deposited to the accountDeposited to the accountDeposited to the accountDeposited to the account account numberaccount numberaccount numberaccount number transit/ABAtransit/ABAtransit/ABAtransit/ABA amountamountamountamount Checking DirectDeposit XXXXXX3952 XXXXXXXXX 2707.92 EarningsEarningsEarningsEarnings raterateraterate hours/unitshours/unitshours/unitshours/units this periodthis periodthis periodthis period year to dateyear to dateyear to dateyear to date Regular 0.00 3000.00 25000.00 Gross PayGross PayGross PayGross Pay $3,000.00$3,000.00$3,000.00$3,000.00 $25,000.00 Statutory DeductionsStatutory DeductionsStatutory DeductionsStatutory Deductions this periodthis periodthis periodthis period year to dateyear to dateyear to dateyear to date Federal Income -292.08 2109.14 Net PayNet PayNet PayNet Pay $2,707.92$2,707.92$2,707.92$2,707.92 DepositsDepositsDepositsDeposits account numberaccount numberaccount numberaccount number transit/ABAtransit/ABAtransit/ABAtransit/ABA amountamountamountamount XXXXXX3952 XXXXXXXXX 2707.92 Important NotesImportant NotesImportant NotesImportant Notes Basis of pay: Salaried`
+
+describe('ADP real text with bold-duplicated tokens', () => {
+  const result = parsePayslipText(ADP_REAL_TEXT)
+
+  it('deduplicates tokens and extracts earnings', () => {
+    const regular = result.earnings.find((line) => line.label === 'Regular')
+    expect(regular).toBeDefined()
+    expect(regular!.amount).toBe(3000)
+    expect(regular!.ytd).toBe(25000)
+  })
+
+  it('reads gross and net from duplicated tokens', () => {
+    expect(result.grossPay).toBe(3000)
+    expect(result.netPay).toBe(2707.92)
+  })
+
+  it('extracts federal income deduction', () => {
+    const fed = result.deductions.find((l) => l.label === 'Federal Income')
+    expect(fed).toBeDefined()
+    expect(fed!.amount).toBe(292.08)
+  })
+
+  it('reads the employee name despite duplication', () => {
+    expect(result.employeeName).toBe('Tejaswini Garikipati')
+  })
+
+  it('has high confidence with no warnings', () => {
+    expect(result.warnings).toEqual([])
+    expect(result.confidence).toBe('high')
+  })
+})
+
 describe('currency detection', () => {
   it('prefers a specific dollar code over a bare dollar sign', () => {
     expect(parsePayslipText('Payslip S$ 1,000.00 SGD').currency).toBe('SGD')
