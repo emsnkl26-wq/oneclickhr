@@ -49,10 +49,6 @@ export interface ProjectUpdateRow {
   } | null
 }
 
-/** The columns to embed for an author: used by every page that renders this. */
-export const PROJECT_UPDATE_SELECT =
-  'id, body, progress, created_at, author:profiles!project_updates_author_id_fkey(id, full_name, email, photo_url, designation)'
-
 /** The newest note that committed to a percentage, if any did. */
 export function latestProgress(updates: ProjectUpdateRow[]): number | null {
   for (const update of updates) {

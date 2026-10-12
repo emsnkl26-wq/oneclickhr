@@ -11,9 +11,8 @@ import { Button } from '@/components/ui/button'
 import { formatDateLabel, formatPeriod } from '@/lib/time'
 import { formatHours } from '@/lib/utils'
 import { ProjectManagerCard, MANAGER_EMBED } from '@/app/org/projects/project-manager-card'
-import {
-  ProjectUpdates, PROJECT_UPDATE_SELECT, type ProjectUpdateRow,
-} from '@/components/project-updates'
+import { ProjectUpdates, type ProjectUpdateRow } from '@/components/project-updates'
+import { PROJECT_UPDATE_SELECT } from '@/lib/project-updates-shared'
 import type { ProjectStatus, TimesheetStatus, ProjectManagerContact } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Project' }
@@ -61,23 +60,32 @@ export default async function EmployeeProjectDetailPage({
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
-  // The `projects_select` policy requires membership — or, since 059, being the
-  // project's manager — so a project this person has nothing to do with is a 404
-  // rather than a permission error.
-  const { data: project, error: projectError } = await supabase
+  const BASE_COLUMNS =
+    'id, code, name, client_name, end_client_name, description, start_date, end_date, status'
+
+  // Try with the manager embed first; if PostgREST can't resolve the FK (stale
+  // schema cache, migration not yet applied) fall back to the base columns so
+  // the page still loads — a missing manager card is better than a full crash.
+  const { data: full, error: fullError } = await supabase
     .from('projects')
-    .select(
-      `id, code, name, client_name, end_client_name, description, start_date, end_date, status, ${MANAGER_EMBED}`
-    )
+    .select(`${BASE_COLUMNS}, ${MANAGER_EMBED}`)
     .eq('id', id)
     .maybeSingle()
 
-  // A read that FAILED is not a record that is missing. Answering both with
-  // notFound() tells someone it was deleted when the database was simply
-  // unreachable, which is the one explanation they cannot act on.
-  if (projectError) {
-    console.error('[employee/projects/:id] load failed', projectError)
-    throw new Error('That project could not be loaded. Please try again.')
+  let project = full
+  if (fullError) {
+    console.error('[employee/projects/:id] full load failed, retrying without manager', fullError)
+    const { data: basic, error: basicError } = await supabase
+      .from('projects')
+      .select(BASE_COLUMNS)
+      .eq('id', id)
+      .maybeSingle()
+
+    if (basicError) {
+      console.error('[employee/projects/:id] load failed', basicError)
+      throw new Error('That project could not be loaded. Please try again.')
+    }
+    project = basic as typeof full
   }
 
   if (!project) notFound()
@@ -106,7 +114,7 @@ export default async function EmployeeProjectDetailPage({
 
   // Readable through `profiles_select` (the staff directory), so the employee
   // sees their manager's contact card without any extra grant.
-  const manager = (project as unknown as { manager: ProjectManagerContact | null }).manager
+  const manager = (project as unknown as { manager?: ProjectManagerContact | null }).manager ?? null
   const rows = (entries ?? []) as unknown as EntryRow[]
   const approvedHours = totals.get(id) ?? 0
   const pendingHours = rows

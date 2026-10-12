@@ -12,9 +12,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { formatDateLabel, formatPeriod } from '@/lib/time'
 import { initials, formatHours } from '@/lib/utils'
 import { ProjectManagerCard, MANAGER_EMBED } from '../project-manager-card'
-import {
-  ProjectUpdates, PROJECT_UPDATE_SELECT, type ProjectUpdateRow,
-} from '@/components/project-updates'
+import { ProjectUpdates, type ProjectUpdateRow } from '@/components/project-updates'
+import { PROJECT_UPDATE_SELECT } from '@/lib/project-updates-shared'
 import { WeeklyHoursChart } from './weekly-hours-chart-loader'
 import type { ProjectStatus, TimesheetStatus, ProjectManagerContact } from '@/types/db'
 
@@ -65,21 +64,31 @@ export default async function ProjectDetailPage({
   const { id } = await params
   const supabase = await createSupabaseServerClient()
 
-  // RLS scopes this to the tenant, so an id from another workspace is a 404.
-  const { data: project, error: projectError } = await supabase
+  const BASE_COLUMNS =
+    'id, code, name, client_name, end_client_name, description, start_date, end_date, status'
+  const FULL_SELECT =
+    `${BASE_COLUMNS}, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))`
+
+  const { data: full, error: fullError } = await supabase
     .from('projects')
-    .select(
-      `id, code, name, client_name, end_client_name, description, start_date, end_date, status, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))`
-    )
+    .select(FULL_SELECT)
     .eq('id', id)
     .maybeSingle()
 
-  // A read that FAILED is not a record that is missing. Answering both with
-  // notFound() tells someone it was deleted when the database was simply
-  // unreachable, which is the one explanation they cannot act on.
-  if (projectError) {
-    console.error('[org/projects/:id] load failed', projectError)
-    throw new Error('That project could not be loaded. Please try again.')
+  let project = full
+  if (fullError) {
+    console.error('[org/projects/:id] full load failed, retrying without embeds', fullError)
+    const { data: basic, error: basicError } = await supabase
+      .from('projects')
+      .select(BASE_COLUMNS)
+      .eq('id', id)
+      .maybeSingle()
+
+    if (basicError) {
+      console.error('[org/projects/:id] load failed', basicError)
+      throw new Error('That project could not be loaded. Please try again.')
+    }
+    project = basic as typeof full
   }
 
   if (!project) notFound()
@@ -108,7 +117,7 @@ export default async function ProjectDetailPage({
     .filter((row) => row.timesheet?.status === 'submitted')
     .reduce((sum, row) => sum + entryHours(row), 0)
 
-  const manager = (project as unknown as { manager: ProjectManagerContact | null }).manager
+  const manager = (project as unknown as { manager?: ProjectManagerContact | null }).manager ?? null
 
   // Weekly progress: every line folded into (week -> employee), so one person's
   // three task lines on the project read as one row with their week's notes.
@@ -151,8 +160,9 @@ export default async function ProjectDetailPage({
       hours: Math.round(week.total * 100) / 100,
     }))
 
+  const rawAssignments = (project as unknown as { assignments?: unknown[] }).assignments ?? []
   const members = (
-    project.assignments as unknown as Array<{
+    rawAssignments as Array<{
       employee: {
         id: string
         full_name: string | null
