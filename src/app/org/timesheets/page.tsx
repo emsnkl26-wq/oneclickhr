@@ -170,66 +170,64 @@ async function SheetView({
   to: string
 }) {
   const supabase = await createSupabaseServerClient()
-  {
-    const thisWeek = weekStartSunday(todayIn(ctx.tenant.timezone))
-    const rangeFrom = from || addDays(thisWeek, -7 * (DEFAULT_WEEKS - 1))
-    const rangeTo = to || addDays(thisWeek, 7 * DEFAULT_WEEKS_AHEAD + 6)
+  const thisWeek = weekStartSunday(todayIn(ctx.tenant.timezone))
+  const rangeFrom = from || addDays(thisWeek, -7 * (DEFAULT_WEEKS - 1))
+  const rangeTo = to || addDays(thisWeek, 7 * DEFAULT_WEEKS_AHEAD + 6)
 
-    const { data, error: sheetError } = await supabase
-      .from('timesheet_entries')
-      .select(
-        'id, task_name, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat, project:projects(id, code, name, client_name), timesheet:timesheets!inner(id, code, week_start, week_end, status, employee:profiles!timesheets_employee_id_fkey(full_name, email))'
-      )
-      .gte('timesheet.week_start', rangeFrom)
-      .lte('timesheet.week_start', rangeTo)
-      .limit(MAX_SHEET_ROWS)
-
-    const rows: SheetRow[] = ((data ?? []) as unknown as FlatEntry[])
-      .filter((entry) => entry.timesheet)
-      .map((entry) => ({
-        id: entry.id,
-        timesheetId: entry.timesheet!.id,
-        timesheetCode: entry.timesheet!.code,
-        weekStart: entry.timesheet!.week_start,
-        weekEnd: entry.timesheet!.week_end,
-        status: entry.timesheet!.status,
-        employeeName:
-          entry.timesheet!.employee?.full_name || entry.timesheet!.employee?.email || 'Employee',
-        projectLabel: entry.project
-          ? `${entry.project.code} · ${entry.project.name}`
-          : entry.task_name || 'Task',
-        clientName: entry.project?.client_name ?? null,
-        taskName: entry.task_name,
-        billable: entry.billable,
-        hours: [
-          Number(entry.hours_sun), Number(entry.hours_mon), Number(entry.hours_tue),
-          Number(entry.hours_wed), Number(entry.hours_thu), Number(entry.hours_fri),
-          Number(entry.hours_sat),
-        ],
-      }))
-      // Newest week first, then by employee, so a week reads as one block.
-      .sort((a, b) =>
-        a.weekStart === b.weekStart
-          ? (a.employeeName ?? '').localeCompare(b.employeeName ?? '')
-          : b.weekStart.localeCompare(a.weekStart)
-      )
-
-    if (sheetError) console.error('[org/timesheets sheet view] load failed', sheetError)
-
-    return (
-      <>
-        {sheetError ? <LoadError what="The hours sheet" /> : null}
-        <HoursSheet
-          rows={rows}
-          from={rangeFrom}
-          to={rangeTo}
-          capped={rows.length >= MAX_SHEET_ROWS}
-          showEmployee
-          timesheetBasePath="/org/timesheets"
-        />
-      </>
+  const { data, error: sheetError } = await supabase
+    .from('timesheet_entries')
+    .select(
+      'id, task_name, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat, project:projects(id, code, name, client_name), timesheet:timesheets!inner(id, code, week_start, week_end, status, employee:profiles!timesheets_employee_id_fkey(full_name, email))'
     )
-  }
+    .gte('timesheet.week_start', rangeFrom)
+    .lte('timesheet.week_start', rangeTo)
+    .limit(MAX_SHEET_ROWS)
+
+  const rows: SheetRow[] = ((data ?? []) as unknown as FlatEntry[])
+    .filter((entry) => entry.timesheet)
+    .map((entry) => ({
+      id: entry.id,
+      timesheetId: entry.timesheet!.id,
+      timesheetCode: entry.timesheet!.code,
+      weekStart: entry.timesheet!.week_start,
+      weekEnd: entry.timesheet!.week_end,
+      status: entry.timesheet!.status,
+      employeeName:
+        entry.timesheet!.employee?.full_name || entry.timesheet!.employee?.email || 'Employee',
+      projectLabel: entry.project
+        ? `${entry.project.code} · ${entry.project.name}`
+        : entry.task_name || 'Task',
+      clientName: entry.project?.client_name ?? null,
+      taskName: entry.task_name,
+      billable: entry.billable,
+      hours: [
+        Number(entry.hours_sun), Number(entry.hours_mon), Number(entry.hours_tue),
+        Number(entry.hours_wed), Number(entry.hours_thu), Number(entry.hours_fri),
+        Number(entry.hours_sat),
+      ],
+    }))
+    // Newest week first, then by employee, so a week reads as one block.
+    .sort((a, b) =>
+      a.weekStart === b.weekStart
+        ? (a.employeeName ?? '').localeCompare(b.employeeName ?? '')
+        : b.weekStart.localeCompare(a.weekStart)
+    )
+
+  if (sheetError) console.error('[org/timesheets sheet view] load failed', sheetError)
+
+  return (
+    <>
+      {sheetError ? <LoadError what="The hours sheet" /> : null}
+      <HoursSheet
+        rows={rows}
+        from={rangeFrom}
+        to={rangeTo}
+        capped={rows.length >= MAX_SHEET_ROWS}
+        showEmployee
+        timesheetBasePath="/org/timesheets"
+      />
+    </>
+  )
 }
 
 /**
