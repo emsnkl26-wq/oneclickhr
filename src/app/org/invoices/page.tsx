@@ -1,10 +1,13 @@
+import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { AlertTriangle, ArrowLeft, ChevronRight, CircleCheck, Clock, Coins } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { PageHeader, StatCard } from '@/components/ui/patterns'
+import {
+  PageHeader, StatCard, Skeleton, StatCardSkeleton, TableCardSkeleton,
+} from '@/components/ui/patterns'
 import { invoiceSummary, type CurrencyTotals } from '@/lib/invoice-summary'
 import { mailingAddressLines } from '@/lib/geo'
 import { cn, formatMoney } from '@/lib/utils'
@@ -98,49 +101,7 @@ export default async function InvoicesPage({
     if (term) query = query.or(`invoice_number.ilike.%${term}%,bill_to->>name.ilike.%${term}%`)
   }
 
-  const [{ data: invoices, count }, { data: recentNumbers }, { data: company }, summary] =
-    await Promise.all([
-    query,
-    // The suggestion needs the highest number in the whole series, not the
-    // highest on this page. It stays advisory either way — the real guarantee
-    // is UNIQUE(tenant_id, invoice_number), which turns a collision into a
-    // retry rather than a duplicate.
-    supabase
-      .from('invoices')
-      .select('invoice_number')
-      .order('invoice_number', { ascending: false })
-      .limit(20),
-    // The letterhead the preview draws, so what somebody sees while typing is
-    // the document that will actually be sent.
-    supabase
-      .from('tenants')
-      .select(
-        'org_code, address_line1, address_line2, city, state_province, postal_code, country, company_email, company_phone, invoice_payment_details'
-      )
-      .eq('id', ctx.tenantId)
-      .maybeSingle(),
-    // Across EVERY invoice, not this page: the totals answer "what have we
-    // collected and what are we still owed", whatever the filter shows.
-    invoiceSummary(supabase, ctx.tenantId, currency, todayIn(ctx.tenant.timezone)),
-  ])
-
-  const prefill =
-    params.new === 'employee' && params.employee
-      ? await employeePrefill(supabase, params.employee, todayIn(ctx.tenant.timezone))
-      : null
-
-  const money = (value: number) => formatMoney(value, currency)
-
-  const suggested = suggestInvoiceNumber(
-    (recentNumbers ?? []).map((row) => row.invoice_number),
-    company?.org_code
-  )
-
   const inOtherView = currencyView !== 'own'
-  const shownOthers =
-    currencyView === 'own' || currencyView === 'other'
-      ? summary.others
-      : summary.others.filter((o) => o.currency === currencyView)
 
   return (
     <div className="space-y-6">
@@ -163,114 +124,247 @@ export default async function InvoicesPage({
         }
       />
 
-      {inOtherView ? (
-        <>
-          {summary.others.length > 1 ? (
-            <nav className="flex flex-wrap gap-1.5" aria-label="Currency">
-              <CurrencyTab href="/org/invoices?currency=other" active={currencyView === 'other'}>
-                All other currencies
-              </CurrencyTab>
-              {summary.others.map((o) => (
-                <CurrencyTab
-                  key={o.currency}
-                  href={`/org/invoices?currency=${o.currency}`}
-                  active={currencyView === o.currency}
-                >
-                  {o.currency} · {o.count}
-                </CurrencyTab>
-              ))}
-            </nav>
-          ) : null}
-          {shownOthers.length ? (
-            <div className="space-y-3">
-              {shownOthers.map((o) => (
-                <CurrencySummaryRow key={o.currency} totals={o} />
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-xl border border-line bg-card px-4 py-3 text-sm text-ink-muted">
-              No invoices in another currency.
-            </p>
-          )}
-        </>
-      ) : (
-        <>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StatCard
-              label="Total earned"
-              value={money(summary.earned)}
-              hint={`${summary.paidCount} invoice${summary.paidCount === 1 ? '' : 's'} marked paid — counted as Earned in Finance`}
-              icon={CircleCheck}
-              tone="emerald"
-            />
-            <StatCard
-              label="Pending"
-              value={money(summary.pending)}
-              hint={`${summary.pendingCount} not yet paid${summary.drafts > 0 ? ` · ${money(summary.drafts)} still in draft` : ''}`}
-              icon={Clock}
-              tone="orange"
-            />
-            <StatCard
-              label="Overdue"
-              value={money(summary.overdue)}
-              hint={summary.overdueCount ? `${summary.overdueCount} past the due date` : 'Nothing past its due date'}
-              icon={AlertTriangle}
-              accent={summary.overdue > 0}
-            />
-          </div>
-          {summary.others.length ? (
-            <Link
-              href="/org/invoices?currency=other"
-              className="focus-ring group flex items-center gap-4 rounded-xl border border-line bg-card px-4 py-3.5 shadow-sm transition hover:border-brand-600/40"
-            >
-              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
-                <Coins className="size-5" aria-hidden />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">Other currency invoices</span>
-                <span className="block truncate text-xs text-ink-muted">
-                  {summary.excluded} invoice{summary.excluded === 1 ? '' : 's'} in{' '}
-                  {summary.others.map((o) => o.currency).join(', ')} — kept out of the {currency}{' '}
-                  totals above
-                  {summary.others.some((o) => o.pending > 0)
-                    ? ` · pending ${summary.others
-                        .filter((o) => o.pending > 0)
-                        .map((o) => formatMoney(o.pending, o.currency))
-                        .join(', ')}`
-                    : ''}
-                </span>
-              </span>
-              <ChevronRight className="size-4 shrink-0 text-ink-muted transition group-hover:translate-x-0.5" />
-            </Link>
-          ) : null}
-        </>
-      )}
+      {/*
+        The totals aggregate EVERY invoice the workspace has ever issued, while
+        the table below is one page of fifty. They were in the same
+        `Promise.all`, so the list a person came to read waited on a scan of the
+        whole billing history. Separate regions now: the table arrives on its
+        own schedule and the figures drop in above it.
+      */}
+      <Suspense fallback={<SummarySkeleton other={inOtherView} />}>
+        <Summary currency={currency} currencyView={currencyView} today={today} />
+      </Suspense>
 
-      <InvoiceWorkspace
-        invoices={(invoices ?? []) as Invoice[]}
-        total={count ?? (invoices ?? []).length}
-        page={page}
-        perPage={PER_PAGE}
-        filtered={!!search || !!status}
-        suggestedNumber={suggested}
-        orgName={ctx.tenant.name}
-        orgLogoUrl={ctx.tenant.logoUrl}
-        orgPrimaryColor={ctx.tenant.primaryColor}
-        orgAddressLines={mailingAddressLines({
-          line1: company?.address_line1,
-          line2: company?.address_line2,
-          city: company?.city,
-          state: company?.state_province,
-          postalCode: company?.postal_code,
-          country: company?.country,
-        })}
-        orgPaymentDetails={company?.invoice_payment_details ?? null}
-        orgEmail={company?.company_email ?? null}
-        orgPhone={company?.company_phone ?? null}
-        timezone={ctx.tenant.timezone}
-        today={today}
-        prefill={prefill}
-      />
+      <Suspense
+        key={`${currencyView}:${status ?? ''}:${search}:${page}`}
+        fallback={<TableCardSkeleton columns={6} rows={10} />}
+      >
+        <Workspace
+          query={query}
+          page={page}
+          filtered={!!search || !!status}
+          today={today}
+          newEmployeeId={params.new === 'employee' ? (params.employee ?? null) : null}
+        />
+      </Suspense>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- Streamed regions */
+
+/**
+ * Earned / pending / overdue across every invoice, in the workspace currency —
+ * plus the per-currency breakdown when the reader has switched to it.
+ */
+async function Summary({
+  currency,
+  currencyView,
+  today,
+}: {
+  currency: string
+  currencyView: string
+  today: string
+}) {
+  const ctx = await requireOrg()
+  const supabase = await createSupabaseServerClient()
+  const summary = await invoiceSummary(supabase, ctx.tenantId, currency, today)
+  const money = (value: number) => formatMoney(value, currency)
+
+  if (currencyView !== 'own') {
+    const shownOthers =
+      currencyView === 'other'
+        ? summary.others
+        : summary.others.filter((o) => o.currency === currencyView)
+
+    return (
+      <>
+        {summary.others.length > 1 ? (
+          <nav className="flex flex-wrap gap-1.5" aria-label="Currency">
+            <CurrencyTab href="/org/invoices?currency=other" active={currencyView === 'other'}>
+              All other currencies
+            </CurrencyTab>
+            {summary.others.map((o) => (
+              <CurrencyTab
+                key={o.currency}
+                href={`/org/invoices?currency=${o.currency}`}
+                active={currencyView === o.currency}
+              >
+                {o.currency} · {o.count}
+              </CurrencyTab>
+            ))}
+          </nav>
+        ) : null}
+        {shownOthers.length ? (
+          <div className="space-y-3">
+            {shownOthers.map((o) => (
+              <CurrencySummaryRow key={o.currency} totals={o} />
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-xl border border-line bg-card px-4 py-3 text-sm text-ink-muted">
+            No invoices in another currency.
+          </p>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Total earned"
+          value={money(summary.earned)}
+          hint={`${summary.paidCount} invoice${summary.paidCount === 1 ? '' : 's'} marked paid — counted as Earned in Finance`}
+          icon={CircleCheck}
+          tone="emerald"
+        />
+        <StatCard
+          label="Pending"
+          value={money(summary.pending)}
+          hint={`${summary.pendingCount} not yet paid${summary.drafts > 0 ? ` · ${money(summary.drafts)} still in draft` : ''}`}
+          icon={Clock}
+          tone="orange"
+        />
+        <StatCard
+          label="Overdue"
+          value={money(summary.overdue)}
+          hint={summary.overdueCount ? `${summary.overdueCount} past the due date` : 'Nothing past its due date'}
+          icon={AlertTriangle}
+          accent={summary.overdue > 0}
+        />
+      </div>
+      {summary.others.length ? (
+        <Link
+          href="/org/invoices?currency=other"
+          className="focus-ring group flex items-center gap-4 rounded-xl border border-line bg-card px-4 py-3.5 shadow-sm transition hover:border-brand-600/40"
+        >
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
+            <Coins className="size-5" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">Other currency invoices</span>
+            <span className="block truncate text-xs text-ink-muted">
+              {summary.excluded} invoice{summary.excluded === 1 ? '' : 's'} in{' '}
+              {summary.others.map((o) => o.currency).join(', ')} — kept out of the {currency}{' '}
+              totals above
+              {summary.others.some((o) => o.pending > 0)
+                ? ` · pending ${summary.others
+                    .filter((o) => o.pending > 0)
+                    .map((o) => formatMoney(o.pending, o.currency))
+                    .join(', ')}`
+                : ''}
+            </span>
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-ink-muted transition group-hover:translate-x-0.5" />
+        </Link>
+      ) : null}
+    </>
+  )
+}
+
+/** One page of invoices, plus the letterhead and number the editor needs. */
+async function Workspace({
+  query,
+  page,
+  filtered,
+  today,
+  newEmployeeId,
+}: {
+  query: PromiseLike<{ data: unknown[] | null; count: number | null }>
+  page: number
+  filtered: boolean
+  today: string
+  newEmployeeId: string | null
+}) {
+  const ctx = await requireOrg()
+  const supabase = await createSupabaseServerClient()
+
+  const [{ data: invoices, count }, { data: recentNumbers }, { data: company }] =
+    await Promise.all([
+      query,
+      // The suggestion needs the highest number in the whole series, not the
+      // highest on this page. It stays advisory either way — the real guarantee
+      // is UNIQUE(tenant_id, invoice_number), which turns a collision into a
+      // retry rather than a duplicate.
+      supabase
+        .from('invoices')
+        .select('invoice_number')
+        .order('invoice_number', { ascending: false })
+        .limit(20),
+      // The letterhead the preview draws, so what somebody sees while typing is
+      // the document that will actually be sent.
+      supabase
+        .from('tenants')
+        .select(
+          'org_code, address_line1, address_line2, city, state_province, postal_code, country, company_email, company_phone, invoice_payment_details'
+        )
+        .eq('id', ctx.tenantId)
+        .maybeSingle(),
+    ])
+
+  const prefill = newEmployeeId ? await employeePrefill(supabase, newEmployeeId, today) : null
+
+  const suggested = suggestInvoiceNumber(
+    (recentNumbers ?? []).map((row) => row.invoice_number),
+    company?.org_code
+  )
+
+  return (
+    <InvoiceWorkspace
+      invoices={(invoices ?? []) as Invoice[]}
+      total={count ?? (invoices ?? []).length}
+      page={page}
+      perPage={PER_PAGE}
+      filtered={filtered}
+      suggestedNumber={suggested}
+      orgName={ctx.tenant.name}
+      orgLogoUrl={ctx.tenant.logoUrl}
+      orgPrimaryColor={ctx.tenant.primaryColor}
+      orgAddressLines={mailingAddressLines({
+        line1: company?.address_line1,
+        line2: company?.address_line2,
+        city: company?.city,
+        state: company?.state_province,
+        postalCode: company?.postal_code,
+        country: company?.country,
+      })}
+      orgPaymentDetails={company?.invoice_payment_details ?? null}
+      orgEmail={company?.company_email ?? null}
+      orgPhone={company?.company_phone ?? null}
+      timezone={ctx.tenant.timezone}
+      today={today}
+      prefill={prefill}
+    />
+  )
+}
+
+/** Three stat cards, or the per-currency rows, depending on the view. */
+function SummarySkeleton({ other }: { other: boolean }) {
+  if (other) {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-xl border border-line bg-card p-4 shadow-sm">
+          <Skeleton className="mb-3 h-4 w-40" />
+          <div className="grid gap-3 sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="space-y-1.5">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-6 w-24" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      <StatCardSkeleton />
+      <StatCardSkeleton />
+      <StatCardSkeleton />
     </div>
   )
 }

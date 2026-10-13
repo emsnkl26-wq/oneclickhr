@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import {
@@ -5,16 +6,12 @@ import {
   Briefcase, Timer, LifeBuoy, FilePlus2, TrendingUp, TrendingDown, Minus,
   type LucideIcon,
 } from 'lucide-react'
-import { requireOrg } from '@/lib/auth/guards'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { EmptyState, StatusChip } from '@/components/ui/patterns'
+import { EmptyState, StatusChip, Skeleton, StatCardSkeleton, ListCardSkeleton } from '@/components/ui/patterns'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
-import { todayIn, formatLocal, daysUntil, addDays } from '@/lib/time'
-import {
-  formatMoney, monthRange, totalExpenses, totalPayroll, totalRevenue,
-} from '@/lib/expenses'
+import { formatLocal, daysUntil, addDays } from '@/lib/time'
+import { formatMoney, totalExpenses, totalPayroll, totalRevenue } from '@/lib/expenses'
 import { cn, initials } from '@/lib/utils'
 // The two plots come from the loader, not from `dashboard-charts` directly:
 // importing them statically would pull ~105kB of recharts into this route's
@@ -25,12 +22,22 @@ import { AttendanceTrend, HoursTrend } from './dashboard-charts-loader'
 import { AttendanceGauge } from './dashboard-gauge'
 import type { AttendancePoint, HoursPoint } from './dashboard-charts'
 import { ThemeToggle } from '@/components/theme-toggle'
+import {
+  TREND_DAYS,
+  dashboardWindow,
+  displayName,
+  loadAttendanceWindow,
+  loadExpiringVisas,
+  loadHeadcount,
+  loadMonthMoney,
+  loadOperations,
+  loadPendingLeaves,
+  loadRecentHires,
+  loadWaitingOnYou,
+} from './dashboard-data'
 
 export const metadata: Metadata = { title: 'Dashboard' }
 export const dynamic = 'force-dynamic'
-
-/** How far back the two plots look. Two weeks reads as "recently" to a manager. */
-const TREND_DAYS = 14
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -43,176 +50,264 @@ function describeDay(date: string) {
   return { short, full: `${DAY_ABBR[weekday]}, ${short}`, weekend: weekday === 0 || weekday === 6 }
 }
 
+/**
+ * The dashboard, STREAMED.
+ *
+ * This component awaits nothing that costs a round trip. `dashboardWindow()`
+ * resolves the context the layout's guard already fetched (both go through the
+ * same request-scoped `cache()`) and does date arithmetic; everything that
+ * touches the database lives in an async child behind its own `<Suspense>`.
+ *
+ * So the frame — greeting, both call-to-action buttons, every card's chrome —
+ * is in the first flush of HTML, and the regions fill in independently as their
+ * own queries land. The fortnight-wide attendance scan no longer holds up the
+ * headcount cards, and the money card no longer waits on either.
+ *
+ * React starts all Suspense children CONCURRENTLY, so splitting the page costs
+ * no extra latency: the same queries are in flight at the same moment they were
+ * under the old single `Promise.all`, they simply no longer share a finish
+ * line. Overlapping reads are deduplicated by `cache()` in ./dashboard-data.
+ *
+ * Every fallback is sized to the content it stands in for — see the note on the
+ * skeleton block in src/components/ui/patterns.tsx. A region that resolves into
+ * a differently-sized box makes the page jump, which is worse than waiting.
+ */
 export default async function OrgDashboard() {
-  const ctx = await requireOrg()
-  const supabase = await createSupabaseServerClient()
-  const tz = ctx.tenant.timezone
-  const today = todayIn(tz)
+  const { ctx, tz } = await dashboardWindow()
+  const firstName = ctx.fullName ? ctx.fullName.split(' ')[0] : ''
 
-  /*
-   * Every query below runs through the USER-SCOPED client, so RLS scopes each
-   * one to this tenant automatically. The explicit `.eq('tenant_id', …)` is
-   * absent on purpose — adding it here would suggest the isolation depends on
-   * remembering to write it, and on this client it does not.
-   *
-   * Three things this list is careful about:
-   *
-   *   • Employee NAMES come back as embedded rows, not from a follow-up
-   *     `.in('id', …)`. That lookup could not start until the leave and visa
-   *     queries had both finished, so it added a serial round trip to a
-   *     dashboard whose other queries were already running in parallel.
-   *   • The "how many?" cards read `count`, not `rows.length`. The rows are
-   *     capped for display, so counting them capped the numbers as well — a
-   *     workspace with forty pending requests reported four.
-   *   • The FORTNIGHT of attendance is one range scan on
-   *     `(tenant_id, date desc)`, not fourteen count queries. It returns two
-   *     narrow columns per clock-in and is bucketed in memory below; a
-   *     thousand-person workspace is fourteen thousand rows of two columns,
-   *     which is cheaper than fourteen round trips.
-   */
-  const visaHorizon = addDays(today, 120)
-  const trendStart = addDays(today, -(TREND_DAYS - 1))
-  const thisMonth = today.slice(0, 7)
-  const { from: monthFrom, to: monthTo } = monthRange(thisMonth)
+  return (
+    <div className="space-y-5">
+      {/* ------------------------------------------------------------ Hero */}
+      {/*
+        * The one place on the dashboard with a colour wash. It carries the
+        * greeting and the two things a manager most often arrives here to do, so
+        * the rest of the page can stay quiet and let the numbers be the loudest
+        * thing on it.
+        */}
+      <div className="relative overflow-hidden rounded-2xl border border-line bg-card p-6 shadow-sm sm:p-7">
+        <div
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-brand-50 via-card to-card dark:from-brand-800/20 dark:via-card dark:to-card"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute -right-16 -top-24 size-72 rounded-full bg-brand-600/10 blur-3xl"
+          aria-hidden
+        />
+        <ThemeToggle className="absolute right-4 top-4 z-10 border border-line bg-card/70 text-ink-muted backdrop-blur hover:bg-page hover:text-ink" />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="pr-10 text-[13px] font-medium uppercase tracking-[0.14em] text-brand-ink">
+              {formatLocal(new Date(), tz, 'EEEE, d MMMM yyyy')}
+            </p>
+            <h1 className="mt-2 text-[26px] font-bold tracking-[-0.02em] text-ink sm:text-[30px]">
+              Good to see you{firstName ? `, ${firstName}` : ''}
+            </h1>
+            {/*
+              The greeting itself is free; only the tally underneath needs two
+              counts. Boxed on its own so the name is not held behind them —
+              the fallback is a single text-height bar in the same slot.
+            */}
+            <Suspense
+              fallback={<Skeleton className="mt-2 h-4 w-72 max-w-full" />}
+            >
+              <WaitingLine tenantName={ctx.tenant.name} />
+            </Suspense>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button asChild variant="secondary">
+              <Link href="/org/letters/new">
+                <FilePlus2 />
+                Generate offer
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/org/employees/onboard">
+                <UserPlus />
+                Add employee
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </div>
 
-  const [
-    employees,
-    todayOrActive,
-    pendingLeaves,
-    recentHires,
-    expiringVisas,
-    activeProjects,
-    pendingTimesheets,
-    openTickets,
-    attendanceWindow,
-    monthExpenses,
-    monthPayroll,
-    monthInvoices,
-  ] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('role', 'employee')
-      .eq('is_active', true),
-    supabase.from('attendance').select('id', { count: 'exact', head: true }).or(`date.eq.${today},logout_time.is.null`),
-    supabase
-      .from('leaves')
-      .select(
-        'id, employee_id, start_date, end_date, days, reason, status, created_at, employee:profiles!leaves_employee_id_fkey(full_name, email, photo_url)',
-        { count: 'exact' }
-      )
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(5),
-    supabase
-      .from('profiles')
-      .select('id, full_name, email, photo_url, designation, created_at')
-      .eq('role', 'employee')
-      .order('created_at', { ascending: false })
-      .limit(5),
-    // Filtered by the index rather than in JavaScript: the old version took the
-    // five soonest expiries and then discarded any beyond the horizon, so a
-    // workspace with five far-future visas showed an empty card while a nearer
-    // one existed.
-    supabase
-      .from('work_authorizations')
-      .select(
-        'id, employee_id, visa_type, expiry_date, employee:profiles!work_authorizations_employee_id_fkey(full_name, email)',
-        { count: 'exact' }
-      )
-      .lte('expiry_date', visaHorizon)
-      .order('expiry_date', { ascending: true })
-      .limit(5),
-    // Three more counts, all `head: true` — an index-only scan each, no rows.
-    supabase
-      .from('projects')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'active'),
-    supabase
-      .from('timesheets')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'submitted'),
-    supabase
-      .from('tickets')
-      .select('id', { count: 'exact', head: true })
-      .in('status', ['open', 'in_progress']),
-    supabase
-      .from('attendance')
-      .select('date, total_hours')
-      .gte('date', trendStart)
-      .lte('date', today)
-      .limit(20000),
+      {/* ------------------------------------------------------- Headline row */}
+      {/*
+        The grid lives OUT here and the boundary inside it: `<Suspense>` renders
+        no DOM of its own, so the four cards — and the four skeletons standing in
+        for them — are direct grid children either way and the tracks never move.
+      */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Suspense
+          fallback={
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          }
+        >
+          <HeadlineCards />
+        </Suspense>
+      </div>
 
-    /*
-     * This month's money. Three narrow reads, deliberately scoped to the
-     * CURRENT MONTH rather than all time: "are we up or down" is a question
-     * about the period you are in, and an all-time figure on a dashboard is one
-     * nobody can act on.
-     *
-     * Payroll is derived from verified payment confirmations rather than copied
-     * into `expenses` — see 033's header for why there is no second copy.
-     */
-    supabase
-      .from('expenses')
-      .select('amount, currency, category')
-      .gte('spent_on', monthFrom)
-      .lte('spent_on', monthTo)
-      .limit(2000),
-    supabase
-      .from('payment_confirmations')
-      .select('amount, currency, status')
-      .eq('month', Number(thisMonth.slice(5, 7)))
-      .eq('year', Number(thisMonth.slice(0, 4))),
-    supabase
-      .from('invoices')
-      .select('amount_paid, currency, status')
-      .gte('issue_date', monthFrom)
-      .lte('issue_date', monthTo)
-      .limit(2000),
+      {/* ------------------------------------------------------------ Charts */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Suspense fallback={<ChartCardSkeleton />}>
+          <AttendanceSection />
+        </Suspense>
+
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Today</CardTitle>
+            </CardHeader>
+            <CardContent className="pb-6 pt-1">
+              <Suspense fallback={<GaugeSkeleton />}>
+                <TodayGauge />
+              </Suspense>
+            </CardContent>
+          </Card>
+
+          <Card className="flex-1">
+            <CardHeader>
+              <CardTitle>Operations</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ul className="divide-y divide-line">
+                <Suspense fallback={<OperationRowsSkeleton />}>
+                  <OperationRows />
+                </Suspense>
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* ----------------------------------------------------------- Money ---
+        What this month cost and what came in. Deliberately three plain figures
+        and no chart: the useful question here is "are we up or down", and a
+        sparkline of two data points answers it worse than the number does.
+      */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle>This month</CardTitle>
+            <CardDescription>
+              Collected against everything spent, including payroll.
+            </CardDescription>
+          </div>
+          <ViewAll href="/org/expenses" label="Expenses" />
+        </CardHeader>
+        <CardContent>
+          <Suspense fallback={<MoneySkeleton />}>
+            <MonthMoney />
+          </Suspense>
+        </CardContent>
+      </Card>
+
+      {/* ------------------------------------------------------------- Lists */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Suspense fallback={<ListCardSkeleton rows={4} avatar />}>
+          <PendingLeaveCard />
+        </Suspense>
+        <Suspense fallback={<ListCardSkeleton rows={4} avatar />}>
+          <RecentHiresCard tz={tz} />
+        </Suspense>
+      </div>
+
+      {/*
+        No fallback for the visa panel. It is the only region that renders
+        NOTHING when it is empty, and most workspaces have no expiry inside the
+        horizon — a skeleton card here would promise content to the majority of
+        readers and then vanish, which is a worse artefact than a late arrival
+        at the very bottom of the page.
+      */}
+      <Suspense fallback={null}>
+        <ExpiringVisas tz={tz} />
+      </Suspense>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- Streamed regions */
+
+async function WaitingLine({ tenantName }: { tenantName: string }) {
+  const waiting = await loadWaitingOnYou()
+  return (
+    <p className="mt-1.5 text-sm text-ink-muted">
+      {waiting > 0
+        ? `${waiting} ${waiting === 1 ? 'item is' : 'items are'} waiting on you at ${tenantName}.`
+        : `Nothing is waiting on you at ${tenantName} today.`}
+    </p>
+  )
+}
+
+async function HeadlineCards() {
+  // Three independent loaders, raced rather than awaited one after another:
+  // this region paints when the slowest of the three lands, not their sum.
+  const [headcount, leaves, visas] = await Promise.all([
+    loadHeadcount(),
+    loadPendingLeaves(),
+    loadExpiringVisas(),
   ])
 
-  /** PostgREST returns a one-to-one embed as an object, or null when unmatched. */
-  type EmbeddedPerson = { full_name: string | null; email: string | null; photo_url?: string | null } | null
-  const displayName = (person: EmbeddedPerson) =>
-    person?.full_name || person?.email || 'Employee'
+  return (
+    <>
+      <MetricCard
+        label="Total employees"
+        value={headcount.total}
+        icon={Users}
+        tone="brand"
+        href="/org/employees"
+        footer={
+          headcount.total === 0
+            ? { kind: 'hint', text: 'Add your first teammate' }
+            : { kind: 'hint', text: 'Active accounts' }
+        }
+      />
+      <MetricCard
+        label="Present today"
+        value={headcount.present}
+        icon={CalendarCheck}
+        tone="indigo"
+        href="/org/attendance"
+        footer={
+          headcount.total
+            ? { kind: 'meter', text: `${headcount.rate}% of the team`, percent: headcount.rate }
+            : { kind: 'hint', text: 'No employees yet' }
+        }
+      />
+      <MetricCard
+        label="Pending leave"
+        value={leaves.count}
+        icon={CalendarOff}
+        tone="orange"
+        href="/org/leaves"
+        footer={{
+          kind: 'hint',
+          text: leaves.count ? 'Awaiting your decision' : 'Nothing to review',
+        }}
+      />
+      <MetricCard
+        label="Visas expiring"
+        value={visas.count}
+        icon={BadgeCheck}
+        tone={visas.count ? 'pink' : 'emerald'}
+        href="/org/visa"
+        footer={{
+          kind: 'hint',
+          text: visas.count ? 'Within the next 120 days' : 'Nothing upcoming',
+        }}
+      />
+    </>
+  )
+}
 
-  const leaveRows = (pendingLeaves.data ?? []) as unknown as Array<{
-    id: string
-    employee_id: string
-    start_date: string
-    end_date: string
-    days: number
-    reason: string
-    status: string
-    created_at: string
-    employee: EmbeddedPerson
-  }>
-  const hires = recentHires.data ?? []
-  const visas = (expiringVisas.data ?? []) as unknown as Array<{
-    id: string
-    employee_id: string
-    visa_type: string
-    expiry_date: string
-    employee: EmbeddedPerson
-  }>
-
-  const totalEmployees = employees.count ?? 0
-  const presentToday = todayOrActive.count ?? 0
-
-  /*
-   * This month's money, all in the workspace's own currency. Rows in another
-   * one are COUNTED and reported, never converted — a wrong rate is worse than
-   * an honest omission. See the header of src/lib/expenses.ts.
-   */
-  const currency = ctx.tenant.defaultCurrency
-  const loggedSpend = totalExpenses(monthExpenses.data ?? [], currency)
-  const payroll = totalPayroll(monthPayroll.data ?? [], currency)
-  const revenue = totalRevenue(monthInvoices.data ?? [], currency)
-  const spend = loggedSpend.total + payroll.total
-  const netResult = revenue.total - spend
-  const excludedRows = loggedSpend.excluded + payroll.excluded + revenue.excluded
-  const pendingLeaveCount = pendingLeaves.count ?? leaveRows.length
-  const expiringVisaCount = expiringVisas.count ?? visas.length
+async function AttendanceSection() {
+  const { trendStart } = await dashboardWindow()
+  const [rows, headcount] = await Promise.all([loadAttendanceWindow(), loadHeadcount()])
 
   /*
    * Bucket the fortnight.
@@ -224,7 +319,7 @@ export default async function OrgDashboard() {
    */
   const clockIns = new Map<string, number>()
   const hours = new Map<string, number>()
-  for (const row of (attendanceWindow.data ?? []) as Array<{ date: string; total_hours: number | null }>) {
+  for (const row of rows) {
     clockIns.set(row.date, (clockIns.get(row.date) ?? 0) + 1)
     hours.set(row.date, (hours.get(row.date) ?? 0) + Number(row.total_hours ?? 0))
   }
@@ -255,336 +350,302 @@ export default async function OrgDashboard() {
   const thisWeek = attendanceSeries.slice(7).reduce((sum, point) => sum + point.value, 0)
   const lastWeek = attendanceSeries.slice(0, 7).reduce((sum, point) => sum + point.value, 0)
   const weekDelta = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : null
-
   const totalHoursFortnight = hoursSeries.reduce((sum, point) => sum + point.value, 0)
-  const attendanceRate = totalEmployees ? Math.round((presentToday / totalEmployees) * 100) : 0
-  const firstName = ctx.fullName ? ctx.fullName.split(' ')[0] : ''
 
   return (
-    <div className="space-y-5">
-      {/* ------------------------------------------------------------ Hero */}
-      {/*
-        * The one place on the dashboard with a colour wash. It carries the
-        * greeting and the two things a manager most often arrives here to do, so
-        * the rest of the page can stay quiet and let the numbers be the loudest
-        * thing on it.
-        */}
-      <div className="relative overflow-hidden rounded-2xl border border-line bg-card p-6 shadow-sm sm:p-7">
-        <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-brand-50 via-card to-card dark:from-brand-800/20 dark:via-card dark:to-card"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -right-16 -top-24 size-72 rounded-full bg-brand-600/10 blur-3xl"
-          aria-hidden
-        />
-        <ThemeToggle className="absolute right-4 top-4 z-10 border border-line bg-card/70 text-ink-muted backdrop-blur hover:bg-page hover:text-ink" />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <p className="pr-10 text-[13px] font-medium uppercase tracking-[0.14em] text-brand-ink">
-              {formatLocal(new Date(), tz, 'EEEE, d MMMM yyyy')}
-            </p>
-            <h1 className="mt-2 text-[26px] font-bold tracking-[-0.02em] text-ink sm:text-[30px]">
-              Good to see you{firstName ? `, ${firstName}` : ''}
-            </h1>
-            <p className="mt-1.5 text-sm text-ink-muted">
-              {pendingLeaveCount + (pendingTimesheets.count ?? 0) > 0
-                ? `${pendingLeaveCount + (pendingTimesheets.count ?? 0)} ${
-                    pendingLeaveCount + (pendingTimesheets.count ?? 0) === 1 ? 'item is' : 'items are'
-                  } waiting on you at ${ctx.tenant.name}.`
-                : `Nothing is waiting on you at ${ctx.tenant.name} today.`}
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button asChild variant="secondary">
-              <Link href="/org/letters/new">
-                <FilePlus2 />
-                Generate offer
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link href="/org/employees/onboard">
-                <UserPlus />
-                Add employee
-              </Link>
-            </Button>
-          </div>
+    <Card className="lg:col-span-2">
+      <CardHeader className="flex-row items-start justify-between gap-4">
+        <div className="min-w-0">
+          <CardTitle>Attendance</CardTitle>
+          <p className="mt-0.5 text-[13px] text-ink-muted">
+            Clock-ins per day over the last {TREND_DAYS} days. Weekends are shown faded.
+          </p>
         </div>
-      </div>
+        {weekDelta !== null ? <DeltaChip percent={weekDelta} /> : null}
+      </CardHeader>
+      <CardContent className="px-3 pb-4 sm:px-4">
+        <AttendanceTrend data={attendanceSeries} headcount={headcount.total} />
 
-      {/* ------------------------------------------------------- Headline row */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Total employees"
-          value={totalEmployees}
-          icon={Users}
-          tone="brand"
-          href="/org/employees"
-          footer={
-            totalEmployees === 0
-              ? { kind: 'hint', text: 'Add your first teammate' }
-              : { kind: 'hint', text: 'Active accounts' }
-          }
+        <div className="mt-4 border-t border-line px-1 pt-4 sm:px-2">
+          <div className="mb-1 flex items-baseline justify-between">
+            <p className="text-[13px] font-medium text-ink">Hours logged</p>
+            <p className="tabular text-[13px] text-ink-muted">
+              {totalHoursFortnight.toLocaleString()} h in {TREND_DAYS} days
+            </p>
+          </div>
+          <HoursTrend data={hoursSeries} />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+async function TodayGauge() {
+  const headcount = await loadHeadcount()
+  return <AttendanceGauge present={headcount.present} total={headcount.total} />
+}
+
+async function OperationRows() {
+  const ops = await loadOperations()
+  return (
+    <>
+      <OperationRow
+        icon={Briefcase}
+        tone="orange"
+        label="Active projects"
+        value={ops.activeProjects}
+        href="/org/projects"
+      />
+      <OperationRow
+        icon={Timer}
+        tone="pink"
+        label="Timesheets to approve"
+        value={ops.pendingTimesheets}
+        href="/org/timesheets"
+      />
+      <OperationRow
+        icon={LifeBuoy}
+        tone="purple"
+        label="Open tickets"
+        value={ops.openTickets}
+        href="/org/helpdesk"
+      />
+    </>
+  )
+}
+
+async function MonthMoney() {
+  const { ctx } = await dashboardWindow()
+  const money = await loadMonthMoney()
+
+  /*
+   * This month's money, all in the workspace's own currency. Rows in another
+   * one are COUNTED and reported, never converted — a wrong rate is worse than
+   * an honest omission. See the header of src/lib/expenses.ts.
+   */
+  const currency = ctx.tenant.defaultCurrency
+  const loggedSpend = totalExpenses(money.expenses, currency)
+  const payroll = totalPayroll(money.payroll, currency)
+  const revenue = totalRevenue(money.invoices, currency)
+  const spend = loggedSpend.total + payroll.total
+  const netResult = revenue.total - spend
+  const excludedRows = loggedSpend.excluded + payroll.excluded + revenue.excluded
+
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <MoneyFigure label="Revenue collected" value={formatMoney(revenue.total, currency)} />
+        <MoneyFigure label="Total spend" value={formatMoney(spend, currency)} />
+        <MoneyFigure
+          label={netResult >= 0 ? 'Profit' : 'Loss'}
+          value={formatMoney(Math.abs(netResult), currency)}
+          tone={netResult >= 0 ? 'good' : 'bad'}
         />
-        <MetricCard
-          label="Present today"
-          value={presentToday}
-          icon={CalendarCheck}
-          tone="indigo"
-          href="/org/attendance"
-          footer={
-            totalEmployees
-              ? { kind: 'meter', text: `${attendanceRate}% of the team`, percent: attendanceRate }
-              : { kind: 'hint', text: 'No employees yet' }
-          }
-        />
-        <MetricCard
-          label="Pending leave"
-          value={pendingLeaveCount}
+      </div>
+      {excludedRows > 0 ? (
+        // Said out loud rather than quietly converted — see src/lib/expenses.ts.
+        <p className="mt-3 text-xs text-ink-muted">
+          {excludedRows} {excludedRows === 1 ? 'entry is' : 'entries are'} in another currency
+          and {excludedRows === 1 ? 'is' : 'are'} not counted here. Nothing has been converted.
+        </p>
+      ) : null}
+    </>
+  )
+}
+
+async function PendingLeaveCard() {
+  const { rows } = await loadPendingLeaves()
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle>Leave awaiting approval</CardTitle>
+        <ViewAll href="/org/leaves" />
+      </CardHeader>
+      {rows.length === 0 ? (
+        <EmptyState
           icon={CalendarOff}
-          tone="orange"
-          href="/org/leaves"
-          footer={{
-            kind: 'hint',
-            text: pendingLeaveCount ? 'Awaiting your decision' : 'Nothing to review',
-          }}
+          title="No pending requests"
+          description="Leave applications from your team will appear here for approval."
         />
-        <MetricCard
-          label="Visas expiring"
-          value={expiringVisaCount}
-          icon={BadgeCheck}
-          tone={expiringVisaCount ? 'pink' : 'emerald'}
-          href="/org/visa"
-          footer={{
-            kind: 'hint',
-            text: expiringVisaCount ? 'Within the next 120 days' : 'Nothing upcoming',
-          }}
-        />
-      </div>
-
-      {/* ------------------------------------------------------------ Charts */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-start justify-between gap-4">
-            <div className="min-w-0">
-              <CardTitle>Attendance</CardTitle>
-              <p className="mt-0.5 text-[13px] text-ink-muted">
-                Clock-ins per day over the last {TREND_DAYS} days. Weekends are shown faded.
-              </p>
-            </div>
-            {weekDelta !== null ? <DeltaChip percent={weekDelta} /> : null}
-          </CardHeader>
-          <CardContent className="px-3 pb-4 sm:px-4">
-            <AttendanceTrend data={attendanceSeries} headcount={totalEmployees} />
-
-            <div className="mt-4 border-t border-line px-1 pt-4 sm:px-2">
-              <div className="mb-1 flex items-baseline justify-between">
-                <p className="text-[13px] font-medium text-ink">Hours logged</p>
-                <p className="tabular text-[13px] text-ink-muted">
-                  {totalHoursFortnight.toLocaleString()} h in {TREND_DAYS} days
+      ) : (
+        <ul className="divide-y divide-line">
+          {rows.map((leave) => (
+            <li key={leave.id} className="flex items-center gap-3 px-5 py-3.5">
+              <PersonAvatar
+                name={displayName(leave.employee)}
+                email={leave.employee?.email ?? null}
+                photo={leave.employee?.photo_url ?? null}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{displayName(leave.employee)}</p>
+                <p className="truncate text-xs text-ink-muted">
+                  {leave.start_date} → {leave.end_date} · {leave.days}{' '}
+                  {leave.days === 1 ? 'day' : 'days'}
                 </p>
               </div>
-              <HoursTrend data={hoursSeries} />
-            </div>
-          </CardContent>
-        </Card>
+              <StatusChip status={leave.status} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
 
-        <div className="flex flex-col gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Today</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-6 pt-1">
-              <AttendanceGauge present={presentToday} total={totalEmployees} />
-            </CardContent>
-          </Card>
+async function RecentHiresCard({ tz }: { tz: string }) {
+  const hires = await loadRecentHires()
 
-          <Card className="flex-1">
-            <CardHeader>
-              <CardTitle>Operations</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ul className="divide-y divide-line">
-                <OperationRow
-                  icon={Briefcase}
-                  tone="orange"
-                  label="Active projects"
-                  value={activeProjects.count ?? 0}
-                  href="/org/projects"
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle>Recently added</CardTitle>
+        <ViewAll href="/org/employees" />
+      </CardHeader>
+      {hires.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="No employees yet"
+          description="Create accounts for your team and they will receive sign-in details by email."
+          action={
+            <Button asChild size="sm">
+              <Link href="/org/employees/onboard">Add your first employee</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <ul className="divide-y divide-line">
+          {hires.map((person) => (
+            <li key={person.id}>
+              <Link
+                href={`/org/employees/${person.id}`}
+                className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-page"
+              >
+                <PersonAvatar
+                  name={person.full_name}
+                  email={person.email}
+                  photo={person.photo_url}
                 />
-                <OperationRow
-                  icon={Timer}
-                  tone="pink"
-                  label="Timesheets to approve"
-                  value={pendingTimesheets.count ?? 0}
-                  href="/org/timesheets"
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {person.full_name || person.email}
+                  </p>
+                  <p className="truncate text-xs text-ink-muted">
+                    {person.designation || 'No designation'}
+                  </p>
+                </div>
+                <span className="shrink-0 text-xs text-ink-muted">
+                  {formatLocal(person.created_at, tz, 'd MMM')}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+async function ExpiringVisas({ tz }: { tz: string }) {
+  const { rows } = await loadExpiringVisas()
+  if (rows.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle>Upcoming work authorization expiries</CardTitle>
+        <ViewAll href="/org/visa" label="Manage" />
+      </CardHeader>
+      <CardContent className="p-0">
+        <ul className="divide-y divide-line">
+          {rows.map((visa) => {
+            const days = daysUntil(visa.expiry_date, tz)
+            return (
+              <li key={visa.id} className="flex items-center gap-3 px-5 py-3.5">
+                <PersonAvatar
+                  name={displayName(visa.employee)}
+                  email={visa.employee?.email ?? null}
+                  photo={null}
                 />
-                <OperationRow
-                  icon={LifeBuoy}
-                  tone="purple"
-                  label="Open tickets"
-                  value={openTickets.count ?? 0}
-                  href="/org/helpdesk"
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{displayName(visa.employee)}</p>
+                  <p className="text-xs text-ink-muted">
+                    {visa.visa_type} · expires {visa.expiry_date}
+                  </p>
+                </div>
+                <StatusChip
+                  status={days <= 7 ? 'urgent' : days <= 30 ? 'high' : 'medium'}
+                  label={days <= 0 ? 'Expired' : `${days} days`}
                 />
-              </ul>
-            </CardContent>
-          </Card>
+              </li>
+            )
+          })}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* --------------------------------------------------- Region-sized fallbacks */
+
+/** Matches AttendanceSection: a two-column-wide card holding plot + sub-plot. */
+function ChartCardSkeleton() {
+  return (
+    <div className="card-surface lg:col-span-2">
+      <div className="flex items-start justify-between gap-4 px-5 py-4">
+        <div className="min-w-0 space-y-2">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-72 max-w-full" />
+        </div>
+        <Skeleton className="h-6 w-16 shrink-0 rounded-full" />
+      </div>
+      <div className="px-3 pb-4 sm:px-4">
+        <Skeleton className="h-[200px] w-full rounded-lg" />
+        <div className="mt-4 border-t border-line px-1 pt-4 sm:px-2">
+          <div className="mb-2 flex items-baseline justify-between">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          <Skeleton className="h-[90px] w-full rounded-lg" />
         </div>
       </div>
+    </div>
+  )
+}
 
-      {/* ----------------------------------------------------------- Money ---
-        What this month cost and what came in. Deliberately three plain figures
-        and no chart: the useful question here is "are we up or down", and a
-        sparkline of two data points answers it worse than the number does.
-      */}
-      <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <div>
-            <CardTitle>This month</CardTitle>
-            <CardDescription>
-              Collected against everything spent, including payroll.
-            </CardDescription>
-          </div>
-          <ViewAll href="/org/expenses" label="Expenses" />
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MoneyFigure label="Revenue collected" value={formatMoney(revenue.total, currency)} />
-            <MoneyFigure label="Total spend" value={formatMoney(spend, currency)} />
-            <MoneyFigure
-              label={netResult >= 0 ? 'Profit' : 'Loss'}
-              value={formatMoney(Math.abs(netResult), currency)}
-              tone={netResult >= 0 ? 'good' : 'bad'}
-            />
-          </div>
-          {excludedRows > 0 ? (
-            // Said out loud rather than quietly converted — see src/lib/expenses.ts.
-            <p className="mt-3 text-xs text-ink-muted">
-              {excludedRows} {excludedRows === 1 ? 'entry is' : 'entries are'} in another currency
-              and {excludedRows === 1 ? 'is' : 'are'} not counted here. Nothing has been converted.
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
+/** The gauge is a wide arc with a figure under it. */
+function GaugeSkeleton() {
+  return (
+    <div className="flex flex-col items-center gap-3 py-2">
+      <Skeleton className="h-[86px] w-[170px] rounded-t-full" />
+      <Skeleton className="h-3 w-28" />
+    </div>
+  )
+}
 
-      {/* ------------------------------------------------------------- Lists */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Leave awaiting approval</CardTitle>
-            <ViewAll href="/org/leaves" />
-          </CardHeader>
-          {leaveRows.length === 0 ? (
-            <EmptyState
-              icon={CalendarOff}
-              title="No pending requests"
-              description="Leave applications from your team will appear here for approval."
-            />
-          ) : (
-            <ul className="divide-y divide-line">
-              {leaveRows.map((leave) => (
-                <li key={leave.id} className="flex items-center gap-3 px-5 py-3.5">
-                  <PersonAvatar
-                    name={displayName(leave.employee)}
-                    email={leave.employee?.email ?? null}
-                    photo={leave.employee?.photo_url ?? null}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{displayName(leave.employee)}</p>
-                    <p className="truncate text-xs text-ink-muted">
-                      {leave.start_date} → {leave.end_date} · {leave.days}{' '}
-                      {leave.days === 1 ? 'day' : 'days'}
-                    </p>
-                  </div>
-                  <StatusChip status={leave.status} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+function OperationRowsSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <li key={i} className="flex items-center gap-3 px-5 py-3.5">
+          <Skeleton className="size-9 shrink-0 rounded-lg" />
+          <Skeleton className="h-3.5 flex-1 max-w-[160px]" />
+          <Skeleton className="h-5 w-8 shrink-0" />
+        </li>
+      ))}
+    </>
+  )
+}
 
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Recently added</CardTitle>
-            <ViewAll href="/org/employees" />
-          </CardHeader>
-          {hires.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title="No employees yet"
-              description="Create accounts for your team and they will receive sign-in details by email."
-              action={
-                <Button asChild size="sm">
-                  <Link href="/org/employees/onboard">Add your first employee</Link>
-                </Button>
-              }
-            />
-          ) : (
-            <ul className="divide-y divide-line">
-              {hires.map((person) => (
-                <li key={person.id}>
-                  <Link
-                    href={`/org/employees/${person.id}`}
-                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-page"
-                  >
-                    <PersonAvatar
-                      name={person.full_name}
-                      email={person.email}
-                      photo={person.photo_url}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {person.full_name || person.email}
-                      </p>
-                      <p className="truncate text-xs text-ink-muted">
-                        {person.designation || 'No designation'}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-xs text-ink-muted">
-                      {formatLocal(person.created_at, tz, 'd MMM')}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      {visas.length > 0 ? (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Upcoming work authorization expiries</CardTitle>
-            <ViewAll href="/org/visa" label="Manage" />
-          </CardHeader>
-          <CardContent className="p-0">
-            <ul className="divide-y divide-line">
-              {visas.map((visa) => {
-                const days = daysUntil(visa.expiry_date, tz)
-                return (
-                  <li key={visa.id} className="flex items-center gap-3 px-5 py-3.5">
-                    <PersonAvatar
-                      name={displayName(visa.employee)}
-                      email={visa.employee?.email ?? null}
-                      photo={null}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{displayName(visa.employee)}</p>
-                      <p className="text-xs text-ink-muted">
-                        {visa.visa_type} · expires {visa.expiry_date}
-                      </p>
-                    </div>
-                    <StatusChip
-                      status={days <= 7 ? 'urgent' : days <= 30 ? 'high' : 'medium'}
-                      label={days <= 0 ? 'Expired' : `${days} days`}
-                    />
-                  </li>
-                )
-              })}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
+function MoneySkeleton() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="rounded-lg bg-page px-4 py-3">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="mt-2 h-6 w-24" />
+        </div>
+      ))}
     </div>
   )
 }

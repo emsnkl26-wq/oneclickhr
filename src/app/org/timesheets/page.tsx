@@ -1,7 +1,8 @@
+import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { PageHeader, LoadError } from '@/components/ui/patterns'
+import { PageHeader, LoadError, TableCardSkeleton } from '@/components/ui/patterns'
 import { LinkTabs } from '@/components/ui/link-tabs'
 import { HoursSheet, type SheetRow } from '@/components/timesheet/hours-sheet'
 import { TimesheetQueue, type QueueRow, type QueueTotals } from './timesheet-queue'
@@ -96,7 +97,6 @@ export default async function OrgTimesheetsPage({
   }>
 }) {
   const ctx = await requireOrg()
-  const supabase = await createSupabaseServerClient()
   const params = await searchParams
 
   const view: 'queue' | 'sheet' = params.view === 'sheet' ? 'sheet' : 'queue'
@@ -121,7 +121,56 @@ export default async function OrgTimesheetsPage({
     </>
   )
 
-  if (view === 'sheet') {
+  /*
+   * The frame is free; the data is not.
+   *
+   * Heading and view tabs come from the URL alone, so they are in the first
+   * flush of HTML and the tabs are clickable while the rows are still being
+   * read. That matters most on the two slowest paths this page has: the sheet
+   * view reads up to five hundred timesheet LINES across a quarter, and the
+   * queue totals sum up to five thousand rows to answer "approved, March,
+   * Priya". Both used to hold the heading and the tabs behind them.
+   *
+   * The boundary is keyed on everything that changes the result set, so moving
+   * between tabs, pages or date ranges shows a skeleton rather than leaving the
+   * previous view's rows on screen looking like the answer to the new question.
+   */
+  const boundaryKey = `${view}:${params.status ?? ''}:${params.q ?? ''}:${params.page ?? ''}:${from}:${to}`
+
+  return (
+    <div className="space-y-6">
+      {header}
+      {view === 'sheet' ? (
+        <Suspense key={boundaryKey} fallback={<TableCardSkeleton columns={9} rows={10} />}>
+          <SheetView ctx={ctx} from={from} to={to} />
+        </Suspense>
+      ) : (
+        <Suspense key={boundaryKey} fallback={<TableCardSkeleton columns={7} rows={10} />}>
+          <QueueView ctx={ctx} params={params} from={from} to={to} />
+        </Suspense>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- Streamed regions */
+
+/**
+ * SHEET — one row per project per week, seven day columns, for reconciling and
+ * exporting. The same component the employee's own Sheet page uses, so both
+ * sides of an invoice conversation are reading identical numbers.
+ */
+async function SheetView({
+  ctx,
+  from,
+  to,
+}: {
+  ctx: Awaited<ReturnType<typeof requireOrg>>
+  from: string
+  to: string
+}) {
+  const supabase = await createSupabaseServerClient()
+  {
     const thisWeek = weekStartSunday(todayIn(ctx.tenant.timezone))
     const rangeFrom = from || addDays(thisWeek, -7 * (DEFAULT_WEEKS - 1))
     const rangeTo = to || addDays(thisWeek, 7 * DEFAULT_WEEKS_AHEAD + 6)
@@ -168,9 +217,7 @@ export default async function OrgTimesheetsPage({
     if (sheetError) console.error('[org/timesheets sheet view] load failed', sheetError)
 
     return (
-      <div className="space-y-6">
-        {header}
-
+      <>
         {sheetError ? <LoadError what="The hours sheet" /> : null}
         <HoursSheet
           rows={rows}
@@ -180,9 +227,28 @@ export default async function OrgTimesheetsPage({
           showEmployee
           timesheetBasePath="/org/timesheets"
         />
-      </div>
+      </>
     )
   }
+}
+
+/**
+ * QUEUE — one row per timesheet, for deciding. Filtered, searched and paged by
+ * the database, with the employee's name as an EMBEDDED join rather than a
+ * follow-up `.in('id', …)` that could not start until this query returned.
+ */
+async function QueueView({
+  ctx,
+  params,
+  from,
+  to,
+}: {
+  ctx: Awaited<ReturnType<typeof requireOrg>>
+  params: { status?: string; q?: string; page?: string }
+  from: string
+  to: string
+}) {
+  const supabase = await createSupabaseServerClient()
 
   const filter: Filter = FILTERS.includes(params.status as Filter)
     ? (params.status as Filter)
@@ -256,21 +322,18 @@ export default async function OrgTimesheetsPage({
   }))
 
   return (
-    <div className="space-y-6">
-      {header}
-      <TimesheetQueue
-        timesheets={rows}
-        total={count ?? rows.length}
-        page={page}
-        perPage={PER_PAGE}
-        filter={filter}
-        pendingCount={pending.count ?? 0}
-        totals={totals}
-        searching={!!search || !!from || !!to}
-        from={from}
-        to={to}
-        timezone={ctx.tenant.timezone}
-      />
-    </div>
+    <TimesheetQueue
+      timesheets={rows}
+      total={count ?? rows.length}
+      page={page}
+      perPage={PER_PAGE}
+      filter={filter}
+      pendingCount={pending.count ?? 0}
+      totals={totals}
+      searching={!!search || !!from || !!to}
+      from={from}
+      to={to}
+      timezone={ctx.tenant.timezone}
+    />
   )
 }

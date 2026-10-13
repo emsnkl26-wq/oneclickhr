@@ -625,6 +625,16 @@ export interface CurrentProfile {
   tenant_domain_due_at: string | null
   /** Added by 034. Optional so a database without it applied still type-checks. */
   tenant_default_currency?: string | null
+  /**
+   * Added by 060. Is the session behind the caller's JWT still live?
+   *
+   * `true` live, `false` revoked, `null` cannot tell. OPTIONAL, and the
+   * optionality is load-bearing rather than cosmetic: `undefined` is what a
+   * database without 060 applied returns, and src/lib/auth/context.ts treats
+   * that exactly like `null` — no evidence — and re-verifies against the auth
+   * server instead. Never narrow this to `boolean`.
+   */
+  session_active?: boolean | null
 }
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,9 @@
+import { Suspense, cache } from 'react'
 import type { Metadata } from 'next'
 import { TrendingUp, TrendingDown, Scale, Percent, CircleCheck, Clock } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { PageHeader, StatCard } from '@/components/ui/patterns'
+import { PageHeader, StatCard, Skeleton, StatCardSkeleton } from '@/components/ui/patterns'
 import { categoryLabel } from '@/lib/expenses'
 import { formatMoney } from '@/lib/utils'
 import { todayIn } from '@/lib/time'
@@ -20,6 +21,8 @@ export const dynamic = 'force-dynamic'
 
 const PAGE = 1000
 const MAX_PAGES = 20
+
+type Range = ReturnType<typeof resolveRange>
 
 /**
  * Page through a query so a busy workspace is not silently truncated at
@@ -50,6 +53,14 @@ async function fetchAll<T>(
  *
  * TENANT SCOPE: every query runs on the user's session, so RLS limits it to
  * this workspace; each also filters on `tenant_id` explicitly as a second lock.
+ *
+ * STREAMING. The page has two halves that share nothing but a currency symbol:
+ * the ALL-TIME receivables pair, and everything derived from the chosen WINDOW
+ * (four headline cards, two charts, the category breakdown). The window half is
+ * the expensive one — three paged reads, each capable of twenty sequential
+ * round trips on a busy workspace — and it used to hold the receivables behind
+ * it in the same `Promise.all`. They are separate regions now, so changing the
+ * range re-renders the half that depends on it and leaves the other alone.
  */
 export default async function FinancePage({
   searchParams,
@@ -57,15 +68,86 @@ export default async function FinancePage({
   searchParams: Promise<{ range?: string; from?: string; to?: string }>
 }) {
   const ctx = await requireOrg()
-  const supabase = await createSupabaseServerClient()
   const today = todayIn(ctx.tenant.timezone)
   const range = resolveRange(await searchParams, today)
   const currency = ctx.tenant.defaultCurrency ?? 'USD'
 
-  const startYear = Number(range.prevFrom.slice(0, 4))
-  const endYear = Number(range.to.slice(0, 4))
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Finance overview"
+        description={`Money in from paid invoices against expenses and payroll · ${range.from} to ${range.to}`}
+        actions={<RangePicker preset={range.preset} from={range.from} to={range.to} />}
+      />
 
-  const [invoices, expenses, confirmations, receivables] = await Promise.all([
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Suspense
+          key={`${range.from}:${range.to}`}
+          fallback={
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          }
+        >
+          <WindowTotals range={range} currency={currency} />
+        </Suspense>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Suspense
+          fallback={
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          }
+        >
+          <Receivables currency={currency} today={today} />
+        </Suspense>
+      </div>
+
+      {/*
+        One boundary over all three window-derived panels rather than three.
+        They are computed from a SINGLE in-memory row set, so splitting them
+        would not start anything sooner — it would only make the page arrive in
+        three visual steps for no gain. The boundary is keyed on the range so
+        picking a new one shows skeletons rather than the previous window's
+        numbers sitting there looking current.
+      */}
+      <Suspense key={`charts:${range.from}:${range.to}`} fallback={<WindowPanelsSkeleton />}>
+        <WindowPanels range={range} currency={currency} />
+      </Suspense>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- Streamed regions */
+
+/**
+ * The three paged reads behind every windowed figure on the page, flattened
+ * into one date-stamped row set.
+ *
+ * `cache()`d on PRIMITIVES, not on the range object. Two regions need this row
+ * set — the headline cards and the three panels — and without memoization the
+ * split would have run all three paged reads twice, turning a first-paint win
+ * into double the database work. `cache()` keys on argument identity, so
+ * passing the range object itself would only deduplicate while both callers
+ * happened to share one reference; two strings cannot drift that way.
+ */
+const loadWindowRows = cache(async function loadWindowRows(
+  prevFrom: string,
+  to: string
+): Promise<MoneyRow[]> {
+  const ctx = await requireOrg()
+  const supabase = await createSupabaseServerClient()
+
+  const startYear = Number(prevFrom.slice(0, 4))
+  const endYear = Number(to.slice(0, 4))
+
+  const [invoices, expenses, confirmations] = await Promise.all([
     fetchAll<{ total: number; amount_paid: number; currency: string; status: string; paid_at: string }>(
       (a, b) =>
         supabase
@@ -73,8 +155,8 @@ export default async function FinancePage({
           .select('total, amount_paid, currency, status, paid_at')
           .eq('tenant_id', ctx.tenantId)
           .in('status', ['paid', 'partially_paid'])
-          .gte('paid_at', range.prevFrom)
-          .lte('paid_at', range.to)
+          .gte('paid_at', prevFrom)
+          .lte('paid_at', to)
           .order('paid_at')
           .range(a, b)
     ),
@@ -84,8 +166,8 @@ export default async function FinancePage({
           .from('expenses')
           .select('amount, currency, spent_on, category')
           .eq('tenant_id', ctx.tenantId)
-          .gte('spent_on', range.prevFrom)
-          .lte('spent_on', range.to)
+          .gte('spent_on', prevFrom)
+          .lte('spent_on', to)
           .order('spent_on')
           .range(a, b)
     ),
@@ -102,11 +184,9 @@ export default async function FinancePage({
           .order('month')
           .range(a, b)
     ),
-    // All-time, whatever the window: what has come in, and what is still owed.
-    invoiceSummary(supabase, ctx.tenantId, currency, today),
   ])
 
-  const rows: MoneyRow[] = [
+  return [
     ...invoices.map((inv) => ({
       date: inv.paid_at,
       // A paid invoice counts its total even if an older row never had
@@ -131,82 +211,99 @@ export default async function FinancePage({
         kind: 'payroll' as const,
       })),
   ]
+})
 
+/** `▲ 12.4% vs previous period (₹40,000) — better`, or a note that it is new. */
+function changeLine(now: number, before: number, currency: string, goodWhenUp = true) {
+  const pct = percentChange(now, before)
+  if (pct === null) return 'New this period — nothing in the previous one'
+  const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '•'
+  const verdict = pct === 0 ? '' : (pct > 0) === goodWhenUp ? ' — better' : ' — worse'
+  return `${arrow} ${Math.abs(pct).toFixed(1)}% vs previous period (${formatMoney(before, currency)})${verdict}`
+}
+
+async function WindowTotals({ range, currency }: { range: Range; currency: string }) {
+  const rows = await loadWindowRows(range.prevFrom, range.to)
+  const current = totalsFor(rows, range.from, range.to, currency)
+  const previous = totalsFor(rows, range.prevFrom, range.prevTo, currency)
+  const margin = current.earned > 0 ? (current.net / current.earned) * 100 : null
+  const money = (value: number) => formatMoney(value, currency)
+
+  return (
+    <>
+      <StatCard
+        label="Earned"
+        value={money(current.earned)}
+        hint={changeLine(current.earned, previous.earned, currency)}
+        icon={TrendingUp}
+        tone="emerald"
+      />
+      <StatCard
+        label="Spent"
+        value={money(current.spent)}
+        hint={changeLine(current.spent, previous.spent, currency, false)}
+        icon={TrendingDown}
+        tone="orange"
+      />
+      <StatCard
+        label="Net"
+        value={money(current.net)}
+        hint={changeLine(current.net, previous.net, currency)}
+        icon={Scale}
+        accent={current.net < 0}
+      />
+      <StatCard
+        label="Net margin"
+        value={margin === null ? '—' : `${margin.toFixed(1)}%`}
+        hint={`Expenses ${money(current.expenses)} · Payroll ${money(current.payroll)}`}
+        icon={Percent}
+      />
+    </>
+  )
+}
+
+/** All-time, whatever the window: what has come in, and what is still owed. */
+async function Receivables({ currency, today }: { currency: string; today: string }) {
+  const ctx = await requireOrg()
+  const supabase = await createSupabaseServerClient()
+  const receivables = await invoiceSummary(supabase, ctx.tenantId, currency, today)
+  const money = (value: number) => formatMoney(value, currency)
+
+  return (
+    <>
+      <StatCard
+        label="Total earned (all time)"
+        value={money(receivables.earned)}
+        hint={`Every invoice marked paid — ${receivables.paidCount} so far`}
+        icon={CircleCheck}
+        tone="emerald"
+        href="/org/invoices?status=paid"
+      />
+      <StatCard
+        label="Pending"
+        value={money(receivables.pending)}
+        hint={
+          `${receivables.pendingCount} invoice${receivables.pendingCount === 1 ? '' : 's'} not yet paid` +
+          (receivables.overdue > 0 ? ` · ${money(receivables.overdue)} overdue` : '')
+        }
+        icon={Clock}
+        tone="orange"
+        href="/org/invoices"
+      />
+    </>
+  )
+}
+
+async function WindowPanels({ range, currency }: { range: Range; currency: string }) {
+  const rows = await loadWindowRows(range.prevFrom, range.to)
   const current = totalsFor(rows, range.from, range.to, currency)
   const previous = totalsFor(rows, range.prevFrom, range.prevTo, currency)
   const series = buildSeries(rows, range, currency)
   const categories = byCategory(rows, range.from, range.to, currency)
-  const margin = current.earned > 0 ? (current.net / current.earned) * 100 : null
-
   const money = (value: number) => formatMoney(value, currency)
-  const change = (now: number, before: number, goodWhenUp = true) => {
-    const pct = percentChange(now, before)
-    if (pct === null) return `New this period — nothing in the previous one`
-    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '•'
-    const verdict = pct === 0 ? '' : (pct > 0) === goodWhenUp ? ' — better' : ' — worse'
-    return `${arrow} ${Math.abs(pct).toFixed(1)}% vs previous period (${money(before)})${verdict}`
-  }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Finance overview"
-        description={`Money in from paid invoices against expenses and payroll · ${range.from} to ${range.to}`}
-        actions={<RangePicker preset={range.preset} from={range.from} to={range.to} />}
-      />
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Earned"
-          value={money(current.earned)}
-          hint={change(current.earned, previous.earned)}
-          icon={TrendingUp}
-          tone="emerald"
-        />
-        <StatCard
-          label="Spent"
-          value={money(current.spent)}
-          hint={change(current.spent, previous.spent, false)}
-          icon={TrendingDown}
-          tone="orange"
-        />
-        <StatCard
-          label="Net"
-          value={money(current.net)}
-          hint={change(current.net, previous.net)}
-          icon={Scale}
-          accent={current.net < 0}
-        />
-        <StatCard
-          label="Net margin"
-          value={margin === null ? '—' : `${margin.toFixed(1)}%`}
-          hint={`Expenses ${money(current.expenses)} · Payroll ${money(current.payroll)}`}
-          icon={Percent}
-        />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <StatCard
-          label="Total earned (all time)"
-          value={money(receivables.earned)}
-          hint={`Every invoice marked paid — ${receivables.paidCount} so far`}
-          icon={CircleCheck}
-          tone="emerald"
-          href="/org/invoices?status=paid"
-        />
-        <StatCard
-          label="Pending"
-          value={money(receivables.pending)}
-          hint={
-            `${receivables.pendingCount} invoice${receivables.pendingCount === 1 ? '' : 's'} not yet paid` +
-            (receivables.overdue > 0 ? ` · ${money(receivables.overdue)} overdue` : '')
-          }
-          icon={Clock}
-          tone="orange"
-          href="/org/invoices"
-        />
-      </div>
-
+    <>
       <section className="card-surface space-y-4 p-5">
         <div>
           <h2 className="text-[15px] font-semibold text-ink">Earned vs spent</h2>
@@ -265,6 +362,41 @@ export default async function FinancePage({
           left out rather than converted.
         </p>
       ) : null}
-    </div>
+    </>
+  )
+}
+
+function WindowPanelsSkeleton() {
+  return (
+    <>
+      <section className="card-surface space-y-4 p-5">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-3 w-56" />
+        </div>
+        <Skeleton className="h-[260px] w-full rounded-lg" />
+      </section>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <section className="card-surface space-y-4 p-5">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-3 w-64 max-w-full" />
+          </div>
+          <Skeleton className="h-[220px] w-full rounded-lg" />
+        </section>
+        <section className="card-surface space-y-3 p-5">
+          <Skeleton className="h-4 w-44" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+              <Skeleton className="h-1.5 w-full rounded-full" />
+            </div>
+          ))}
+        </section>
+      </div>
+    </>
   )
 }
