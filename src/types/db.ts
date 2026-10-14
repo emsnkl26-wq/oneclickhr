@@ -1352,14 +1352,29 @@ export interface Conversation {
   created_by: string | null
   /** Archived rooms are readable history and refuse new messages. */
   archived_at: string | null
+  /**
+   * WHEN it last moved, and deliberately not what was said.
+   *
+   * A timestamp is ordering metadata; a message's text is content, and RLS is
+   * row level — an org administrator may select a room's row, so any column
+   * here is a column they can read. The preview therefore lives in
+   * `conversation_previews`, which is members-only.
+   */
   last_message_at: string
-  last_message_text: string | null
-  last_message_by: string | null
-  last_message_kind: MessageKind | null
   /** The two profile ids, sorted — the uniqueness rule for a DM. */
   direct_key: string | null
   created_at: string
   updated_at: string
+}
+
+/** The conversation list's one line of content. Members only — see 062. */
+export interface ConversationPreview {
+  conversation_id: string
+  tenant_id: string
+  last_message_at: string
+  last_message_text: string | null
+  last_message_by: string | null
+  last_message_kind: MessageKind | null
 }
 
 export interface ConversationMemberRow {

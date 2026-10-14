@@ -86,10 +86,23 @@ interface ConversationRow {
   created_by: string | null
   archived_at: string | null
   last_message_at: string
+  direct_key: string | null
+}
+
+/**
+ * The conversation list's one line of content.
+ *
+ * A SEPARATE TABLE AND THEREFORE A SEPARATE QUERY, because its policy is
+ * membership while `conversations` admits an administrator to the rooms it
+ * manages — see the header of `conversation_previews` in 062. The practical
+ * consequence here is pleasant: an observer's query simply returns no preview
+ * row, so there is nothing to remember to blank out.
+ */
+interface PreviewRow {
+  conversation_id: string
   last_message_text: string | null
   last_message_by: string | null
   last_message_kind: MessageKind | null
-  direct_key: string | null
 }
 
 interface MemberRow {
@@ -119,7 +132,7 @@ interface MessageRowShape {
 
 const CONVERSATION_COLUMNS =
   'id, kind, name, description, color, avatar_url, project_id, posting, created_by, ' +
-  'archived_at, last_message_at, last_message_text, last_message_by, last_message_kind, direct_key'
+  'archived_at, last_message_at, direct_key'
 
 const MESSAGE_COLUMNS =
   'id, conversation_id, sender_id, sender_name, kind, body, reply_to_id, mentions, ' +
@@ -189,11 +202,12 @@ export async function listConversations(
 
   let memberRows: MemberRow[] = []
   let projects: Array<{ id: string; code: string; name: string }> = []
+  let previews: PreviewRow[] = []
   if (ids.length) {
     const projectIds = Array.from(
       new Set(conversationRows.map((row) => row.project_id).filter((id): id is string => !!id))
     )
-    const [members, projectData] = await Promise.all([
+    const [members, projectData, previewData] = await Promise.all([
       supabase
         .from('conversation_members')
         .select('conversation_id, profile_id, role, last_read_at, muted, pinned')
@@ -201,9 +215,14 @@ export async function listConversations(
       projectIds.length
         ? supabase.from('projects').select('id, code, name').in('id', projectIds)
         : Promise.resolve({ data: [] as Array<{ id: string; code: string; name: string }> }),
+      supabase
+        .from('conversation_previews')
+        .select('conversation_id, last_message_text, last_message_by, last_message_kind')
+        .in('conversation_id', ids),
     ])
     memberRows = (members.data ?? []) as MemberRow[]
     projects = (projectData.data ?? []) as Array<{ id: string; code: string; name: string }>
+    previews = (previewData.data ?? []) as unknown as PreviewRow[]
   }
 
   const unreadById = new Map<string, number>(
@@ -214,11 +233,13 @@ export async function listConversations(
   )
   const personById = new Map(people.map((person) => [person.id, person]))
   const projectById = new Map(projects.map((project) => [project.id, project]))
+  const previewById = new Map(previews.map((preview) => [preview.conversation_id, preview]))
 
   const summaries = conversationRows.map((row) =>
     summarize(row, {
       members: memberRows.filter((member) => member.conversation_id === row.id),
       personById,
+      preview: previewById.get(row.id) ?? null,
       project: row.project_id ? projectById.get(row.project_id) ?? null : null,
       unread: unreadById.get(row.id) ?? 0,
       viewerId: ctx.userId,
@@ -238,6 +259,8 @@ function summarize(
   args: {
     members: MemberRow[]
     personById: Map<string, MessagingPerson>
+    /** Null for an observer — their policy returns no preview row at all. */
+    preview: PreviewRow | null
     project: { id: string; code: string; name: string } | null
     unread: number
     viewerId: string
@@ -287,9 +310,19 @@ function summarize(
       .filter((person): person is MessagingPerson => !!person)
       .slice(0, 4),
     lastMessageAt: row.last_message_at,
-    lastMessageText: mine ? row.last_message_text : null,
-    lastMessageBy: mine ? row.last_message_by : null,
-    lastMessageKind: mine ? row.last_message_kind : null,
+    /*
+     * No `mine ? …` guard, and that is the improvement.
+     *
+     * The preview used to be a column on `conversations`, which an
+     * administrator can read, so every field had to be blanked here by hand —
+     * one forgotten ternary away from leaking the latest line of every group.
+     * It is now its own members-only table, so an observer's query returns
+     * nothing and the privacy rule is enforced by Postgres rather than by this
+     * expression remembering to.
+     */
+    lastMessageText: args.preview?.last_message_text ?? null,
+    lastMessageBy: args.preview?.last_message_by ?? null,
+    lastMessageKind: args.preview?.last_message_kind ?? null,
     unread: args.unread,
     muted: mine?.muted ?? false,
     pinned: mine?.pinned ?? false,
@@ -364,6 +397,10 @@ export async function loadConversation(
   const summary = summarize(conversation, {
     members,
     personById,
+    // The thread shows the messages themselves, so the list's one-line preview
+    // is of no use to it. Unread is zero for the same reason: opening a
+    // conversation is reading it.
+    preview: null,
     project,
     unread: 0,
     viewerId: ctx.userId,
@@ -1024,7 +1061,7 @@ export async function sendMessage(
   }
 
   // Reading your own message is implied by sending it.
-  await markRead(supabase, conversationId, data.created_at as string)
+  await markRead(supabase, conversationId, ctx.userId, data.created_at as string)
 
   return { id: data.id as string, createdAt: data.created_at as string }
 }
@@ -1047,16 +1084,31 @@ export async function conversationRoster(
 }
 
 /**
- * Move the caller's read mark forward.
+ * Move one person's read mark forward.
  *
- * NEVER BACKWARDS. Two tabs on the same account settle in whichever order the
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ `profileId` IS NOT OPTIONAL, AND THE FILTER IS NOT BELT AND BRACES      │
+ * │                                                                          │
+ * │ `conversation_members_update` admits two cases: your own row, or any row  │
+ * │ in a room you administer. An UPDATE filtered only by `conversation_id`    │
+ * │ therefore does the right thing for an ordinary member and, for a room     │
+ * │ administrator, silently stamps EVERY member's `last_read_at` — clearing   │
+ * │ the whole room's unread counts and falsely ticking their read receipts    │
+ * │ because one admin scrolled to the bottom.                                │
+ * │                                                                          │
+ * │ The policy cannot catch that: every row it touched was a row it was       │
+ * │ allowed to touch. The scoping has to be here.                            │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ *
+ * NEVER BACKWARDS. Two tabs on one account settle in whichever order their
  * requests land, and a stale one writing an older timestamp would resurrect
- * unread counts somebody has already cleared. The `gte` filter makes the write
- * a no-op in that case instead of a regression.
+ * unread counts somebody has already cleared. The `lt` filter makes that case a
+ * no-op rather than a regression.
  */
 export async function markRead(
   supabase: SupabaseClient,
   conversationId: string,
+  profileId: string,
   at?: string
 ): Promise<void> {
   const stamp = at ?? new Date().toISOString()
@@ -1064,6 +1116,7 @@ export async function markRead(
     .from('conversation_members')
     .update({ last_read_at: stamp })
     .eq('conversation_id', conversationId)
+    .eq('profile_id', profileId)
     .or(`last_read_at.is.null,last_read_at.lt.${stamp}`)
 }
 

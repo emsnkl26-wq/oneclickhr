@@ -116,12 +116,20 @@ create table if not exists public.conversations (
   posting            public.conversation_posting not null default 'everyone',
   created_by         uuid references public.profiles(id) on delete set null,
   archived_at        timestamptz,
-  -- Written by tg_messages_after_write. Defaults to creation so a brand-new
-  -- room sorts to the top of the list before anybody has said anything.
+  /*
+   * WHEN this conversation last moved — and deliberately NOT what was said.
+   *
+   * A timestamp is ordering metadata; the text of a message is content. The
+   * distinction matters because RLS is ROW level, not column level: an org
+   * administrator may select a room's row (see `conversations_select`), so any
+   * column on this table is a column they can read. A `last_message_text` here
+   * would have handed every administrator the latest line of every group in the
+   * workspace — the privacy rule above, defeated by a cache.
+   *
+   * So the preview lives in `conversation_previews`, whose own policy is
+   * membership. Written by `tg_messages_after_write`, same as this.
+   */
   last_message_at    timestamptz not null default now(),
-  last_message_text  text,
-  last_message_by    text,
-  last_message_kind  public.message_kind,
   direct_key         text,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now(),
@@ -151,6 +159,45 @@ create unique index if not exists conversations_project_uq
 
 create index if not exists conversations_tenant_recent_idx
   on public.conversations (tenant_id, last_message_at desc);
+
+/*
+ * An earlier revision of this file kept the preview on `conversations`. Dropped
+ * here rather than left in place, because a column nothing writes any more is a
+ * column that still holds the last message it was given — and still readable to
+ * every administrator in the workspace.
+ */
+alter table public.conversations drop column if exists last_message_text;
+alter table public.conversations drop column if exists last_message_by;
+alter table public.conversations drop column if exists last_message_kind;
+
+-- ---------------------------------------------------------------------------
+-- 2b. conversation_previews — the sidebar's one line of content.
+--
+-- One row per conversation, maintained by `tg_messages_after_write`, holding
+-- the TEXT the conversation list shows under each title. It is a cache of the
+-- newest message and never a source of truth.
+--
+-- IT IS ITS OWN TABLE FOR ONE REASON: so it can have its own SELECT policy.
+-- `conversations_select` admits an org administrator to rooms it manages, which
+-- it must in order to manage them; `conversation_previews_select` is membership
+-- and nothing else. Putting the preview on `conversations` would have made the
+-- latest line of every group readable to every administrator, because row-level
+-- security cannot hide a column.
+--
+-- Nothing but the trigger writes it, so `authenticated` gets SELECT alone.
+-- ---------------------------------------------------------------------------
+create table if not exists public.conversation_previews (
+  conversation_id   uuid primary key,
+  tenant_id         uuid not null references public.tenants(id) on delete cascade,
+  last_message_at   timestamptz not null default now(),
+  last_message_text text,
+  last_message_by   text,
+  last_message_kind public.message_kind,
+  foreign key (conversation_id, tenant_id) references public.conversations (id, tenant_id) on delete cascade
+);
+
+create index if not exists conversation_previews_tenant_idx
+  on public.conversation_previews (tenant_id);
 
 drop trigger if exists set_updated_at on public.conversations;
 create trigger set_updated_at before update on public.conversations
@@ -492,12 +539,17 @@ create trigger conversations_direct_key before insert or update on public.conver
   for each row execute function public.tg_conversations_direct_key();
 
 /**
- * Keep the conversation's list row current.
+ * Keep the conversation's ordering timestamp and its preview current.
+ *
+ * TWO TABLES, ONE TRIGGER, because the two halves of "what happened last" have
+ * different audiences: the timestamp is on `conversations`, which an
+ * administrator may read, and the text is in `conversation_previews`, which
+ * only members may. See the header of each.
  *
  * The preview is TRUNCATED here rather than at read time, so the list query
  * never pulls 8KB of message body per row.
  *
- * It re-reads the newest surviving message rather than copying NEW, and that is
+ * It RE-READS the newest surviving message rather than copying NEW, and that is
  * the whole reason it fires on UPDATE too: retracting the last message has to
  * rewrite the preview, or "sure, see you at 4" stays in the sidebar after its
  * sender took it back — the one place a soft delete must not leak.
@@ -509,7 +561,9 @@ security definer
 set search_path = public, auth, pg_temp
 as $$
 declare
-  v_last public.messages%rowtype;
+  v_last    public.messages%rowtype;
+  v_at      timestamptz;
+  v_preview text;
 begin
   select m.* into v_last
     from public.messages m
@@ -518,21 +572,31 @@ begin
    order by m.created_at desc, m.id desc
    limit 1;
 
+  v_preview := case
+                 when v_last.id is null then null
+                 when v_last.kind = 'system' then v_last.body
+                 when v_last.body is not null and btrim(v_last.body) <> ''
+                   then left(v_last.body, 180)
+                 when v_last.kind = 'image' then 'Photo'
+                 when v_last.kind = 'voice' then 'Voice message'
+                 when v_last.kind = 'file'  then 'Attachment'
+                 else null
+               end;
+
   update public.conversations c
-     set last_message_at   = coalesce(v_last.created_at, c.created_at),
-         last_message_text = case
-                               when v_last.id is null then null
-                               when v_last.kind = 'system' then v_last.body
-                               when v_last.body is not null and btrim(v_last.body) <> ''
-                                 then left(v_last.body, 180)
-                               when v_last.kind = 'image' then 'Photo'
-                               when v_last.kind = 'voice' then 'Voice message'
-                               when v_last.kind = 'file'  then 'Attachment'
-                               else null
-                             end,
-         last_message_by   = v_last.sender_name,
-         last_message_kind = v_last.kind
-   where c.id = new.conversation_id;
+     set last_message_at = coalesce(v_last.created_at, c.created_at)
+   where c.id = new.conversation_id
+  returning c.last_message_at into v_at;
+
+  insert into public.conversation_previews as p
+       (conversation_id, tenant_id, last_message_at, last_message_text, last_message_by, last_message_kind)
+  values (new.conversation_id, new.tenant_id, coalesce(v_at, now()), v_preview,
+          v_last.sender_name, v_last.kind)
+  on conflict (conversation_id) do update
+     set last_message_at   = excluded.last_message_at,
+         last_message_text = excluded.last_message_text,
+         last_message_by   = excluded.last_message_by,
+         last_message_kind = excluded.last_message_kind;
 
   return null;
 end;
@@ -735,6 +799,8 @@ grant execute on function public.messaging_unread() to authenticated, service_ro
 
 alter table public.conversations        enable row level security;
 alter table public.conversations        force  row level security;
+alter table public.conversation_previews enable row level security;
+alter table public.conversation_previews force  row level security;
 alter table public.conversation_members enable row level security;
 alter table public.conversation_members force  row level security;
 alter table public.messages             enable row level security;
@@ -789,6 +855,22 @@ with check (tenant_id = (select app.current_tenant_id()) and app.is_conversation
 drop policy if exists conversations_delete on public.conversations;
 create policy conversations_delete on public.conversations for delete to authenticated
 using (tenant_id = (select app.current_tenant_id()) and app.is_conversation_admin(id));
+
+-- ---- conversation_previews ------------------------------------------------
+
+/*
+ * MEMBERSHIP, WITH NO ADMINISTRATOR ARM. This is the whole reason the preview
+ * is not a column on `conversations`: that table's policy admits an org
+ * administrator to the rooms it manages, and row-level security cannot then
+ * withhold one column from them.
+ *
+ * There is no INSERT, UPDATE or DELETE policy at all. The only writer is
+ * `tg_messages_after_write`, and a preview a client could write is a sidebar
+ * line that can disagree with the conversation it describes.
+ */
+drop policy if exists conversation_previews_select on public.conversation_previews;
+create policy conversation_previews_select on public.conversation_previews for select to authenticated
+using (tenant_id = (select app.current_tenant_id()) and app.can_read_conversation(conversation_id));
 
 -- ---- conversation_members -------------------------------------------------
 
@@ -1010,6 +1092,13 @@ begin
   end loop;
 end $$;
 
+-- The preview is derived, so a session may READ it and nothing more. The grant
+-- is the second lock after "no write policy exists" — belt and braces on the
+-- one table whose correctness is somebody else's trigger.
+revoke all on public.conversation_previews from anon;
+grant select on public.conversation_previews to authenticated;
+grant all on public.conversation_previews to service_role;
+
 -- ---------------------------------------------------------------------------
 -- 12. Realtime
 --
@@ -1054,6 +1143,9 @@ alter table public.message_reactions    replica identity full;
 comment on table public.conversations is
   'A direct message, a group or a project room. Readable only to its members — '
   'an org administrator sees the metadata of rooms it manages, never content.';
+comment on table public.conversation_previews is
+  'The conversation list''s one line of content, maintained by tg_messages_after_write. '
+  'Separate from conversations so it can be members-only: RLS cannot hide a column.';
 comment on table public.conversation_members is
   'Who is in a conversation, and what they have read. last_read_at is the whole '
   'unread model; see messaging_unread().';

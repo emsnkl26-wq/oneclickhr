@@ -28,7 +28,7 @@ async function handlePOST(_request: NextRequest, { params }: Params) {
 
   const conversationId = uuidSchema.parse((await params).id)
   const supabase = await createSupabaseServerClient()
-  await markRead(supabase, conversationId)
+  await markRead(supabase, conversationId, gate.ctx.userId)
 
   return jsonOk({ ok: true })
 }
