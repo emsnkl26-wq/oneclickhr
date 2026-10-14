@@ -275,15 +275,28 @@ create table if not exists public.messages (
   system_event    text check (system_event is null or length(system_event) <= 64),
   system_meta     jsonb,
   created_at      timestamptz not null default now(),
-  foreign key (conversation_id, tenant_id) references public.conversations (id, tenant_id) on delete cascade,
-  -- Tenant-carrying self reference: a reply can never point at another tenant's
-  -- message. Nulls out rather than cascading — losing the quoted message must
-  -- not delete the answer to it.
-  foreign key (reply_to_id, tenant_id) references public.messages (id, tenant_id) on delete set null
+  foreign key (conversation_id, tenant_id) references public.conversations (id, tenant_id) on delete cascade
 );
 
 do $$ begin
   alter table public.messages add constraint messages_id_tenant_uq unique (id, tenant_id);
+exception when duplicate_object then null; end $$;
+
+/*
+ * The reply pointer: tenant-carrying, so a reply can never quote another
+ * tenant's message. ON DELETE SET NULL rather than cascade — losing the quoted
+ * message must not delete the answer to it.
+ *
+ * ADDED AFTER THE TABLE, NOT INSIDE IT, and that is not style. A foreign key
+ * needs a unique constraint on the columns it targets, and `(id, tenant_id)`
+ * only becomes unique in the statement above. Declared inline in the CREATE
+ * TABLE — where it was first written — it references a constraint that does not
+ * exist yet and the whole migration fails on its first run.
+ */
+do $$ begin
+  alter table public.messages add constraint messages_reply_fk
+    foreign key (reply_to_id, tenant_id) references public.messages (id, tenant_id)
+    on delete set null;
 exception when duplicate_object then null; end $$;
 
 -- A system message has no author and says what happened; everything else has an
