@@ -30,7 +30,8 @@ import 'server-only'
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
-import { notifyEmployee } from '@/lib/notify'
+import { sendPushToUsers } from '@/lib/push/send'
+import { cardPathFor } from '@/lib/notifications/events'
 import { truncate } from '@/lib/utils'
 import {
   attachmentKindFor,
@@ -1073,25 +1074,52 @@ export async function markRead(
 /**
  * Tell the room's other members that something was said.
  *
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ A MESSAGE IS A PUSH, NOT A NOTIFICATION ROW                              │
+ * │                                                                          │
+ * │ Every other event in this product goes through `notifyEmployee`, which    │
+ * │ writes a durable `notifications` row and then delivers it. That is right  │
+ * │ for a decided timesheet and wrong for a chat message, by two orders of    │
+ * │ magnitude: a single busy afternoon in one group is several hundred rows    │
+ * │ per member, and the bell — which is where people look for the rejected     │
+ * │ timesheet — becomes a transcript of the day's small talk. The important    │
+ * │ notices would still be in there, three hundred rows down.                 │
+ * │                                                                          │
+ * │ Messaging already HAS a durable in-app surface, and it is a better one:   │
+ * │ the unread count on the conversation, derived from `last_read_at`, which   │
+ * │ clears itself when the thread is read and cannot drift out of step with    │
+ * │ it. So this sends the push and writes nothing. That is what WhatsApp and   │
+ * │ Slack do, and for the same reason.                                       │
+ * │                                                                          │
+ * │ Being ADDED to a conversation is the opposite case — rare, durable, and    │
+ * │ the only way somebody learns a room exists — so THAT one does write a     │
+ * │ row (see the members route), which is why `message.received` is in the    │
+ * │ catalog at all.                                                          │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ *
  * WHO GETS ONE. Everybody in the conversation except the sender and except
- * anybody who muted it. A mention overrides the mute, because "notify me when
- * I am named" is the one thing people mean by muting a busy room rather than
+ * anybody who muted it. A MENTION OVERRIDES THE MUTE, because "tell me when I
+ * am named" is precisely what people mean by muting a busy room rather than
  * leaving it.
  *
- * WHAT IT SAYS. For a direct message, the sender's name is the title and that
- * is the whole point. For a room, the room's name is the title and the sender
- * is the first thing in the body, the way every other messaging product does
- * it, because "New message" tells somebody nothing about whether to look.
+ * WHAT IT SAYS. For a direct message the sender's name is the title, which is
+ * the whole of what the reader needs. For a room the room's name is the title
+ * and the sender opens the body, the way every other messaging product does it,
+ * because "New message" does not help anybody decide whether to look.
  *
- * The recipient list is read with the service role: an employee cannot
- * enumerate another room's roster through RLS, and this is the same narrow
- * fallback `notifyOrgAdmins` makes. Pinned to the conversation and the tenant.
+ * THE TAG IS THE CONVERSATION. Twelve messages in one room while somebody is at
+ * lunch replace each other into a single badge instead of stacking into twelve
+ * alerts — the one behaviour that separates a usable chat notification from a
+ * reason to turn notifications off.
  *
- * It never throws — `notifyEmployee` guarantees that, and a message that
- * delivered but failed to notify is still a message that delivered.
+ * The roster and the recipients' roles are read with the service role: an
+ * employee cannot enumerate another room's membership through RLS, and this is
+ * the same narrow fallback `notifyOrgAdmins` makes. Pinned to the conversation
+ * and to the session's tenant, and it never throws — a message that delivered
+ * but failed to notify is still a message that delivered.
  */
 export async function notifyNewMessage(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   ctx: AppContext & { tenantId: string },
   args: {
     conversationId: string
@@ -1104,11 +1132,13 @@ export async function notifyNewMessage(
 ): Promise<void> {
   try {
     const admin = createAdminClient()
+    const tenantId = assertTenantScope(ctx.tenantId)
+
     const { data, error } = await admin
       .from('conversation_members')
       .select('profile_id, muted')
       .eq('conversation_id', args.conversationId)
-      .eq('tenant_id', assertTenantScope(ctx.tenantId))
+      .eq('tenant_id', tenantId)
       .limit(500)
 
     if (error) {
@@ -1124,34 +1154,77 @@ export async function notifyNewMessage(
 
     if (!recipients.length) return
 
+    /*
+     * Which portal each recipient's click should land in. The same conversation
+     * lives at `/org/messages/<id>` for an administrator and
+     * `/employee/messages/<id>` for everyone else, and sending either to the
+     * other's URL produces a redirect to their dashboard — losing the thread
+     * they tapped, which is the only thing the push was for.
+     */
+    const { data: profiles } = await admin
+      .from('profiles')
+      .select('id, role')
+      .eq('tenant_id', tenantId)
+      .in('id', recipients)
+
+    const roleById = new Map(
+      ((profiles ?? []) as Array<{ id: string; role: UserRole }>).map((row) => [row.id, row.role])
+    )
+
     const sender = displayName(ctx)
     const preview = previewFor(args.body, args.kind)
     const title =
       args.conversationKind === 'direct' ? sender : args.conversationName || 'Group message'
-    const description =
-      args.conversationKind === 'direct' ? preview : `${sender}: ${preview}`
+    const body = args.conversationKind === 'direct' ? preview : `${sender}: ${preview}`
+
+    // Grouped by destination, so one push call covers everybody who lands in
+    // the same portal instead of one call per person.
+    const byPath = new Map<string, string[]>()
+    for (const recipientId of recipients) {
+      const path = cardPathFor(
+        'message.received',
+        roleById.get(recipientId) ?? 'employee',
+        args.conversationId
+      )
+      byPath.set(path, [...(byPath.get(path) ?? []), recipientId])
+    }
 
     await Promise.all(
-      recipients.map((employeeId) =>
-        notifyEmployee(supabase, {
-          tenantId: ctx.tenantId,
-          employeeId,
-          title: mentioned.has(employeeId) ? `${title} — mentioned you` : title,
-          description,
-          createdBy: ctx.userId,
-          event: 'message.received',
-          /*
-           * The conversation, not the message. It is what the push `tag` keys
-           * on, so twelve messages in one room while somebody is at lunch
-           * replace each other into one badge rather than stacking into
-           * twelve — the single most important thing about a chat
-           * notification, and the reason `message.received` carries a tag at
-           * all.
-           */
-          subjectId: args.conversationId,
+      Array.from(byPath.entries()).map(([url, userIds]) =>
+        sendPushToUsers(tenantId, userIds, {
+          title,
+          body,
+          url,
+          tag: `conversation:${args.conversationId}`,
         })
       )
     )
+
+    /*
+     * A mention is louder, so it goes out again with its own tag.
+     *
+     * A separate push rather than a different title on the first one: the tag
+     * above collapses a room's messages into one badge, which is exactly what
+     * should NOT happen to "you were named" — that one has to survive the
+     * eleven messages that follow it.
+     */
+    const mentionedRecipients = recipients.filter((recipientId) => mentioned.has(recipientId))
+    if (mentionedRecipients.length) {
+      await Promise.all(
+        mentionedRecipients.map((recipientId) =>
+          sendPushToUsers(tenantId, [recipientId], {
+            title: `${sender} mentioned you`,
+            body: args.conversationKind === 'direct' ? preview : `${title} · ${preview}`,
+            url: cardPathFor(
+              'message.received',
+              roleById.get(recipientId) ?? 'employee',
+              args.conversationId
+            ),
+            tag: `mention:${args.conversationId}:${Date.now()}`,
+          })
+        )
+      )
+    }
   } catch (err) {
     console.error('[messaging] notification fan-out failed', err)
   }

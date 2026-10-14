@@ -235,16 +235,20 @@ const CATALOG: Record<NotificationEvent, EventSpec> = {
   },
 
   /*
-   * A message in a conversation (062). The highest-volume event this product
-   * will ever raise, and therefore `normal`: email a team's chat and within a
-   * fortnight everything from this product is in a folder nobody opens,
-   * including the rejected timesheets.
+   * Messaging (062), and the one entry in this table that is NOT the whole
+   * story for its event.
    *
-   * The TAG is the part that matters. It keys on the conversation, so twelve
-   * messages in one room while somebody is at lunch replace each other into a
-   * single badge instead of stacking into twelve alerts — the one behaviour
-   * that separates a usable chat notification from a reason to turn
-   * notifications off.
+   * A message itself never reaches `raiseNotification`: it would be a durable
+   * row per member per message, and one busy afternoon would bury the rejected
+   * timesheet under three hundred lines of small talk. Messaging has a better
+   * in-app surface of its own — the unread count, which clears itself when the
+   * thread is read — so `notifyNewMessage` sends the push directly and writes
+   * nothing. The argument in full is in the box on that function.
+   *
+   * What DOES come through here is being ADDED to a conversation: rare,
+   * durable, and the only way somebody finds out a room exists. Hence `normal`
+   * (push, no mail) and the path and tag below, which that notification and
+   * the direct pushes both use.
    */
   'message.received': {
     importance: 'normal',
