@@ -25,7 +25,9 @@ export const dynamic = 'force-dynamic'
  * report is close to useless.
  */
 async function handlePOST(request: NextRequest) {
-  const gate = await apiRequireTenantUser()
+  // "Contact support" stays open to a paused workspace (061) — it is the other
+  // half of the message on the pause screen.
+  const gate = await apiRequireTenantUser({ allowDomainLocked: true })
   if (!gate.ok) return gate.response
   const { ctx } = gate
 

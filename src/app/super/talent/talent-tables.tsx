@@ -223,11 +223,16 @@ export function CandidateTable({
     {
       key: 'person',
       header: 'Job seeker',
+      // Clickable like the employee tab's. It was not, because /super/talent/[id]
+      // could only render an employee — so this column was a dead end next to one
+      // that was not, on the same screen.
       cell: (row) => (
-        <div className="min-w-0">
-          <p className="truncate font-medium">{row.full_name || row.email}</p>
-          <p className="truncate text-xs text-ink-muted">{row.candidate?.headline || row.email}</p>
-        </div>
+        <Link href={`/super/talent/${row.id}`} className="block min-w-0 hover:underline">
+          <span className="block truncate font-medium text-ink">{row.full_name || row.email}</span>
+          <span className="block truncate text-xs text-ink-muted">
+            {row.candidate?.headline || row.email}
+          </span>
+        </Link>
       ),
     },
     {

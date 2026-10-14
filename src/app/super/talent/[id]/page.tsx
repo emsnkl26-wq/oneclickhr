@@ -11,6 +11,7 @@ import { TALENT_COLUMNS, VISA_STATES, skillList, type TalentRow } from '@/lib/ta
 import { countryName } from '@/lib/geo'
 import { formatDateLabel } from '@/lib/time'
 import { DeletePersonButton } from './delete-person-button'
+import { JobSeekerProfile, type JobSeeker } from './job-seeker-profile'
 
 export const metadata: Metadata = { title: 'Talent profile' }
 export const dynamic = 'force-dynamic'
@@ -18,9 +19,20 @@ export const dynamic = 'force-dynamic'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * One employee as a candidate for platform hiring (053): who they are, every
- * work authorization on record (never the visa number or its documents), their
- * work history and education.
+ * One person from the talent console — an EMPLOYEE or a JOB SEEKER.
+ *
+ * For an employee (053): who they are, every work authorization on record
+ * (never the visa number or its documents), their work history and education.
+ *
+ * TWO KINDS OF PERSON, ONE URL. The talent console has two tabs and both link
+ * here, but `super_talent_directory` ends `where p.role = 'employee'` — it is a
+ * directory of customers' staff, built on a join to `tenants` that a job seeker
+ * has no row in. So a seeker's id found nothing here and the page 404'd, which
+ * is what made the Job seekers tab and the candidate matcher's links dead ends.
+ *
+ * The directory is still tried FIRST, and it is still the only thing that can
+ * answer for an employee. A miss is not an error any more: it falls through to
+ * the candidate tables, and only something in neither is genuinely not found.
  */
 export default async function TalentProfilePage({ params }: { params: Promise<{ id: string }> }) {
   await requireSuperAdmin()
@@ -29,7 +41,40 @@ export default async function TalentProfilePage({ params }: { params: Promise<{ 
 
   const admin = createAdminClient()
   const { data } = await admin.from('super_talent_directory').select(TALENT_COLUMNS).eq('id', id).maybeSingle()
-  if (!data) notFound()
+
+  if (!data) {
+    /*
+     * Not an employee. A job seeker, then — or nothing.
+     *
+     * `role = 'candidate'` is part of the lookup rather than a check after it:
+     * without it this would happily render an org admin or another super admin
+     * as a "job seeker", and the delete button on that page would offer to
+     * remove them.
+     */
+    const { data: seeker } = await admin
+      .from('profiles')
+      .select(
+        'id, full_name, email, is_active, created_at, candidate:candidate_profiles(headline, phone, location, country, linkedin_url, portfolio_url, years_experience, current_company, notice_period, work_authorization, skills, summary, resume_key, resume_name)'
+      )
+      .eq('id', id)
+      .eq('role', 'candidate')
+      .maybeSingle()
+
+    if (!seeker) notFound()
+
+    const row = seeker as unknown as JobSeeker & { candidate: JobSeeker['candidate'] | JobSeeker['candidate'][] }
+    return (
+      <JobSeekerProfile
+        person={{
+          ...row,
+          // The embed is 1:1 but PostgREST may hand it back as an array, and a
+          // seeker who has not filled anything in has no row at all.
+          candidate: Array.isArray(row.candidate) ? (row.candidate[0] ?? null) : row.candidate,
+        }}
+      />
+    )
+  }
+
   const person = data as unknown as TalentRow
 
   // Every read below is filtered by this person AND their tenant — the admin

@@ -29,6 +29,9 @@ export async function resolveProjectMembers(
     .select('id')
     .in('id', unique)
     .eq('role', 'employee')
+    // Nobody who has left the organization is assigned to a project. The picker
+    // already hides them, so a submitted id that fails here is a stale form.
+    .eq('is_active', true)
 
   const found = (data ?? []).map((row) => row.id as string)
   return found.length === unique.length ? found : null

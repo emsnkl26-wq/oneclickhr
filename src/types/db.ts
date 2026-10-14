@@ -63,8 +63,18 @@ export interface Tenant {
   domain_verification_method: 'meta' | 'dns' | null
   /** The secret the org publishes. Server-side reads only — never in a payload. */
   domain_token: string
-  /** Deadline for the banner's tone. Nothing is gated when it passes. */
+  /**
+   * When the claim must be proven by. As of 061 this is a KILL SWITCH, not a
+   * banner tone: an unverified workspace past this instant is paused until it
+   * verifies or support moves the date. See `src/lib/domain-lock.ts`.
+   */
   domain_verify_due_at: string
+  /**
+   * How many employee accounts this workspace may hold (061). 20 by default;
+   * raised per customer from the super-admin console. Platform-owned — the
+   * workspace can read it and never write it.
+   */
+  employee_limit: number
   created_at: string
   updated_at: string
 }

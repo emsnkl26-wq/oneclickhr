@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
-import { ExternalLink } from 'lucide-react'
+import Link from 'next/link'
+import { ExternalLink, UserSearch } from 'lucide-react'
 import { requireSuperAdmin } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { PageHeader } from '@/components/ui/patterns'
@@ -97,12 +98,22 @@ export default async function SuperJobsPage({
         title="Jobs"
         description="Every posting on the portal. Post OneclickHR's own roles here, and unpublish anything that should not be public."
         actions={
-          <Button variant="secondary" asChild>
-            <a href="/jobs" target="_blank" rel="noreferrer">
-              <ExternalLink />
-              View the portal
-            </a>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* The reason the portal exists, one click from the list of what we
+                are hiring for. */}
+            <Button asChild>
+              <Link href="/super/jobs/match">
+                <UserSearch />
+                Find candidates
+              </Link>
+            </Button>
+            <Button variant="secondary" asChild>
+              <a href="/jobs" target="_blank" rel="noreferrer">
+                <ExternalLink />
+                View the portal
+              </a>
+            </Button>
+          </div>
         }
       />
 

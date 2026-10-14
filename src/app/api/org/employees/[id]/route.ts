@@ -7,6 +7,7 @@ import { updateEmployeeSchema } from '@/lib/schemas'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { audit } from '@/lib/audit'
 import { deleteEmployeePermanently } from '@/lib/employee-delete'
+import { checkSeatAvailable } from '@/lib/seats'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +40,20 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
   if (!existing) return jsonError('That employee was not found.', 404)
   if (existing.role !== 'employee') {
     return jsonError('Only employee accounts can be edited here.', 400)
+  }
+
+  /*
+   * Bringing somebody back takes a seat (061), so it answers to the same limit
+   * as adding somebody new — otherwise an org at its cap could deactivate one
+   * person, add two, and reactivate the first.
+   *
+   * Only when the flag is actually CHANGING to active: an ordinary edit that
+   * happens to carry `isActive: true` for an already-active employee must not
+   * be refused because the workspace is full of the very people it is editing.
+   */
+  if (input.isActive === true && !existing.is_active) {
+    const seats = await checkSeatAvailable(createAdminClient(), tenantId)
+    if (!seats.ok) return jsonError(seats.error, 409)
   }
 
   const patch: Record<string, unknown> = {
@@ -86,7 +101,66 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
 }
 
 /**
- * Deactivate an employee. NEVER deletes.
+ * Bring somebody back — the exact inverse of the DELETE below.
+ *
+ * WHY THIS IS NOT A PATCH. Reactivating used to mean re-sending the whole
+ * employee record with `isActive: true`, because PATCH writes every field it
+ * validates: a partial body does not leave the others alone, it fails
+ * validation, and a body built from a stale page would write stale values back.
+ * That made "bring them back" depend on the caller happening to hold a complete,
+ * current copy of the person — which is a lot of ways to get a one-bit change
+ * wrong. This touches one column and carries no payload at all, so there is
+ * nothing to be stale.
+ */
+async function handlePOST(request: NextRequest, { params }: Params) {
+  const gate = await apiRequireOrg()
+  if (!gate.ok) return gate.response
+  const { ctx } = gate
+  const tenantId = assertTenantScope(ctx.tenantId)
+
+  const employeeId = uuidSchema.parse((await params).id)
+  const supabase = await createSupabaseServerClient()
+
+  const { data: existing } = await supabase
+    .from('profiles')
+    .select('id, role, email, full_name, is_active')
+    .eq('id', employeeId)
+    .maybeSingle()
+
+  if (!existing) return jsonError('That employee was not found.', 404)
+  if (existing.role !== 'employee') {
+    return jsonError('Only employee accounts can be reactivated here.', 400)
+  }
+  if (existing.is_active) return jsonOk({ ok: true, unchanged: true })
+
+  // Rejoining takes a seat (061), on the same terms as joining for the first
+  // time — otherwise an org at its cap could remove one person, add two, and
+  // bring the first one back.
+  const seats = await checkSeatAvailable(createAdminClient(), tenantId)
+  if (!seats.ok) return jsonError(seats.error, 409)
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ is_active: true })
+    .eq('id', employeeId)
+  if (error) return jsonError(friendlyDbError(error), 400)
+
+  await audit({
+    tenantId,
+    actorId: ctx.userId,
+    actorEmail: ctx.email,
+    action: 'employee.reactivated',
+    entity: 'profiles',
+    entityId: employeeId,
+    meta: { email: existing.email },
+    request,
+  })
+
+  return jsonOk({ ok: true })
+}
+
+/**
+ * Remove an employee from the organization. NEVER deletes.
  *
  * Attendance, leave and payroll history reference this profile; removing the row
  * would either cascade real records away or leave dangling ids. Deactivation
@@ -171,4 +245,5 @@ async function handleDELETE(request: NextRequest, { params }: Params) {
 }
 
 export const PATCH = withErrorHandler(handlePATCH)
+export const POST = withErrorHandler(handlePOST)
 export const DELETE = withErrorHandler(handleDELETE)

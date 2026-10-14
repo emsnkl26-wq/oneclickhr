@@ -8,7 +8,10 @@ import { PageHeader, StatCard, StatusChip, EmptyState } from '@/components/ui/pa
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatLocal, todayIn } from '@/lib/time'
+import { domainLockState } from '@/lib/domain-lock'
+import { DEFAULT_EMPLOYEE_LIMIT } from '@/lib/seats'
 import { DeleteOrganization } from './delete-organization'
+import { WorkspaceLimits } from './workspace-limits'
 
 export const metadata: Metadata = { title: 'Organization' }
 export const dynamic = 'force-dynamic'
@@ -24,7 +27,10 @@ export default async function OrganizationDetailPage({
 
   const { data: tenant } = await admin
     .from('tenants')
-    .select('id, name, slug, status, primary_color, timezone, work_start_time, created_at, onboarded_at')
+    // One literal, not a concatenation: PostgREST infers the row's type from the
+    // string itself, and a `+` turns every column back into `unknown`.
+    // (061) adds employee_limit and the three domain columns the panel needs.
+    .select('id, name, slug, status, primary_color, timezone, work_start_time, created_at, onboarded_at, employee_limit, domain, domain_verified_at, domain_verify_due_at')
     .eq('id', id)
     .maybeSingle()
 
@@ -71,6 +77,17 @@ export default async function OrganizationDetailPage({
   const members = people.data ?? []
   const employees = members.filter((m) => m.role === 'employee')
   const owners = members.filter((m) => m.role === 'org')
+
+  /*
+   * The pause is DERIVED, here as everywhere — there is no column to read. The
+   * shape passed in is the context's, so this page and the guard that locks the
+   * customer out are literally running the same function on the same values.
+   */
+  const lock = domainLockState({
+    domain: tenant.domain ?? null,
+    domainVerified: !!tenant.domain_verified_at,
+    domainVerifyDueAt: tenant.domain_verify_due_at ?? null,
+  })
 
   return (
     <div className="space-y-6">
@@ -170,6 +187,18 @@ export default async function OrganizationDetailPage({
           )}
         </Card>
       </div>
+
+      <WorkspaceLimits
+        tenantId={tenant.id}
+        employeeLimit={tenant.employee_limit ?? DEFAULT_EMPLOYEE_LIMIT}
+        // Measured the same way `src/lib/seats.ts` measures it: people who have
+        // left do not hold a seat, so they are not counted here either.
+        activeEmployees={employees.filter((m) => m.is_active).length}
+        domain={tenant.domain ?? null}
+        domainVerified={!!tenant.domain_verified_at}
+        daysLeft={lock.daysLeft}
+        locked={lock.locked}
+      />
 
       <DeleteOrganization
         tenantId={tenant.id}

@@ -41,10 +41,12 @@ const LABEL: Record<GoogleIntent, string> = {
  *
  * The browser starts the OAuth round trip (Supabase keeps the PKCE verifier in
  * a cookie), and /auth/callback finishes it on the server, where the rules for
- * each door are enforced: an organization address registered with a password
- * cannot come in this way, an employee may use either their password or Google
- * on the address their organization added, and a job seeker continuing with
- * Google for the first time is simply signed up.
+ * each door are enforced. Since 061 those rules are about the ACCOUNT'S ROLE,
+ * not about which credential it was created with: anybody — an organization, an
+ * employee, a job seeker — may use Google on the address they already have,
+ * whether or not that address also has a password. What is still refused is the
+ * wrong door for the account, and a job seeker continuing with Google for the
+ * first time is simply signed up.
  *
  * `intent` only changes the wording and which door an error is shown on; the
  * callback decides everything that matters.

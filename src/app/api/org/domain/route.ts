@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
 import { setDomainSchema } from '@/lib/schemas'
 import { findDomainOwner, ownerConflictMessage } from '@/lib/domain-registry'
+import { DOMAIN_VERIFY_DAYS } from '@/lib/domain-lock'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,8 @@ export const dynamic = 'force-dynamic'
 async function handlePATCH(request: NextRequest) {
   // OWNER ONLY (027): the domain is the workspace's identity, and an invited
   // admin who could change it could rename the company out from under it.
-  const gate = await apiRequireOwner()
+  // The screen that lifts a pause cannot be behind that pause (061).
+  const gate = await apiRequireOwner({ allowDomainLocked: true })
   if (!gate.ok) return gate.response
   const { ctx } = gate
 
@@ -72,7 +74,7 @@ async function handlePATCH(request: NextRequest) {
       // A new claim starts its own reservation window. Without this a workspace
       // that switched domains late would inherit the old deadline and could be
       // out of time before it ever saw the banner.
-      domain_verify_due_at: new Date(Date.now() + 14 * 86_400_000).toISOString(),
+      domain_verify_due_at: new Date(Date.now() + DOMAIN_VERIFY_DAYS * 86_400_000).toISOString(),
       // Keep the letterhead's display website in step, but only while it was
       // still whatever we seeded — never overwrite something they typed.
       ...(!current.website || current.website === current.domain ? { website: domain } : {}),

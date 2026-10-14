@@ -27,6 +27,8 @@ async function handlePOST(request: NextRequest) {
     .select('id')
     .eq('id', input.employeeId)
     .eq('role', 'employee')
+    // We stop tracking a leaver's work authorization along with everything else.
+    .eq('is_active', true)
     .maybeSingle()
   if (!employee) return jsonError('That employee was not found.', 404)
 

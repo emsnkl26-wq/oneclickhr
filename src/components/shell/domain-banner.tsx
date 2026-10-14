@@ -8,12 +8,15 @@ import { deadlineLabel } from '@/lib/domain'
 /**
  * The standing prompt to prove the company website.
  *
- * NOT dismissible, and it does not go away when the deadline passes — the whole
- * point is that the second person from the same company keeps seeing it until
- * somebody resolves it. What the deadline changes is the TONE, not the access:
- * an unverified workspace does everything a verified one does, before and after.
- * The countdown is there to make the request land as something to do this week
- * rather than something to ignore forever.
+ * NOT dismissible. As of 061 the countdown it shows is REAL: a workspace that
+ * reaches the deadline unverified is paused, and this banner is the only
+ * warning anybody gets. So it names the consequence rather than hinting at it —
+ * the old copy ("Everything keeps working — but please get this done") would
+ * now be a lie, and a lie told right up until the morning the product stops.
+ *
+ * It never renders in the overdue state any more: past the deadline the guard
+ * redirects to /verify-domain and the shell this sits in is not reached at all.
+ * The red tone is kept for the LAST DAY, which is the moment it is worth it.
  */
 export function DomainBanner({
   domain, daysLeft,
@@ -27,11 +30,11 @@ export function DomainBanner({
 
   const hasDomain = !!domain
   const days = daysLeft
-  const overdue = days !== null && days < 0
+  // The last day of a three-day window. Two tones only — a gradient of urgency
+  // across three days would just read as noise.
+  const urgent = days !== null && days <= 1
 
-  // Amber while there is still time, red once it has run out. Two tones
-  // only: a gradient of urgency across a fortnight would just read as noise.
-  const tone = overdue
+  const tone = urgent
     ? {
         wrap: 'border-danger/30 bg-danger/5',
         tile: 'bg-danger/10 text-danger',
@@ -47,7 +50,7 @@ export function DomainBanner({
         button: 'bg-amber-900 hover:bg-amber-950',
       }
 
-  const Icon = overdue ? ShieldAlert : ShieldCheck
+  const Icon = urgent ? ShieldAlert : ShieldCheck
 
   return (
     <div
@@ -76,7 +79,9 @@ export function DomainBanner({
                 your company.
               </>
             )}{' '}
-            {overdue ? 'Everything keeps working — but please get this done.' : 'It takes a minute.'}
+            {days !== null
+              ? 'The workspace is paused for everyone on your team if this is not done in time.'
+              : 'It takes a minute.'}
           </p>
         </div>
       </div>

@@ -38,7 +38,8 @@ const isCandidateDoor = (intent: Intent) =>
   intent === 'candidate' || intent === 'candidate-signup'
 
 /**
- * A Google account that has only just been created by this very exchange.
+ * Something — an auth user, or an identity on one — created by this very
+ * exchange rather than at some point in the past.
  *
  * Google tells us who someone is, not whether they belong anywhere, so an
  * address nobody has provisioned still produces a usable auth user. On the
@@ -54,27 +55,36 @@ function isFreshlyCreated(createdAt: string | undefined): boolean {
 }
 
 /**
- * Where Google sends someone back to (056).
+ * Where Google sends someone back to (056, amended 061).
  *
- * ONE ADDRESS, ONE WAY IN — on the ORGANIZATION door, that is still the rule:
+ * ONE ADDRESS, ONE ACCOUNT — but, from 061, not one WAY IN. Every door now
+ * works the same way: an address may hold a password AND a Google identity, and
+ * either proves the same person.
  *
- *   • An address registered with a PASSWORD cannot be entered through Google.
- *     Supabase quietly links a Google identity onto an existing verified
- *     account with the same address, so "it worked" is not proof of anything:
- *     the identities are inspected, a Google identity that arrived on a
- *     password account is removed again, and the person is told to use their
- *     password.
- *   • An address that signed up through GOOGLE has no password to type; the
- *     password sign-in says so instead of "those details did not match"
- *     (see /api/auth/login).
+ * WHAT CHANGED AND WHY IT IS SAFE. The org door used to refuse a password
+ * account outright, unlink the Google identity Supabase had just attached, and
+ * tell the person to type their password instead. The reasoning was "one
+ * address, one way in" — but that rule was never about security, and the proof
+ * is that the employee and job seeker doors have always allowed both without
+ * anybody considering them weaker. What makes linking safe is the same thing on
+ * every door:
  *
- * The EMPLOYEE and JOB SEEKER doors are deliberately different. An employee is
- * given an email and a password by their organization, and may then sign in
- * with either those details or Google on that same address — so a Google
- * identity landing on their password account is the feature, not an attack.
- * What an employee cannot do is arrive from an address no organization has ever
- * added: there is nothing for them to sign in to, and the message says exactly
- * that instead of a generic failure.
+ *   • Supabase only links an OAuth identity onto an existing user when the
+ *     provider asserts the SAME, VERIFIED email address. Google asserts
+ *     `email_verified` on its own domain; an unverified Google email never
+ *     links, it becomes its own user.
+ *   • So "I control the Google account for this address" and "I know the
+ *     password for this address" are two proofs of the same fact. Accepting
+ *     either is not a weaker check than accepting one of them — it is the same
+ *     check twice, which is exactly how every other product treats it.
+ *   • Nothing about the account is taken over by the link: the password still
+ *     works, and the Google identity is an addition rather than a replacement.
+ *
+ * ONE RULE SURVIVES, AND IT IS THE REAL ONE: the account's ROLE still decides
+ * which door it may come through. An employee cannot enter through the org
+ * door, an org cannot enter through the employee door, and an address nobody
+ * has provisioned anywhere is not quietly granted a workspace. That is the
+ * check this handler exists for; "which credential did you use" never was.
  *
  * A brand-new Google account on the organization door has no workspace yet, so
  * it is sent to /signup/complete to name one; on the job seeker door it simply
@@ -104,9 +114,22 @@ async function handleGET(request: NextRequest) {
   const providers = new Set((user.identities ?? []).map((identity) => identity.provider))
   const hasPassword = providers.has('email')
 
-  /** Undo the identity Supabase just linked onto a password account, then refuse. */
+  /**
+   * Was the Google identity attached by THIS exchange?
+   *
+   * It matters because of what `refuseAndUnlink` does. Removing a Google
+   * identity is right when the exchange just created it on an account that
+   * should not have it; it is destructive when the person linked Google
+   * deliberately, through the correct door, weeks ago — now clicking the wrong
+   * door once silently takes their second way in away. Since 061 that case is
+   * common rather than theoretical: every kind of account may hold both.
+   */
+  const googleIdentity = (user.identities ?? []).find((identity) => identity.provider === 'google')
+  const linkedNow = isFreshlyCreated(googleIdentity?.created_at)
+
+  /** Undo an identity THIS exchange linked onto an account, then refuse. */
   const refuseAndUnlink = async (message: string, reason: string) => {
-    await createAdminClient().rpc('remove_google_identity', { p_user_id: user.id })
+    if (linkedNow) await createAdminClient().rpc('remove_google_identity', { p_user_id: user.id })
     await supabase.auth.signOut()
     await audit({
       actorId: user.id,
@@ -120,15 +143,16 @@ async function handleGET(request: NextRequest) {
     return fail(message)
   }
 
-  // --- A password account reached through the ORGANIZATION Google door ------
-  // Employees and job seekers may use both ways in on one address, so this
-  // refusal belongs to the org door alone.
-  if (hasPassword && intent !== 'employee' && !isCandidateDoor(intent)) {
-    return refuseAndUnlink(
-      'This email is registered with a password. Sign in with your email and password instead of Google.',
-      'password_account'
-    )
-  }
+  /*
+   * A password account reaching a Google door is now ORDINARY, on every door.
+   *
+   * Supabase has linked the Google identity onto the existing user, which is
+   * the intended outcome: one account, two ways to prove it. `hasPassword`
+   * stays in scope because the refusals further down still need it — a wrong
+   * PORTAL is refused the same as ever, and when that account also has a
+   * password the identity Supabase just linked has to be undone, or a refused
+   * sign-in would quietly leave a new way into somebody's account behind it.
+   */
 
   const { data: rows } = await supabase.rpc('current_profile')
   const profile = (Array.isArray(rows) ? rows[0] : rows) as

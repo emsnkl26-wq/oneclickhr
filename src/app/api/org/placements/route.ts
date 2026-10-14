@@ -38,6 +38,8 @@ async function handlePOST(request: NextRequest) {
     .select('id')
     .eq('id', input.employeeId)
     .eq('role', 'employee')
+    // Nobody who has left the organization is placed on a new assignment.
+    .eq('is_active', true)
     .maybeSingle()
 
   if (!employee) return jsonError('That employee was not found.', 404)

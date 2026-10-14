@@ -12,6 +12,7 @@ import {
 import { generateTempPassword } from '@/lib/crypto'
 import { sendEmployeeCredentials, isEmailConfigured } from '@/lib/email'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
+import { checkSeatAvailable } from '@/lib/seats'
 import { audit } from '@/lib/audit'
 import { appUrl } from '@/lib/env'
 import { EMPLOYEE_LOGIN_PATH } from '@/lib/routes'
@@ -72,6 +73,12 @@ async function handlePOST(request: NextRequest, { params }: Params) {
   if (row.status !== 'draft') {
     return jsonError('This onboarding can no longer be invited.', 409)
   }
+
+  // The seat limit (061), checked before anything is created. This endpoint's
+  // whole job is to mint an account, so there is no path through it that does
+  // not consume a seat.
+  const seats = await checkSeatAvailable(admin, tenantId)
+  if (!seats.ok) return jsonError(seats.error, 409)
 
   // --- 1. The three fields an account cannot exist without ------------------
   const draft = draftFromRow(row)

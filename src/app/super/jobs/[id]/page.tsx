@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, ExternalLink, Users, Briefcase, CalendarClock, Wallet, MapPin, Building2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Users, Briefcase, CalendarClock, Wallet, MapPin, Building2, UserSearch } from 'lucide-react'
 import { requireSuperAdmin } from '@/lib/auth/guards'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { PageHeader, StatCard, StatusChip } from '@/components/ui/patterns'
@@ -112,16 +112,28 @@ export default async function SuperJobDetailPage({
           JOB_WORKPLACE_LABELS[job.workplace]
         }${job.location ? ` · ${job.location}` : ''}`}
         actions={
-          job.status === 'published' ? (
-            <Button variant="secondary" asChild>
-              <a href={`/jobs/${job.id}`} target="_blank" rel="noreferrer">
-                <ExternalLink />
-                View on the portal
-              </a>
-            </Button>
-          ) : (
-            <StatusChip status={job.status} />
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Only for OUR postings: the matcher prefills from the description,
+                and a customer's description is theirs. */}
+            {isPlatform ? (
+              <Button asChild>
+                <Link href={`/super/jobs/match?job=${job.id}`}>
+                  <UserSearch />
+                  Find candidates
+                </Link>
+              </Button>
+            ) : null}
+            {job.status === 'published' ? (
+              <Button variant="secondary" asChild>
+                <a href={`/jobs/${job.id}`} target="_blank" rel="noreferrer">
+                  <ExternalLink />
+                  View on the portal
+                </a>
+              </Button>
+            ) : (
+              <StatusChip status={job.status} />
+            )}
+          </div>
         }
       />
 

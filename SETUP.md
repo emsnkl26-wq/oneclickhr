@@ -141,10 +141,14 @@ it adds gates access. Two parts are worth knowing before you touch it:
   the one screen that displays it reads it server-side. **If you add a column to
   `tenants`, add it to the `grant select` list too** or client queries selecting
   it will 403.
-- `domain_verify_due_at` is a **deadline for the banner's tone, not a kill
-  switch**. Nothing is gated before or after it. It defaults to `now() + 14 days`
-  so existing workspaces get a fair window starting the day you apply this,
-  rather than being overdue the moment it lands.
+- `domain_verify_due_at` was a **deadline for the banner's tone, not a kill
+  switch** — nothing was gated before or after it, and it defaulted to
+  `now() + 14 days`. **061 changed both halves of that.** The window is now
+  3 days, and reaching it unverified **pauses the workspace**: every page guard
+  and API gate sends its people to `/verify-domain` and nothing else works until
+  the website is verified or a super admin moves the date. The pause is derived
+  live from these two columns rather than stored, so there is no cron job and no
+  state to get stuck — see `src/lib/domain-lock.ts` and the header of 061.
 
 It also **drops and recreates `current_profile()`**, because `create or replace`
 cannot change a function's return type. Re-running the whole file is safe.

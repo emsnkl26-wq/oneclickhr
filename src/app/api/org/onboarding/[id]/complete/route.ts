@@ -12,6 +12,7 @@ import {
 import { generateTempPassword } from '@/lib/crypto'
 import { sendEmployeeCredentials, isEmailConfigured } from '@/lib/email'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
+import { checkSeatAvailable } from '@/lib/seats'
 import { audit } from '@/lib/audit'
 import { appUrl } from '@/lib/env'
 import { EMPLOYEE_LOGIN_PATH } from '@/lib/routes'
@@ -107,6 +108,22 @@ async function handlePOST(request: NextRequest, { params }: Params) {
 
   /** The account this draft already produced, if `/invite` produced one. */
   const existingProfileId: string | null = row.employee_profile_id ?? null
+
+  /*
+   * --- The seat limit (061) ------------------------------------------------
+   *
+   * Only on the CREATE path. Re-completing an onboarding whose account already
+   * exists changes nobody's headcount, and refusing it would strand an org at
+   * its limit with a draft it can no longer correct — including the correction
+   * that would let them deactivate somebody and carry on.
+   *
+   * Checked here, before step 1's validation and well before any auth user is
+   * minted, so a refusal costs the caller nothing to undo.
+   */
+  if (!existingProfileId) {
+    const seats = await checkSeatAvailable(admin, tenantId)
+    if (!seats.ok) return jsonError(seats.error, 409)
+  }
 
   // --- 1. Validate every step ----------------------------------------------
   const draft = draftFromRow(row)

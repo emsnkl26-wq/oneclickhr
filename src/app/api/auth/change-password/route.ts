@@ -22,7 +22,10 @@ async function handlePOST(request: NextRequest) {
   // NOT apiRequireUser's full gate: a user with must_change_password set has to
   // be able to reach exactly this endpoint. apiRequireUser only rejects
   // deactivated/suspended, which is correct here.
-  const gate = await apiRequireUser()
+  // Also reachable while the workspace is paused for an unverified domain (061):
+  // a forced password change and a pause can be in force at once, and a person
+  // caught by both would otherwise have no screen they are allowed to finish.
+  const gate = await apiRequireUser({ allowDomainLocked: true })
   if (!gate.ok) return gate.response
   const { ctx } = gate
 

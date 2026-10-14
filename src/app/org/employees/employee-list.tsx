@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Search, MoreHorizontal, Users, UserCheck, UserX } from 'lucide-react'
+import { Search, MoreHorizontal, Users, UserCheck, UserMinus } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EmptyState, StatusChip, type Column } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
@@ -14,9 +14,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/primitives'
 import { LinkTabs } from '@/components/ui/link-tabs'
-import { apiDelete, apiPatch, ApiClientError } from '@/lib/fetcher'
+import { apiDelete, apiPost, ApiClientError } from '@/lib/fetcher'
 import { formatLocal } from '@/lib/time'
 import { initials } from '@/lib/utils'
+import { DeleteEmployeeDialog } from '@/components/profile/delete-employee-dialog'
 import { DraftList, type DraftRow } from './draft-list'
 
 export interface EmployeeRow {
@@ -39,6 +40,7 @@ export interface EmployeeRow {
  */
 export function EmployeeList({
   employees, employeeCount, departments, drafts, draftCount, tab, timezone,
+  employeeLimit,
   onboardingIds = [],
 }: {
   employees: EmployeeRow[] | null
@@ -48,6 +50,8 @@ export function EmployeeList({
   draftCount: number
   tab: 'team' | 'drafts'
   timezone: string
+  /** How many employee accounts this workspace may hold (061). */
+  employeeLimit: number
   /**
    * Accounts whose onboarding is still open. They can sign in — that is the
    * point — but they are not a finished member of the team yet, so they get
@@ -60,6 +64,9 @@ export function EmployeeList({
   const [department, setDepartment] = React.useState('all')
   const [status, setStatus] = React.useState('active')
   const [pending, setPending] = React.useState<EmployeeRow | null>(null)
+  /** The separate, irreversible one. Kept in its own state so the two dialogs
+      can never be confused for one another by a stray `open` prop. */
+  const [deleting, setDeleting] = React.useState<EmployeeRow | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   const deptName = React.useMemo(
@@ -90,18 +97,14 @@ export function EmployeeList({
     try {
       if (employee.is_active) {
         await apiDelete(`/api/org/employees/${employee.id}`)
-        toast.success(`${employee.full_name || 'Employee'} deactivated`)
+        toast.success(`${employee.full_name || 'Employee'} has left the organization`)
       } else {
-        await apiPatch(`/api/org/employees/${employee.id}`, {
-          fullName: employee.full_name ?? '',
-          phone: employee.phone ?? undefined,
-          employeeCode: employee.employee_code ?? undefined,
-          designation: employee.designation ?? undefined,
-          departmentId: employee.department_id ?? null,
-          timezone,
-          isActive: true,
-        })
-        toast.success(`${employee.full_name || 'Employee'} reactivated`)
+        // One column, no payload. This used to re-send the whole employee record
+        // with `isActive: true`, because PATCH writes every field it validates —
+        // so flipping one boolean meant writing back whatever copy of the person
+        // this table happened to be holding.
+        await apiPost(`/api/org/employees/${employee.id}`)
+        toast.success(`${employee.full_name || 'Employee'} is back on the team`)
       }
       setPending(null)
       router.refresh()
@@ -173,8 +176,10 @@ export function EmployeeList({
       key: 'status',
       header: 'Status',
       cell: (row) =>
+        // "Inactive" described the column; "Left" describes the person, and
+        // matches the filter and the action that got them here.
         !row.is_active ? (
-          <StatusChip status="inactive" />
+          <StatusChip status="inactive" label="Left" />
         ) : onboarding.has(row.id) ? (
           <StatusChip status="onboarding" label="Onboarding" tone="warning" />
         ) : (
@@ -196,8 +201,19 @@ export function EmployeeList({
             <DropdownMenuItem asChild>
               <Link href={`/org/employees/${row.id}`}>View &amp; edit</Link>
             </DropdownMenuItem>
+            {/*
+              Two different acts, and the wording is what keeps them apart.
+
+              "Remove from the organization" is the ordinary one — the person
+              has left, they lose access on their next request, and every record
+              about them stays. "Delete permanently" is the rare one and says so
+              in the only verb that cannot be misread.
+            */}
             <DropdownMenuItem destructive={row.is_active} onSelect={() => setPending(row)}>
-              {row.is_active ? 'Deactivate' : 'Reactivate'}
+              {row.is_active ? 'Remove from organization' : 'Bring back to the team'}
+            </DropdownMenuItem>
+            <DropdownMenuItem destructive onSelect={() => setDeleting(row)}>
+              Delete permanently
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -210,12 +226,30 @@ export function EmployeeList({
   ).length
   const onboardingCount = (employees ?? []).filter((e) => onboarding.has(e.id)).length
 
+  /*
+   * "Team (n)" counts the people who are still with the organization.
+   *
+   * It used to count every employee ROW, which meant removing somebody left the
+   * tab reading the same number it did before — the org had done the thing and
+   * the product said nothing had changed. Somebody who has left is not on the
+   * team, so they are not in the count; they are still one filter away under
+   * "Deactivated", and every record about them is untouched.
+   *
+   * Derived from the rows when this tab is open, because they are already here
+   * and a derived number can never disagree with the table under it. The server
+   * count is the fallback for the tab that was not fetched.
+   */
+  const teamCount = employees ? employees.filter((e) => e.is_active).length : employeeCount
+  /** People who have left. The only list they appear in, so it has to be findable. */
+  const departedCount = (employees ?? []).filter((e) => !e.is_active).length
+  const seatsLeft = Math.max(0, employeeLimit - teamCount)
+
   return (
     <div className="space-y-4">
       <LinkTabs
         active={tab}
         tabs={[
-          { value: 'team', label: `Team (${employeeCount})` },
+          { value: 'team', label: `Team (${teamCount})` },
           {
             value: 'drafts',
             // Not "Drafts" any more: the tab also holds onboardings that have an
@@ -267,10 +301,41 @@ export function EmployeeList({
             >
               <option value="active">Active ({activeCount})</option>
               <option value="onboarding">Onboarding ({onboardingCount})</option>
-              <option value="inactive">Deactivated</option>
+              <option value="inactive">Left the organization ({departedCount})</option>
               <option value="all">All</option>
             </Select>
           </div>
+
+          {/*
+            The seat limit (061), stated before it is hit rather than at the
+            moment somebody is blocked. Only shown once it is close: an org with
+            four people does not need a budget line on this screen.
+          */}
+          {seatsLeft <= 5 ? (
+            <p
+              className={`rounded-lg border px-3.5 py-2.5 text-[13px] ${
+                seatsLeft === 0
+                  ? 'border-danger/30 bg-danger/5 text-ink'
+                  : 'border-line bg-page text-ink-muted'
+              }`}
+            >
+              {seatsLeft === 0 ? (
+                <>
+                  <strong className="font-semibold">
+                    You are using all {employeeLimit} of your employee accounts.
+                  </strong>{' '}
+                  Remove someone who has left to free a place, or contact support and we will raise
+                  the limit for your organization.
+                </>
+              ) : (
+                <>
+                  {teamCount} of {employeeLimit} employee accounts used — {seatsLeft}{' '}
+                  {seatsLeft === 1 ? 'place' : 'places'} left. Need more? Contact support and we
+                  will raise it for you.
+                </>
+              )}
+            </p>
+          ) : null}
 
           {/*
             Nobody vanishes without being told where they went.
@@ -296,6 +361,31 @@ export function EmployeeList({
             </p>
           ) : null}
 
+          {/*
+            THE WAY BACK.
+
+            Removing somebody is reversible, and the only screen that can
+            reverse it is the one they have just vanished from — so the page has
+            to say where they went. Without this line the filter was the only
+            route back, and a filter you have no reason to open is not a route.
+          */}
+          {status === 'active' && departedCount > 0 ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-line bg-page px-3.5 py-2.5 text-[13px] text-ink-muted">
+              <span>
+                {departedCount === 1
+                  ? '1 person has left the organization. Their records are kept, and you can bring them back.'
+                  : `${departedCount} people have left the organization. Their records are kept, and you can bring them back.`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setStatus('inactive')}
+                className="focus-ring rounded font-semibold text-ink underline underline-offset-2"
+              >
+                Show them
+              </button>
+            </p>
+          ) : null}
+
           <DataTable
             columns={columns}
             rows={filtered}
@@ -310,6 +400,33 @@ export function EmployeeList({
                     <Button asChild>
                       <Link href="/org/employees/onboard">Add your first employee</Link>
                     </Button>
+                  }
+                />
+              ) : status === 'active' && !query.trim() && department === 'all' && activeCount === 0 && departedCount > 0 ? (
+                /*
+                  Nobody active, but somebody HAS been here. "No matches / try a
+                  different search term" was the wrong answer to that — there is
+                  no search term, and the thing the admin is looking for is one
+                  click away. Only shown when no search or department filter is
+                  narrowing the list, or it would be explaining the wrong absence.
+                */
+                <EmptyState
+                  icon={UserMinus}
+                  title="Nobody is on the team right now"
+                  description={
+                    departedCount === 1
+                      ? 'One person has left the organization. Everything about them was kept — bring them back, or add somebody new.'
+                      : `${departedCount} people have left the organization. Everything about them was kept — bring them back, or add somebody new.`
+                  }
+                  action={
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button variant="secondary" onClick={() => setStatus('inactive')}>
+                        Show who has left
+                      </Button>
+                      <Button asChild>
+                        <Link href="/org/employees/onboard">Add employee</Link>
+                      </Button>
+                    </div>
                   }
                 />
               ) : (
@@ -331,16 +448,18 @@ export function EmployeeList({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {pending?.is_active ? (
-                <UserX className="size-5 text-danger" />
+                <UserMinus className="size-5 text-danger" />
               ) : (
                 <UserCheck className="size-5 text-emerald-600" />
               )}
-              {pending?.is_active ? 'Deactivate' : 'Reactivate'} {pending?.full_name}
+              {pending?.is_active
+                ? `Remove ${pending?.full_name || 'this employee'} from the organization?`
+                : `Bring ${pending?.full_name || 'this employee'} back?`}
             </DialogTitle>
             <DialogDescription>
               {pending?.is_active
-                ? 'They lose access immediately — on their very next request, not when their session expires. All attendance, leave and payroll history is kept.'
-                : 'They will be able to sign in again with their existing password.'}
+                ? 'They leave the organization: their sign-in stops working on their very next request, and they disappear from the team, from every list they could be picked from, and from the employee count. Nothing about them is deleted — attendance, leave, timesheets and payroll stay exactly as they are, so if they ever rejoin you can bring them back with their whole history intact.'
+                : 'They rejoin the team and can sign in again with their existing password. Everything recorded against them before they left is still there, and they take one of your employee seats again.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -352,11 +471,27 @@ export function EmployeeList({
               loading={busy}
               onClick={() => pending && toggleActive(pending)}
             >
-              {pending?.is_active ? 'Deactivate' : 'Reactivate'}
+              {pending?.is_active ? 'Remove from organization' : 'Bring them back'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/*
+        The irreversible one, behind the typed-name confirmation it has always
+        had on the employee's own page. Same component, same endpoint — this is
+        a second way IN, not a second, laxer rule.
+      */}
+      <DeleteEmployeeDialog
+        open={!!deleting}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        name={deleting?.full_name ?? null}
+        endpoint={`/api/org/employees/${deleting?.id}?permanent=true`}
+        onDeleted={() => {
+          setDeleting(null)
+          router.refresh()
+        }}
+      />
     </div>
   )
 }

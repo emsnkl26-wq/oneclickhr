@@ -25,7 +25,11 @@ export default async function OrganizationsPage() {
   const [{ data: tenants }, { data: stats }] = await Promise.all([
     admin
       .from('tenants')
-      .select('id, name, slug, status, primary_color, timezone, created_at, onboarded_at, domain, domain_verified_at')
+      // (061) `domain_verify_due_at` comes along so the list can show WHICH
+      // unverified workspaces are actually paused — "unverified" alone stopped
+      // being the interesting state the moment it started cutting customers off.
+      // Kept as one literal because PostgREST infers the row type from it.
+      .select('id, name, slug, status, primary_color, timezone, created_at, onboarded_at, domain, domain_verified_at, domain_verify_due_at')
       .order('created_at', { ascending: false }),
     admin.rpc('platform_tenant_stats'),
   ])

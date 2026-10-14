@@ -30,6 +30,9 @@ const ROLE_NEUTRAL = [
   '/reset-password',
   '/account-inactive',
   '/workspace-suspended',
+  // (061) Where a workspace paused for an unverified website is parked. Org and
+  // employee alike land here, so it cannot be routed by role.
+  '/verify-domain',
   '/session-invalid',
   '/api/',
   '/auth/',

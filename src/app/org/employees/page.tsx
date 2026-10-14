@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
 import { EmployeeList, type EmployeeRow } from './employee-list'
 import type { DraftRow } from './draft-list'
+import { DEFAULT_EMPLOYEE_LIMIT } from '@/lib/seats'
 
 export const metadata: Metadata = { title: 'Employees' }
 export const dynamic = 'force-dynamic'
@@ -57,14 +58,24 @@ export default async function EmployeesPage({
 
   const teamOpen = active === 'team'
 
-  const [employees, drafts, departments, onboarding] = await Promise.all([
+  const [employees, drafts, departments, onboarding, limitRow] = await Promise.all([
+    /*
+     * The ROWS are everyone, deactivated people included — the "Deactivated"
+     * filter has to have something to show. The COUNT in the tab is not: see
+     * the note on `teamCount` in the list component for why somebody who has
+     * left the organization is not part of "Team (n)".
+     */
     teamOpen
       ? supabase
           .from('profiles')
           .select(EMPLOYEE_COLUMNS, { count: 'exact' })
           .eq('role', 'employee')
           .order('created_at', { ascending: false })
-      : supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'employee'),
+      : supabase
+          .from('profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('role', 'employee')
+          .eq('is_active', true),
 
     teamOpen
       ? supabase
@@ -100,6 +111,17 @@ export default async function EmployeesPage({
           .in('status', ['invited', 'submitted'])
           .not('employee_profile_id', 'is', null)
       : Promise.resolve({ data: [] as { employee_profile_id: string | null }[] }),
+
+    /*
+     * This workspace's seat limit (061).
+     *
+     * Read through the USER-SCOPED client on purpose. `employee_limit` is
+     * granted SELECT and nothing else, so the org can see the number that
+     * governs it without this page reaching for the service role — and the
+     * seat check that actually enforces it still counts server-side, in
+     * `src/lib/seats.ts`, from the admin client.
+     */
+    supabase.from('tenants').select('employee_limit').eq('id', ctx.tenantId).maybeSingle(),
   ])
 
   return (
@@ -127,6 +149,10 @@ export default async function EmployeesPage({
           .filter((id): id is string => !!id)}
         tab={active}
         timezone={ctx.tenant.timezone}
+        employeeLimit={
+          (limitRow.data as { employee_limit: number | null } | null)?.employee_limit ??
+          DEFAULT_EMPLOYEE_LIMIT
+        }
       />
     </div>
   )

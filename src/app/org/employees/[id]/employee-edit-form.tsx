@@ -21,7 +21,6 @@ interface EmployeeFormState {
   dateOfJoining: string
   timezone: string
   linkedinUrl: string
-  isActive: boolean
   isRecruiter: boolean
   trackingMode: string
   /** '' = automatic. */
@@ -61,7 +60,12 @@ export function EmployeeEditForm({
         dateOfJoining: form.dateOfJoining || null,
         timezone: form.timezone,
         linkedinUrl: form.linkedinUrl,
-        isActive: form.isActive,
+        // `isActive` is deliberately NOT sent. Whether somebody still works here
+        // is not a field on a details form — it is its own decision, with its own
+        // confirmation, at the foot of the page (see AccountAccess). Sending it
+        // from here meant an admin correcting a phone number was also silently
+        // re-asserting access, and a stale form could resurrect somebody who had
+        // left between the page load and the save.
         trackingMode: form.trackingMode,
         paySchedule: form.paySchedule,
         isRecruiter: form.isRecruiter,
@@ -198,21 +202,6 @@ export function EmployeeEditForm({
               <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
                 Let this employee create, edit and manage job postings and review applicants
                 for your workspace.
-              </span>
-            </label>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-lg bg-page p-3.5">
-            <Switch
-              id="employee-active"
-              checked={form.isActive}
-              onCheckedChange={(checked) => set('isActive', checked)}
-            />
-            <label htmlFor="employee-active" className="cursor-pointer">
-              <span className="block text-sm font-medium">Account is active</span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
-                Turning this off removes access immediately — on their very next request, not
-                whenever their session expires. History is kept.
               </span>
             </label>
           </div>

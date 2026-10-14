@@ -38,6 +38,10 @@ async function handlePOST(request: NextRequest) {
     .eq('id', input.employeeId)
     .eq('tenant_id', ctx.tenantId)
     .eq('role', 'employee')
+    // Somebody who has left the organization is gone from it: no new attendance
+    // is recorded against them, and the picker that feeds this already hides
+    // them, so a request naming one did not come from the product.
+    .eq('is_active', true)
     .maybeSingle()
   if (!employee) return jsonError('That employee was not found.', 404)
 

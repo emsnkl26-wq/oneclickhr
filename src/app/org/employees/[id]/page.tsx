@@ -28,6 +28,7 @@ import { appUrl } from '@/lib/env'
 import { EmployeeEditForm } from './employee-edit-form'
 import { SignInDetails } from './sign-in-details'
 import { EmployeeDangerZone } from './danger-zone'
+import { AccountAccess } from './account-access'
 import { GenerateInvoiceButton } from '@/components/invoice/generate-invoice-button'
 import {
   loadAttendance, loadBackground, loadBillableWeeks, loadDepartments, loadDocuments,
@@ -123,12 +124,29 @@ export default async function EmployeeDetailPage({
         </Suspense>
       </div>
 
-      <div className="grid items-start gap-5 lg:grid-cols-2">
-        <Suspense fallback={<FormCardSkeleton fields={8} />}>
-          <EditForm id={id} />
-        </Suspense>
+      {/*
+        TWO REGIONS, and the split is by what you DO with them, not by data.
 
-        <div className="space-y-5">
+        Left rail: the two things an administrator comes here to change — the
+        details form and the sign-in credentials. Fixed width, so the form's
+        fields do not stretch to half a 1600px screen.
+
+        Right: everything else, which is read-only and arrives in nine cards of
+        wildly different heights. They used to be hand-dealt into two equal grid
+        columns, which is where the gaps came from — a column is as tall as its
+        content, so "Skills: none / Experience: none" next to four full lists
+        left most of the page empty. Multi-column flow PACKS them instead: each
+        card is kept whole (`break-inside-avoid`) and the browser balances the
+        columns, so a short card is followed by the next one rather than by
+        whitespace. Ordering is top-to-bottom within a column, which is fine for
+        cards nobody reads in sequence.
+      */}
+      <div className="grid items-start gap-5 xl:grid-cols-12">
+        <div className="space-y-5 xl:col-span-5 2xl:col-span-4">
+          <Suspense fallback={<FormCardSkeleton fields={8} />}>
+            <EditForm id={id} />
+          </Suspense>
+
           {employee.email ? (
             <SignInDetails
               employeeId={employee.id}
@@ -137,7 +155,9 @@ export default async function EmployeeDetailPage({
               mustChangePassword={employee.must_change_password}
             />
           ) : null}
+        </div>
 
+        <div className="gap-5 lg:columns-2 xl:col-span-7 2xl:col-span-8 [&>*]:mb-5 [&>*]:break-inside-avoid">
           <Suspense fallback={<ListCardSkeleton rows={5} />}>
             <AttendanceCard id={id} tz={tz} />
           </Suspense>
@@ -149,20 +169,32 @@ export default async function EmployeeDetailPage({
           <Suspense fallback={<ListCardSkeleton rows={3} />}>
             <Documents id={id} employeeName={employeeName} />
           </Suspense>
-        </div>
-      </div>
 
-      {/*
-        Everything the employee maintains about themselves, read-only.
+          <Suspense fallback={<ListCardSkeleton rows={3} />}>
+            <GeneratedDocuments id={id} tz={tz} />
+          </Suspense>
 
-        These are the SAME components the employee edits on their own profile,
-        with `readOnly` set — so what an org admin reads here is exactly what the
-        person entered, with no second renderer to drift out of step.
-      */}
-      <div className="grid items-start gap-5 lg:grid-cols-2">
-        <div className="space-y-5">
-          {/* Experience and education come from one loader and render as one
-              block; skills ride on the profile row already in hand. */}
+          <Suspense fallback={<ListCardSkeleton rows={2} />}>
+            <Placements id={id} employeeId={employee.id} />
+          </Suspense>
+
+          <Suspense fallback={<ListCardSkeleton rows={3} />}>
+            <Projects id={id} />
+          </Suspense>
+
+          <Suspense fallback={<ListCardSkeleton rows={4} />}>
+            <RecentTimesheets id={id} />
+          </Suspense>
+
+          {/*
+            Everything the employee maintains about themselves, read-only.
+
+            These are the SAME components the employee edits on their own
+            profile, with `readOnly` set — so what an org admin reads here is
+            exactly what the person entered, with no second renderer to drift
+            out of step. Experience and education come from one loader and
+            render as two cards; skills ride on the profile row already in hand.
+          */}
           <Suspense
             fallback={
               <>
@@ -173,29 +205,27 @@ export default async function EmployeeDetailPage({
           >
             <Background id={id} />
           </Suspense>
+
           <SkillsSection
             skills={Array.isArray(employee.skills) ? (employee.skills as string[]) : []}
             readOnly
           />
         </div>
-
-        <div className="space-y-5">
-          <Suspense fallback={<ListCardSkeleton rows={3} />}>
-            <GeneratedDocuments id={id} tz={tz} />
-          </Suspense>
-          <Suspense fallback={<ListCardSkeleton rows={2} />}>
-            <Placements id={id} employeeId={employee.id} />
-          </Suspense>
-          <Suspense fallback={<ListCardSkeleton rows={3} />}>
-            <Projects id={id} />
-          </Suspense>
-          <Suspense fallback={<ListCardSkeleton rows={4} />}>
-            <RecentTimesheets id={id} />
-          </Suspense>
-        </div>
       </div>
 
-      <EmployeeDangerZone employeeId={employee.id} name={employee.full_name || null} />
+      {/*
+        The decisions that are not routine, in the order somebody needs them:
+        the one that is usually right, then — quietly — the one that almost
+        never is.
+      */}
+      <div className="space-y-3 pt-2">
+        <AccountAccess
+          employeeId={employee.id}
+          name={employee.full_name || null}
+          isActive={employee.is_active}
+        />
+        <EmployeeDangerZone employeeId={employee.id} name={employee.full_name || null} />
+      </div>
     </div>
   )
 }
@@ -385,7 +415,6 @@ async function EditForm({ id }: { id: string }) {
         dateOfJoining: employee.date_of_joining ?? '',
         timezone: employee.timezone,
         linkedinUrl: employee.linkedin_url ?? '',
-        isActive: employee.is_active,
         isRecruiter: !!(employee as Record<string, unknown>).is_recruiter,
         trackingMode: employee.tracking_mode ?? '',
         paySchedule: employee.pay_schedule ?? '',

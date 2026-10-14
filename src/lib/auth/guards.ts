@@ -18,6 +18,7 @@ import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { NextResponse } from 'next/server'
 import { resolveContext, homeFor, isUsable, type AppContext } from '@/lib/auth/context'
+import { domainLockState, DOMAIN_LOCK_PATH, DOMAIN_LOCKED_MESSAGE } from '@/lib/domain-lock'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { safeEqual } from '@/lib/crypto'
 import { rateLimit, limitKey, getClientIp } from '@/lib/rate-limit'
@@ -33,7 +34,35 @@ export interface OrgContext extends AppContext {
 // Page guards — redirect on failure
 // ---------------------------------------------------------------------------
 
-export async function requireUser(): Promise<AppContext> {
+/**
+ * What a guard is allowed to let through that it normally would not.
+ *
+ * One flag today, and it exists for exactly one shape of problem: the screen
+ * that FIXES a lockout cannot itself be behind that lockout. `/verify-domain`
+ * and the two endpoints it calls pass `allowDomainLocked`, and nothing else
+ * does — a paused workspace that could reach a second screen is not paused.
+ */
+export interface GuardOptions {
+  allowDomainLocked?: boolean
+}
+
+/**
+ * A workspace that has run out of time to prove its website is PAUSED (061).
+ *
+ * Checked here, in `requireUser`, rather than in each portal's guard, so it
+ * covers the org portal, the employee portal and every shared page in one
+ * place. Employees are included deliberately: the workspace is paused, not the
+ * administrator, and letting staff carry on clocking in while the company that
+ * employs them is unverified would make the deadline advisory again.
+ *
+ * Super admins and job seekers have no workspace to pause.
+ */
+function domainLocked(ctx: AppContext): boolean {
+  if (ctx.role === 'super_admin' || ctx.role === 'candidate') return false
+  return domainLockState(ctx.tenant).locked
+}
+
+export async function requireUser(options: GuardOptions = {}): Promise<AppContext> {
   const result = await resolveContext()
   if (result.status === 'anonymous') redirect('/login')
   // A valid session we cannot resolve to a profile must NOT go to /login:
@@ -48,6 +77,9 @@ export async function requireUser(): Promise<AppContext> {
   // A teammate signing in for the first time is confined to one route until the
   // system-issued temporary password is replaced.
   if (ctx.mustChangePassword) redirect('/change-password')
+  // Same shape as the line above, and for the same reason: one unmet condition,
+  // one route, until it is met. See `domainLocked`.
+  if (!options.allowDomainLocked && domainLocked(ctx)) redirect(DOMAIN_LOCK_PATH)
   return ctx
 }
 
@@ -141,7 +173,7 @@ const deny = (message: string, status: number): { ok: false; response: NextRespo
   response: NextResponse.json({ error: message }, { status }),
 })
 
-export async function apiRequireUser(): Promise<Gate<AppContext>> {
+export async function apiRequireUser(options: GuardOptions = {}): Promise<Gate<AppContext>> {
   const result = await resolveContext()
   if (result.status === 'anonymous') return deny('Not authenticated', 401)
   if (result.status === 'orphaned') {
@@ -149,11 +181,21 @@ export async function apiRequireUser(): Promise<Gate<AppContext>> {
     return deny('This account is not fully set up. Please contact your administrator.', 403)
   }
   if (!isUsable(result.ctx)) return deny('This account is no longer active', 403)
+  /*
+   * The page guard above redirects a paused workspace to one screen; this is
+   * the same rule for everything the browser calls, and it has to be here or
+   * the pause stops at the navigation layer. A paused workspace with a page
+   * still open in a tab would otherwise keep writing through the API it
+   * already has loaded.
+   */
+  if (!options.allowDomainLocked && domainLocked(result.ctx)) {
+    return deny(DOMAIN_LOCKED_MESSAGE, 403)
+  }
   return { ok: true, ctx: result.ctx }
 }
 
-export async function apiRequireOrg(): Promise<Gate<OrgContext>> {
-  const gate = await apiRequireUser()
+export async function apiRequireOrg(options: GuardOptions = {}): Promise<Gate<OrgContext>> {
+  const gate = await apiRequireUser(options)
   if (!gate.ok) return gate
   if (gate.ctx.role !== 'org' || !gate.ctx.tenantId || !gate.ctx.tenant) {
     return deny('Organization access required', 403)
@@ -176,8 +218,8 @@ export async function apiRequireOrg(): Promise<Gate<OrgContext>> {
  * Without this an invited admin could revoke the founder and rename the
  * company, which is not a permission system anybody asked for.
  */
-export async function apiRequireOwner(): Promise<Gate<OrgContext>> {
-  const gate = await apiRequireOrg()
+export async function apiRequireOwner(options: GuardOptions = {}): Promise<Gate<OrgContext>> {
+  const gate = await apiRequireOrg(options)
   if (!gate.ok) return gate
   if (!gate.ctx.isOwner) {
     return deny('Only the workspace owner can do that.', 403)
@@ -207,8 +249,8 @@ export async function apiRequireEmployee(): Promise<Gate<OrgContext>> {
   return { ok: true, ctx: gate.ctx as OrgContext }
 }
 
-export async function apiRequireTenantUser(): Promise<Gate<OrgContext>> {
-  const gate = await apiRequireUser()
+export async function apiRequireTenantUser(options: GuardOptions = {}): Promise<Gate<OrgContext>> {
+  const gate = await apiRequireUser(options)
   if (!gate.ok) return gate
   if (!gate.ctx.tenantId || !gate.ctx.tenant) return deny('Workspace access required', 403)
   return { ok: true, ctx: gate.ctx as OrgContext }

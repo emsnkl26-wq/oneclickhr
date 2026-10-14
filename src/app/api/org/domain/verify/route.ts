@@ -33,7 +33,9 @@ export const maxDuration = 30
  *     a scanner or an amplifier even by someone with a valid account.
  */
 async function handlePOST(request: NextRequest) {
-  const gate = await apiRequireOrg()
+  // Reachable while the workspace is paused — this endpoint is the way out of
+  // the pause, and a paused workspace that could not call it would be stuck (061).
+  const gate = await apiRequireOrg({ allowDomainLocked: true })
   if (!gate.ok) return gate.response
   const { ctx } = gate
 

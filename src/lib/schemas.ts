@@ -1075,6 +1075,58 @@ export const tenantStatusSchema = z.object({
   reason: optionalText(500),
 })
 
+/**
+ * The two per-workspace allowances a super admin can move (061), in one schema
+ * because they are one form: "this customer asked us for something".
+ *
+ * Both are optional and the handler applies only what is present, so raising a
+ * seat limit never silently resets a domain deadline the operator did not touch.
+ *
+ * `employeeLimit` accepts 0 — a workspace being wound down should be able to
+ * stop gaining people without being deleted. The ceiling is a typo guard.
+ *
+ * `domainGraceDays` moves the verification deadline to N days from NOW, which
+ * is the only shape of this control anybody actually wants: the ask is always
+ * "give them until the end of the week", never "set a timestamp". 0 is allowed
+ * and means "their time is up now" — the manual counterpart of the deadline
+ * passing on its own.
+ */
+export const tenantLimitsSchema = z.object({
+  employeeLimit: z.number().int().min(0).max(100_000).optional(),
+  domainGraceDays: z.number().int().min(0).max(365).optional(),
+  /**
+   * Verify the domain by hand, for the org that proved it to support another
+   * way. Only `true` is accepted: un-verifying a workspace would release a
+   * domain somebody has already proven, and that is a deletion, not a toggle.
+   */
+  domainVerified: z.literal(true).optional(),
+  reason: optionalText(500),
+})
+
+/**
+ * "Find me people for this" (061).
+ *
+ * `description` is generous at 20k because the real input is a whole JD pasted
+ * out of a document, and truncating one silently would drop the requirements
+ * that are usually at the bottom. It is scored in memory and never stored, so
+ * the size costs one request.
+ *
+ * Either field alone is enough: a role title with no description is the common
+ * quick search, and a pasted JD with no title is the common thorough one.
+ */
+export const candidateMatchSchema = z
+  .object({
+    title: optionalText(200),
+    description: optionalText(20_000),
+    minYears: z.number().int().min(0).max(40).nullable().optional(),
+    /** Which pools to search. Both by default — see the handler. */
+    sources: z.array(z.enum(['seekers', 'applicants'])).min(1).optional(),
+  })
+  .refine((value) => !!(value.title || value.description), {
+    message: 'Enter a role title or paste the job description',
+    path: ['title'],
+  })
+
 export const userActivationSchema = z.object({
   isActive: z.boolean(),
   reason: optionalText(500),

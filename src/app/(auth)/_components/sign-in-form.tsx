@@ -85,11 +85,11 @@ export function SignInForm({ portal, title, subtitle, footer }: SignInFormProps)
       <p className="mt-1.5 text-sm text-ink-muted">{subtitle}</p>
 
       {/*
-        Every door offers Google (056). What it means differs by door, and
-        /auth/callback is where that is enforced: an organization address
-        registered with a password is refused, an employee may use Google on
-        the address their organization added, and a job seeker who has never
-        been here is signed up.
+        Every door offers Google (056, 061). On all three it means the same
+        thing now — prove this address with Google instead of typing its
+        password, whether or not it has one. /auth/callback enforces the rule
+        that is actually left: the account's role must match the door, and a job
+        seeker who has never been here is signed up rather than refused.
       */}
       <div className="mt-6">
         {notice ? <FormSuccess message={notice} /> : null}

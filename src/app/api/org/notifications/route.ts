@@ -46,6 +46,8 @@ async function handlePOST(request: NextRequest) {
       .select('id')
       .eq('id', input.targetId!)
       .eq('role', 'employee')
+      // Nothing is sent to somebody who has left — they cannot sign in to read it.
+      .eq('is_active', true)
       .maybeSingle()
     if (!data) return jsonError('That employee was not found.', 404)
   }

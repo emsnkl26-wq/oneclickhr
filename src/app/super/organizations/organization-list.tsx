@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/primitives'
 import { apiPatch, ApiClientError } from '@/lib/fetcher'
 import { formatLocal } from '@/lib/time'
+import { domainLockState } from '@/lib/domain-lock'
 import type { TenantStatus } from '@/types/db'
 
 interface TenantRow {
@@ -29,6 +30,7 @@ interface TenantRow {
   onboarded_at: string | null
   domain: string | null
   domain_verified_at: string | null
+  domain_verify_due_at: string | null
   employeeCount: number
   orgCount: number
   inactiveCount: number
@@ -118,6 +120,15 @@ export function OrganizationList({ tenants }: { tenants: TenantRow[] }) {
             <span className="truncate text-ink">{row.domain}</span>
             {row.domain_verified_at ? (
               <BadgeCheck className="size-3.5 shrink-0 text-emerald-600" aria-label="Verified" />
+            ) : domainLockState({
+                domain: row.domain,
+                domainVerified: false,
+                domainVerifyDueAt: row.domain_verify_due_at,
+              }).locked ? (
+              /* Out of time, so the workspace is locked out right now (061).
+                 Worth its own word: this is the row somebody is emailing us
+                 about, and "unverified" does not say that. */
+              <span className="shrink-0 text-[11px] font-semibold text-danger">paused</span>
             ) : (
               <span className="shrink-0 text-[11px] text-amber-600">unverified</span>
             )}
