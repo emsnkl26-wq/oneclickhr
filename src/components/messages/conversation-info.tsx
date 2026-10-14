@@ -72,7 +72,7 @@ export function ConversationInfo({
   const isRoom = conversation.kind !== 'direct'
 
   const [name, setName] = React.useState(conversation.title)
-  const [description, setDescription] = React.useState('')
+  const [description, setDescription] = React.useState(conversation.description ?? '')
   const [posting, setPosting] = React.useState(conversation.posting)
   const [savingSettings, setSavingSettings] = React.useState(false)
   const [adding, setAdding] = React.useState(false)
@@ -112,11 +112,12 @@ export function ConversationInfo({
   React.useEffect(() => {
     if (!open) return
     setName(conversation.title)
+    setDescription(conversation.description ?? '')
     setPosting(conversation.posting)
     setSelected(new Set())
     setAdding(false)
     setConfirmDelete('')
-  }, [open, conversation.title, conversation.posting])
+  }, [open, conversation.title, conversation.description, conversation.posting])
 
   const memberIds = React.useMemo(() => new Set(members.map((member) => member.id)), [members])
   const addable = React.useMemo(
@@ -137,7 +138,11 @@ export function ConversationInfo({
     try {
       await apiPatch(`/api/messaging/conversations/${conversation.id}`, {
         name: name.trim(),
-        description: description.trim() || undefined,
+        // An empty box is a deliberate CLEAR, not "leave it alone": it was
+        // pre-filled with whatever was there, so somebody who emptied it meant
+        // to. `null` is what the schema reads as clear — see the box on
+        // `conversationUpdateSchema`.
+        description: description.trim() || null,
         posting,
       })
       toast.success('Saved')

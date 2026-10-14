@@ -56,6 +56,15 @@ export interface ConversationSummary {
   title: string
   /** The second line under the title — a project's code, or "5 members". */
   subtitle: string | null
+  /**
+   * What the room is FOR, as its administrators wrote it.
+   *
+   * Carried on the summary rather than fetched by the settings panel so that
+   * editing it starts from what is there. A panel that opened with an empty box
+   * would look like the description had been lost, and anybody who then saved
+   * another setting would have made that true.
+   */
+  description: string | null
   color: string
   /** A `/api/files/view` URL for the room's picture or the other person's photo. */
   avatarUrl: string | null

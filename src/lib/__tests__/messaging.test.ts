@@ -11,7 +11,12 @@ import {
 } from '@/lib/messaging-shared'
 import { mergeMessages } from '@/components/messages/use-conversation'
 import { isVoiceMime } from '@/lib/upload-policy'
-import { conversationSchema, messageSchema, reactionSchema } from '@/lib/schemas'
+import {
+  conversationSchema,
+  conversationUpdateSchema,
+  messageSchema,
+  reactionSchema,
+} from '@/lib/schemas'
 
 /**
  * Messaging's pure logic.
@@ -310,6 +315,23 @@ describe('the mutation contracts', () => {
         withProfileId: '11111111-1111-4111-8111-111111111111',
       }).success
     ).toBe(true)
+  })
+
+  it('keeps absent, cleared and set APART on a conversation patch', () => {
+    /*
+     * The regression this is here for. Written with the project's usual
+     * `optionalText` helper, an omitted field arrived as `null` — so saving the
+     * posting policy wiped the group's description and its picture, and the
+     * "nothing to change" guard could never fire because every field was
+     * always present.
+     */
+    const archiveOnly = conversationUpdateSchema.parse({ archived: true })
+    expect(archiveOnly.description).toBeUndefined()
+    expect(archiveOnly.avatarKey).toBeUndefined()
+
+    expect(conversationUpdateSchema.parse({ description: null }).description).toBeNull()
+    expect(conversationUpdateSchema.parse({ description: 'Payroll' }).description).toBe('Payroll')
+    expect(conversationUpdateSchema.safeParse({}).success).toBe(false)
   })
 
   it('insists a group is named and a project room has a project', () => {

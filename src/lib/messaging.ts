@@ -295,6 +295,7 @@ function summarize(
     kind: row.kind,
     title,
     subtitle,
+    description: row.description,
     color: row.color,
     avatarUrl:
       row.kind === 'direct'

@@ -65,9 +65,16 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     return jsonError('A direct conversation has nothing to rename.', 400)
   }
 
+  /*
+   * ABSENT MEANS LEAVE IT, `null` MEANS CLEAR IT. See the box on
+   * `conversationUpdateSchema` for why that distinction had to be designed in
+   * rather than assumed: with the project's usual `optionalText` helper every
+   * field arrives as `null` when omitted, and saving one setting would have
+   * erased the two text fields beside it.
+   */
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
-  if (input.description !== undefined) patch.description = input.description
+  if (input.description !== undefined) patch.description = input.description || null
   if (input.color !== undefined) patch.color = input.color
   if (input.posting !== undefined) patch.posting = input.posting
   if (input.archived !== undefined) {
@@ -77,7 +84,7 @@ async function handlePATCH(request: NextRequest, { params }: Params) {
     if (input.avatarKey && !keyBelongsToTenant(input.avatarKey, ctx.tenantId)) {
       return jsonError('That picture does not belong to this workspace.', 403)
     }
-    patch.avatar_url = input.avatarKey
+    patch.avatar_url = input.avatarKey || null
   }
 
   const { error } = await supabase.from('conversations').update(patch).eq('id', conversationId)

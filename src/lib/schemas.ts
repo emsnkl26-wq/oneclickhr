@@ -2200,14 +2200,33 @@ export const conversationSchema = z
     }
   })
 
+/**
+ * A partial update to a conversation.
+ *
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ `optionalText` IS DELIBERATELY NOT USED HERE                            │
+ * │                                                                          │
+ * │ It is the right helper everywhere else in this file and exactly wrong    │
+ * │ for a PATCH. `optionalText` ends in `.transform(v => v ? v : null)`, so  │
+ * │ an ABSENT field arrives as `null` rather than `undefined` — which is     │
+ * │ indistinguishable from "clear this". Written that way, saving the        │
+ * │ posting policy would have wiped the group's description and its         │
+ * │ picture, and the `refine` below would never have fired because every    │
+ * │ field was always present.                                               │
+ * │                                                                          │
+ * │ So these are `.nullable().optional()` with no transform, and the three    │
+ * │ states stay distinct: absent means leave it, `null` means clear it, a    │
+ * │ string means set it. The route reads them as exactly that.               │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ */
 export const conversationUpdateSchema = z
   .object({
     name: z.string().trim().min(1, 'Name the group').max(120).optional(),
-    description: optionalText(2000),
+    description: z.string().trim().max(2000).nullable().optional(),
     color: hexColor.optional(),
     posting: z.enum(CONVERSATION_POSTING).optional(),
-    /** An R2 key from an upload with purpose `chat_image`. */
-    avatarKey: optionalText(300),
+    /** An R2 key from an upload with purpose `chat_image`. Null removes it. */
+    avatarKey: z.string().trim().max(300).nullable().optional(),
     /** True archives the room, false reopens it. */
     archived: z.boolean().optional(),
   })
