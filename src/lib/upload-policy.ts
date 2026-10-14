@@ -42,6 +42,20 @@ export const SIZE_LIMITS: Record<string, number> = {
   notification_image: 5 * 1024 * 1024,
   // A receipt is a phone photo or a one-page PDF. Same ceiling as a payslip.
   expense_receipt: 15 * 1024 * 1024,
+  /*
+   * Chat (062). Three purposes rather than one `chat` because the rules differ:
+   * a photo must be a photo, a voice note must be audio, and a file may be
+   * anything the denylist allows.
+   *
+   * The photo ceiling is 10MB — a modern phone camera is 4–8MB, and a thread
+   * where one person's holiday panorama is 40MB is a thread nobody can scroll
+   * on mobile data. A voice note at the browser's own Opus bitrate is roughly
+   * 1MB per two minutes, so 10MB is minutes of speech, not a limit anybody
+   * will reach by talking.
+   */
+  chat_image: 10 * 1024 * 1024,
+  chat_voice: 10 * 1024 * 1024,
+  chat_file: 50 * 1024 * 1024,
   general: 50 * 1024 * 1024,
 }
 
@@ -50,9 +64,48 @@ export function sizeLimitFor(purpose: string): number {
 }
 
 /** Purposes that must end up as a genuine raster image. */
-export const IMAGE_PURPOSES = new Set(['photo', 'logo', 'notification_image'])
+export const IMAGE_PURPOSES = new Set(['photo', 'logo', 'notification_image', 'chat_image'])
 /** Purposes where an SVG is acceptable (after sanitization). */
 export const SVG_ALLOWED_PURPOSES = new Set(['logo'])
+
+/**
+ * What a voice note is allowed to be, by MAGIC BYTES.
+ *
+ * Wider than `audio/*` on purpose, and the reason is that a browser recording
+ * audio does not produce an audio container. `MediaRecorder` on Chrome and
+ * Firefox writes Opus inside a WebM/Matroska envelope, which `file-type`
+ * fingerprints as `video/webm` — correctly, because the container genuinely is
+ * the video one with no video track in it. Safari writes `audio/mp4`, which
+ * sniffs as one of the MP4 family. Refusing those would refuse every voice note
+ * the product can actually record.
+ *
+ * It stays an allowlist rather than becoming "anything a browser sends": a
+ * voice note is not a route for shipping arbitrary media into a thread, and
+ * `chat_file` exists for the person who genuinely wants to attach a video.
+ */
+export const VOICE_MIMES = new Set([
+  'audio/webm',
+  'audio/ogg',
+  'audio/opus',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/aac',
+  'audio/x-m4a',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/flac',
+  // Containers a browser's own recorder produces. See above.
+  'video/webm',
+  'video/x-matroska',
+  'video/mp4',
+  'video/quicktime',
+])
+
+export function isVoiceMime(mime: string | null | undefined): boolean {
+  if (!mime) return false
+  const type = mime.toLowerCase().split(';')[0].trim()
+  return VOICE_MIMES.has(type)
+}
 
 export const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'svg'])
 
@@ -125,6 +178,14 @@ export function checkPresignClaims(
     if (type !== 'application/pdf' && !type.startsWith('image/')) {
       return { ok: false, error: 'Attach a PDF or an image of the payment confirmation.' }
     }
+  }
+  /*
+   * A voice note (062). Mirrored in `validateStoredObject`, which reads the
+   * BYTES — a rule enforced in only one of the two is a rule anybody can defeat
+   * by mislabelling the upload.
+   */
+  if (purpose === 'chat_voice' && !isVoiceMime(contentType)) {
+    return { ok: false, error: 'A voice message must be an audio recording.' }
   }
   // A receipt may be any format — photo, PDF, DOCX, spreadsheet. Only the
   // dangerous-MIME denylist above applies, and finalize re-checks the bytes.

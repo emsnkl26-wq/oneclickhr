@@ -74,10 +74,31 @@ async function handleGET(request: NextRequest) {
     return jsonError('Not found', 404)
   }
 
-  // An org may read anything in its own tenant. An employee may read only files
-  // that are theirs, so ask the database — under RLS — whether any row they can
-  // see actually references this key.
-  if (ctx.role !== 'org') {
+  /*
+   * A CONVERSATION ATTACHMENT IS GATED FOR EVERYBODY, THE ORG INCLUDED.
+   *
+   * Every other object in the bucket follows the rule below: an org admin may
+   * read anything inside its own tenant, because everything else in there is
+   * the workspace's own paperwork. Messaging is the one exception, and it has
+   * to be, or the privacy guarantee 062 is built on would hold for message
+   * TEXT and quietly fail for every photo and voice note in the same thread —
+   * which is the half people actually care about.
+   *
+   * So a `chat-` key is answered by `messagingMayRead` for every role: it asks
+   * the database, under RLS, whether a `message_attachments` row the CALLER can
+   * select references this key, and `message_attachments_select` resolves to
+   * "are you in that conversation?". An administrator who is in the room gets
+   * the file; one who is not gets a 404, exactly as a stranger would.
+   *
+   * The prefix is produced by FOLDERS in /api/files/presign and nowhere else,
+   * and that is cross-referenced there. It is matched after the tenant test
+   * above, so `..` and absolute keys are already gone.
+   */
+  if (isChatKey(key, ctx.tenantId)) {
+    if (!(await messagingMayRead(key))) return jsonError('Not found', 404)
+  } else if (ctx.role !== 'org') {
+    // An employee may read only files that are theirs, so ask the database —
+    // under RLS — whether any row they can see actually references this key.
     const allowed =
       (await employeeMayRead(key, ctx.userId)) ||
       (await inOwnOnboarding(key, ctx.userId, ctx.tenantId))
@@ -95,6 +116,49 @@ async function handleGET(request: NextRequest) {
   response.headers.set('Vary', 'Cookie')
   response.headers.set('X-Robots-Tag', 'noindex, nofollow')
   return response
+}
+
+/**
+ * The folders every conversation attachment is stored under (062).
+ *
+ * Must agree with FOLDERS in /api/files/presign, which is the only place that
+ * ever builds one of these keys. Both sides carry a note pointing at the other,
+ * because a rename on one side alone turns a membership-gated file back into an
+ * org-readable one without a single test failing.
+ */
+const CHAT_FOLDERS = ['chat-images', 'chat-voice', 'chat-files']
+
+function isChatKey(key: string, tenantId: string): boolean {
+  const rest = key.slice(tenantId.length + 1)
+  return CHAT_FOLDERS.some((folder) => rest.startsWith(`${folder}/`))
+}
+
+/**
+ * Is this key an attachment — or a room's picture — the CALLER may read?
+ *
+ * Two indexed equalities, asked together, both through the USER-SCOPED client
+ * so the answer comes from the policies rather than from this code:
+ *
+ *   • `message_attachments_select` is `app.can_read_conversation(...)`, which
+ *     is membership and nothing else. Role plays no part — see the box at the
+ *     call site.
+ *   • `conversations_select` additionally admits an org admin to a ROOM it
+ *     manages, which is exactly right for a group's avatar: that picture is
+ *     part of the metadata an administrator is allowed to see and to change,
+ *     and a direct message has no avatar for the arm to reach.
+ *
+ * A group avatar is uploaded with the same `chat_image` purpose as a photo sent
+ * in a thread, so it lands under the same prefix and arrives here. Giving it a
+ * folder of its own would have meant a fourth purpose to keep in step across
+ * four files, to express a rule this second query already states.
+ */
+async function messagingMayRead(key: string): Promise<boolean> {
+  const supabase = await createSupabaseServerClient()
+  const [attachment, room] = await Promise.all([
+    supabase.from('message_attachments').select('id').eq('storage_key', key).limit(1).maybeSingle(),
+    supabase.from('conversations').select('id').eq('avatar_url', key).limit(1).maybeSingle(),
+  ])
+  return !!attachment.data || !!room.data
 }
 
 /**

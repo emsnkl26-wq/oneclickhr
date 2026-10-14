@@ -34,6 +34,7 @@ import {
   SVG_ALLOWED_PURPOSES,
   IMAGE_EXTS,
   isDangerousMime,
+  isVoiceMime,
   sizeLimitFor,
 } from '@/lib/upload-policy'
 
@@ -47,6 +48,7 @@ export {
   SIZE_LIMITS,
   sizeLimitFor,
   isDangerousMime,
+  isVoiceMime,
   checkPresignClaims,
 } from '@/lib/upload-policy'
 
@@ -236,6 +238,24 @@ export async function validateStoredObject(opts: FinalizeOptions): Promise<Valid
         status: 400,
       }
     }
+  }
+
+  /*
+   * A voice note (062) must really be a recording.
+   *
+   * Mirrors `checkPresignClaims`, and has to: that one reads the CLAIMED
+   * content type and this one reads the bytes. `isVoiceMime` admits the
+   * WebM/Matroska and MP4 containers a browser's own `MediaRecorder` produces —
+   * see the box on `VOICE_MIMES` for why "audio/*" would reject every voice
+   * note the product can actually record.
+   *
+   * A file `file-type` cannot fingerprint at all is refused here rather than
+   * waved through. Audio formats are all magic-byte identifiable, so an
+   * unrecognised blob in this slot is not a voice note.
+   */
+  if (purpose === 'chat_voice' && !isVoiceMime(sniffed)) {
+    await deleteObject(key)
+    return { ok: false, error: 'A voice message must be an audio recording.', status: 400 }
   }
 
   // The SNIFFED type wins over the claimed one. Browsers report Content-Type
