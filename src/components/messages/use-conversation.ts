@@ -117,13 +117,28 @@ export function useConversation(args: {
   const [loadingMore, setLoadingMore] = React.useState(false)
   const [typing, setTyping] = React.useState<TypingPerson[]>([])
 
-  // Navigating between conversations re-uses this hook, so adopting the new
-  // props is what resets the thread. Keyed on the id so a REFRESH of the same
-  // conversation does not throw away messages realtime has since appended.
+  /*
+   * ADOPTING FRESH PROPS, IN TWO PIECES — and the split is the whole point.
+   *
+   * The METADATA follows every new `detail` the caller hands down: a rename, an
+   * archive, a changed roster, a new posting policy. Those arrive from a reload
+   * the user themselves triggered (the info panel saving) and have to show
+   * immediately.
+   *
+   * The MESSAGES do not. Replacing them on every reload would throw away
+   * whatever Realtime has appended since the server rendered that payload —
+   * and a reload of the SAME conversation happens on every settings change, so
+   * the thread would silently lose its newest messages each time somebody
+   * renamed the group. They are reset only when the conversation itself
+   * changes, which is a different thread entirely.
+   */
   React.useEffect(() => {
     setDetail(args.initial)
-    setMessages(args.initial.messages)
     setMembers(args.initial.members)
+  }, [args.initial])
+
+  React.useEffect(() => {
+    setMessages(args.initial.messages)
     setHasMore(!args.initial.atStart)
     setTyping([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +198,17 @@ export function useConversation(args: {
   }, [syncTail])
 
   /* ------------------------------------------------------------- realtime */
+
+  /*
+   * The live channel, so typing pings go out on the one that is already
+   * subscribed.
+   *
+   * `supabase.channel(name)` CREATES a channel every time it is called — it
+   * does not look one up — so calling it from the keystroke handler would open
+   * a new unsubscribed channel per keypress and never close any of them. The
+   * ping has to travel on this instance.
+   */
+  const channelRef = React.useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
 
   React.useEffect(() => {
     const supabase = createClient()
@@ -265,8 +291,11 @@ export function useConversation(args: {
       })
       .subscribe()
 
+    channelRef.current = channel
+
     return () => {
       if (timer) clearTimeout(timer)
+      channelRef.current = null
       supabase.removeChannel(channel)
     }
   }, [conversationId, syncNew, syncTail, args.viewerId])
@@ -290,15 +319,14 @@ export function useConversation(args: {
   }, [typing.length])
 
   const announceTyping = React.useCallback(() => {
-    const supabase = createClient()
-    // The channel is already open from the effect above; `channel()` returns
-    // the live instance for a name it is already subscribed to.
-    void supabase.channel(`conversation:${conversationId}`).send({
+    // Nothing to announce on until the subscription is up, and a ping that
+    // arrives a moment late is a dot that appears a moment late.
+    void channelRef.current?.send({
       type: 'broadcast',
       event: 'typing',
       payload: { id: args.viewerId, name: args.viewerName },
     })
-  }, [conversationId, args.viewerId, args.viewerName])
+  }, [args.viewerId, args.viewerName])
 
   /* ------------------------------------------------------------ mutations */
 

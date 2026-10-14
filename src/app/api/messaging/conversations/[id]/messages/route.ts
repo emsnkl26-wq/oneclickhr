@@ -6,13 +6,12 @@ import { apiRequireTenantUser } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { messageHistorySchema, messageSchema } from '@/lib/schemas'
 import {
-  conversationRoster,
   loadMessagePage,
   MessagingError,
   notifyNewMessage,
   sendMessage,
 } from '@/lib/messaging'
-import { mentionedIds, messageKindFor, attachmentKindFor } from '@/lib/messaging-shared'
+import { messageKindFor, attachmentKindFor } from '@/lib/messaging-shared'
 import { keyBelongsToTenant } from '@/lib/r2'
 import { rateLimit, limitKey } from '@/lib/rate-limit'
 import { isVoiceMime } from '@/lib/upload-policy'
@@ -130,7 +129,13 @@ async function handlePOST(request: NextRequest, { params }: Params) {
       clientToken: input.clientToken,
     })
 
-    const roster = await conversationRoster(supabase, conversationId)
+    /*
+     * The mentions come BACK from `sendMessage` rather than being re-derived
+     * here. It has already resolved them against the room's roster in order to
+     * store them, and parsing the same text a second time against a second
+     * read of the same roster is both a wasted round trip on the send path and
+     * a way for the stored set and the notified set to disagree.
+     */
     await notifyNewMessage(supabase, ctx, {
       conversationId,
       conversationKind: room.kind,
@@ -141,7 +146,7 @@ async function handlePOST(request: NextRequest, { params }: Params) {
           kind: attachmentKindFor(attachment.contentType, attachment.voice),
         }))
       ),
-      mentions: mentionedIds(input.body, roster),
+      mentions: sent.mentions,
     })
 
     return jsonOk(sent, 201)

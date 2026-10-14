@@ -30,6 +30,7 @@ import 'server-only'
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient, assertTenantScope } from '@/lib/supabase/admin'
+import { after } from 'next/server'
 import { sendPushToUsers } from '@/lib/push/send'
 import { cardPathFor } from '@/lib/notifications/events'
 import { truncate } from '@/lib/utils'
@@ -973,7 +974,7 @@ export async function sendMessage(
     attachments: OutgoingAttachment[]
     clientToken?: string
   }
-): Promise<{ id: string; createdAt: string }> {
+): Promise<{ id: string; createdAt: string; mentions: string[] }> {
   const tenantId = assertTenantScope(ctx.tenantId)
 
   /*
@@ -1022,7 +1023,7 @@ export async function sendMessage(
         .eq('client_token', input.clientToken)
         .maybeSingle()
       if (existing) {
-        return { id: existing.id as string, createdAt: existing.created_at as string }
+        return { id: existing.id as string, createdAt: existing.created_at as string, mentions }
       }
     }
     if (error?.code === '42501') {
@@ -1063,7 +1064,9 @@ export async function sendMessage(
   // Reading your own message is implied by sending it.
   await markRead(supabase, conversationId, ctx.userId, data.created_at as string)
 
-  return { id: data.id as string, createdAt: data.created_at as string }
+  // The resolved mentions travel back with the row, so the notifier does not
+  // have to re-read the roster this function has already read.
+  return { id: data.id as string, createdAt: data.created_at as string, mentions }
 }
 
 /** Who is in this conversation, as `findMentions` wants them. */
@@ -1173,6 +1176,39 @@ export async function markRead(
  */
 export async function notifyNewMessage(
   _supabase: SupabaseClient,
+  ctx: AppContext & { tenantId: string },
+  args: {
+    conversationId: string
+    conversationKind: ConversationKind
+    conversationName: string | null
+    body: string | null
+    kind: MessageKind
+    mentions: string[]
+  }
+): Promise<void> {
+  /*
+   * AFTER THE RESPONSE, not before it — the same trade `raiseNotification`
+   * makes, and it matters more here than anywhere else in the product.
+   *
+   * The fan-out is a roster read, a roles read, and one HTTPS request per
+   * registered device. On the send path that is the slowest thing attached to
+   * pressing Enter, and nothing about it changes the answer: the message is
+   * already written, and `notifyNewMessage` cannot fail in a way the sender
+   * should hear about. Holding the response for it would make every message in
+   * a twenty-person room feel like a form submission.
+   *
+   * Outside a request scope — a script, a test — `after()` throws, and the
+   * fan-out is simply awaited instead.
+   */
+  try {
+    after(() => fanOutMessagePush(ctx, args))
+    return
+  } catch {
+    await fanOutMessagePush(ctx, args)
+  }
+}
+
+async function fanOutMessagePush(
   ctx: AppContext & { tenantId: string },
   args: {
     conversationId: string

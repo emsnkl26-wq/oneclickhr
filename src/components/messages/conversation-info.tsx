@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import {
-  Archive, ArchiveRestore, BellOff, Crown, LogOut, Trash2, UserMinus, UserPlus, X,
+  Archive, ArchiveRestore, BellOff, Crown, ImagePlus, LogOut, Trash2, UserMinus, UserPlus, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -14,11 +14,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input, Textarea, Select } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
-import { apiDelete, apiPatch, apiPost, ApiClientError } from '@/lib/fetcher'
+import { apiDelete, apiPatch, apiPost, uploadFile, ApiClientError } from '@/lib/fetcher'
 import { CONVERSATION_POSTING } from '@/lib/schemas'
 import type { ConversationDetail, MessagingPerson } from '@/lib/messaging-shared'
 import { cn, initials } from '@/lib/utils'
 import { PeoplePicker } from '@/components/messages/people-picker'
+import { RoomAvatar } from '@/components/messages/conversation-list'
 
 /**
  * Everything about a conversation that is not a message: who is in it, what it
@@ -78,6 +79,35 @@ export function ConversationInfo({
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [confirmDelete, setConfirmDelete] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = React.useState(false)
+  const avatarInput = React.useRef<HTMLInputElement | null>(null)
+
+  const setAvatar = React.useCallback(
+    async (avatarKey: string | null) => {
+      try {
+        await apiPatch(`/api/messaging/conversations/${conversation.id}`, { avatarKey })
+        onChanged()
+      } catch (err) {
+        toast.error(err instanceof ApiClientError ? err.message : 'That picture could not be saved')
+      }
+    },
+    [conversation.id, onChanged]
+  )
+
+  const uploadAvatar = React.useCallback(
+    async (file: File) => {
+      setUploadingAvatar(true)
+      try {
+        const stored = await uploadFile(file, 'chat_image')
+        await setAvatar(stored.key)
+      } catch (err) {
+        toast.error(err instanceof ApiClientError ? err.message : 'That picture could not be uploaded')
+      } finally {
+        setUploadingAvatar(false)
+      }
+    },
+    [setAvatar]
+  )
 
   React.useEffect(() => {
     if (!open) return
@@ -224,6 +254,52 @@ export function ConversationInfo({
           {isRoom && canManage ? (
             <section className="space-y-3">
               <h3 className="text-[13px] font-semibold text-ink">Settings</h3>
+
+              {/*
+                The room's picture.
+
+                Uploaded with the `chat_image` purpose, so it lands under the
+                same `chat-` prefix as a photo sent in the thread and is
+                therefore read through the same membership gate — an
+                administrator of the room may see it, a stranger cannot. The
+                PATCH re-proves the key against this workspace's prefix before
+                storing it.
+              */}
+              <div className="flex items-center gap-3">
+                <RoomAvatar conversation={conversation} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={uploadingAvatar}
+                    onClick={() => avatarInput.current?.click()}
+                  >
+                    <ImagePlus />
+                    {conversation.avatarUrl ? 'Change picture' : 'Add a picture'}
+                  </Button>
+                  {conversation.avatarUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => void setAvatar(null)}
+                      className="focus-ring ml-2 rounded text-[12px] text-ink-muted underline"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+                <input
+                  ref={avatarInput}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    event.target.value = ''
+                    if (file) void uploadAvatar(file)
+                  }}
+                />
+              </div>
+
               <FormField label="Name" htmlFor="info-name">
                 <Input
                   id="info-name"
