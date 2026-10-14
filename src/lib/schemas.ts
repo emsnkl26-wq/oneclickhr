@@ -2282,11 +2282,25 @@ export const messagePinSchema = z.object({
   pinned: z.boolean(),
 })
 
-export const messageHistorySchema = z.object({
-  /** Page backwards from this timestamp — the oldest message already held. */
-  before: z.string().datetime().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(40),
-})
+/**
+ * A page of a thread, in one of the two directions it is ever asked for.
+ *
+ * `before` is the scroll upwards: the oldest timestamp the reader already
+ * holds. `after` is the live tail: the newest one. They are mutually exclusive
+ * because a request for both describes a window, and nothing in this feature
+ * wants a window — a Realtime event asks "what is new", and a scroll asks
+ * "what came before", and conflating them produces a query that can skip
+ * messages at one end while re-serving them at the other.
+ */
+export const messageHistorySchema = z
+  .object({
+    before: z.string().datetime().optional(),
+    after: z.string().datetime().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(40),
+  })
+  .refine((v) => !(v.before && v.after), {
+    message: 'Ask for older or newer messages, not both',
+  })
 
 export const messageSearchSchema = z.object({
   q: z.string().trim().min(2, 'Type at least two characters').max(120),

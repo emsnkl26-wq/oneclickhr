@@ -7,7 +7,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { messageHistorySchema, messageSchema } from '@/lib/schemas'
 import {
   conversationRoster,
-  loadOlderMessages,
+  loadMessagePage,
   MessagingError,
   notifyNewMessage,
   sendMessage,
@@ -22,11 +22,16 @@ export const dynamic = 'force-dynamic'
 type Params = { params: Promise<{ id: string }> }
 
 /**
- * An older page of the thread — the infinite scroll upwards.
+ * A page of the thread, in whichever direction the caller asked for.
  *
- * `before` is the oldest timestamp the client already holds, and the query is
- * strictly less than it, so paging can neither re-serve a message the reader
- * has nor skip one between pages.
+ * `before` is the scroll upwards — the oldest timestamp the client already
+ * holds. `after` is what a Realtime event sends it back for: the newest one, so
+ * the reply is exactly the messages that have appeared since, hydrated with
+ * their attachments and reactions, which the Postgres change payload does not
+ * carry and could not.
+ *
+ * Both bounds are strict, so neither direction can re-serve a message the
+ * reader already has or skip one between pages.
  */
 async function handleGET(request: NextRequest, { params }: Params) {
   const gate = await apiRequireTenantUser()
@@ -36,8 +41,9 @@ async function handleGET(request: NextRequest, { params }: Params) {
   const query = parseQuery(request, messageHistorySchema)
   const supabase = await createSupabaseServerClient()
 
-  const page = await loadOlderMessages(supabase, gate.ctx, conversationId, {
+  const page = await loadMessagePage(supabase, gate.ctx, conversationId, {
     before: query.before,
+    after: query.after,
     limit: query.limit,
   })
   return jsonOk(page)

@@ -402,10 +402,18 @@ export async function loadConversation(
   }
 }
 
+/**
+ * A page of one thread, newest first — which is the order the index is in.
+ *
+ * `before` and `after` are both STRICT comparisons. An inclusive bound would
+ * re-serve the row the client already holds on every single poll of the live
+ * tail, and the duplicate would have to be filtered out somewhere; strict means
+ * "what I do not have", which is the only thing either caller wants.
+ */
 function historyQuery(
   supabase: SupabaseClient,
   conversationId: string,
-  options: { before?: string; limit: number }
+  options: { before?: string; after?: string; limit: number }
 ) {
   let query = supabase
     .from('messages')
@@ -414,21 +422,30 @@ function historyQuery(
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(options.limit)
-  // Strictly before, so paging cannot re-serve the row the client already holds
-  // and cannot skip one either.
   if (options.before) query = query.lt('created_at', options.before)
+  if (options.after) query = query.gt('created_at', options.after)
   return query
 }
 
-/** An older page of the same thread. The thread's infinite scroll. */
-export async function loadOlderMessages(
+/**
+ * Another page of the same thread: older (the scroll) or newer (the tail).
+ *
+ * `atStart` is only meaningful for a backwards page, where a short page means
+ * the conversation has no more history. Asked forwards it says nothing useful
+ * and the caller ignores it.
+ */
+export async function loadMessagePage(
   supabase: SupabaseClient,
   ctx: AppContext,
   conversationId: string,
-  options: { before?: string; limit?: number } = {}
+  options: { before?: string; after?: string; limit?: number } = {}
 ): Promise<{ messages: MessageView[]; atStart: boolean }> {
   const limit = options.limit ?? MESSAGE_PAGE
-  const { data } = await historyQuery(supabase, conversationId, { before: options.before, limit })
+  const { data } = await historyQuery(supabase, conversationId, {
+    before: options.before,
+    after: options.after,
+    limit,
+  })
   const rows = ((data ?? []) as unknown as MessageRowShape[]).slice().reverse()
   const people = await listPeople(supabase)
   const messages = await hydrate(
