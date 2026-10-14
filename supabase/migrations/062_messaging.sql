@@ -941,6 +941,32 @@ with check (
   )
 );
 
+/*
+ * An attachment row is removed when its message is RETRACTED, and that is the
+ * only reason this policy exists.
+ *
+ * Retraction has to make the photo unreachable, not merely unrendered:
+ * `/api/files/view` answers a `chat-` key by asking whether a row the caller
+ * can see references it, so deleting the row is what closes the door. Without a
+ * DELETE policy the route's delete would match nothing, report no error, and
+ * leave the file quietly readable to everyone in the room — the worst shape a
+ * failure can take, because it looks exactly like success.
+ *
+ * Who: the sender, or a room administrator — the same pair `messages_update`
+ * admits for the retraction itself, so the two cannot disagree.
+ */
+drop policy if exists message_attachments_delete on public.message_attachments;
+create policy message_attachments_delete on public.message_attachments for delete to authenticated
+using (
+  tenant_id = (select app.current_tenant_id())
+  and app.can_read_conversation(conversation_id)
+  and exists (
+    select 1 from public.messages m
+     where m.id = message_attachments.message_id
+       and (m.sender_id = (select auth.uid()) or app.is_conversation_admin(m.conversation_id))
+  )
+);
+
 -- ---- message_reactions ----------------------------------------------------
 
 drop policy if exists message_reactions_select on public.message_reactions;

@@ -2219,6 +2219,10 @@ export const conversationMembersSchema = z.object({
   profileIds: z.array(uuid).min(1, 'Choose at least one person').max(200),
 })
 
+export const conversationMemberRoleSchema = z.object({
+  role: z.enum(['member', 'admin']),
+})
+
 /** What a member may change about their OWN side of a conversation. */
 export const conversationPrefsSchema = z
   .object({
