@@ -61,6 +61,7 @@ export type NotificationEvent =
   | 'visa.expiring'
   | 'meeting.invited'
   | 'support.replied'
+  | 'message.received'
   | 'generic'
 
 interface EventSpec {
@@ -233,6 +234,24 @@ const CATALOG: Record<NotificationEvent, EventSpec> = {
     path: employeeOrOrg(EMPLOYEE_ROUTES.support, ORG_ROUTES.support),
   },
 
+  /*
+   * A message in a conversation (062). The highest-volume event this product
+   * will ever raise, and therefore `normal`: email a team's chat and within a
+   * fortnight everything from this product is in a folder nobody opens,
+   * including the rejected timesheets.
+   *
+   * The TAG is the part that matters. It keys on the conversation, so twelve
+   * messages in one room while somebody is at lunch replace each other into a
+   * single badge instead of stacking into twelve alerts — the one behaviour
+   * that separates a usable chat notification from a reason to turn
+   * notifications off.
+   */
+  'message.received': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.messages, ORG_ROUTES.messages),
+    tag: (targetId) => (targetId ? `conversation:${targetId}` : undefined),
+  },
+
   generic: {
     importance: 'normal',
     path: employeeOrOrg(EMPLOYEE_ROUTES.notifications, ORG_ROUTES.notifications),
@@ -294,6 +313,9 @@ export function cardPathFor(
     'ticket.created',
     'ticket.replied',
     'ticket.status',
+    // The subject is the CONVERSATION, and both portals have a route for one,
+    // so the card opens the thread the message is actually in (062).
+    'message.received',
   ]
   if (event && DEEP_LINKABLE.includes(event)) return `${base}/${subjectId}`
   // Meetings open as a dialog over the calendar rather than on a page of their

@@ -199,10 +199,12 @@ create index if not exists conversation_members_tenant_idx
 -- "this message was deleted" is something the reader can see rather than a gap
 -- they have to notice. There is no DELETE policy at all — see §10.
 --
--- `mentions` is the set of profile ids an `@` in the body named. A column
--- rather than a re-parse at read time, because the NOTIFIER needs it
--- server-side: parsing the same text twice in two languages is how a mention
--- notifies somebody the thread never highlighted.
+-- `mentions` is the set of profile ids an `@` in the body named, resolved once
+-- against the roster when the message is written (`findMentions` in
+-- `lib/messaging-shared.ts`, which the thread renders from too). Stored rather
+-- than re-derived because the notifier reads it long after the send, from a
+-- roster that may have changed — and a mention that notifies somebody the
+-- thread never highlighted is a bug nobody reports and everybody notices.
 -- ---------------------------------------------------------------------------
 create table if not exists public.messages (
   id              uuid primary key default gen_random_uuid(),
