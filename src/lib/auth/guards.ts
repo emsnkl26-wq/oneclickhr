@@ -47,6 +47,31 @@ export interface GuardOptions {
 }
 
 /**
+ * Is the pause actually ENFORCED? Off unless switched on deliberately.
+ *
+ * THE INCIDENT THIS EXISTS FOR. 061 shipped the deadline and the lockout in one
+ * deploy. The migration's backfill was supposed to give every unverified
+ * workspace a fresh three days so nobody was paused by the deploy itself — but
+ * the guarantee only holds if the migration lands at the same moment as the
+ * code, and it only buys three days either way. Both of those failed in
+ * production: every unverified workspace was locked out of the whole product,
+ * and the one screen they were funnelled to could not render, so the entire
+ * customer base saw an error page instead of a sign-in.
+ *
+ * A switch that can pause every customer at once must not be the DEFAULT state
+ * of a deploy. So enforcement is now explicit: set `DOMAIN_LOCK_ENFORCED=true`
+ * once the migration is applied and the deadlines are genuinely in the future.
+ * Unset — including on a fresh deploy that forgot it — nothing is paused.
+ *
+ * The deadline itself is unaffected: `domainLockState()` still reports the true
+ * state, the banner still counts down, and the super-admin console still shows
+ * who is overdue. Only the lockout is gated.
+ */
+export function isDomainLockEnforced(): boolean {
+  return process.env.DOMAIN_LOCK_ENFORCED === 'true'
+}
+
+/**
  * A workspace that has run out of time to prove its website is PAUSED (061).
  *
  * Checked here, in `requireUser`, rather than in each portal's guard, so it
@@ -58,6 +83,7 @@ export interface GuardOptions {
  * Super admins and job seekers have no workspace to pause.
  */
 function domainLocked(ctx: AppContext): boolean {
+  if (!isDomainLockEnforced()) return false
   if (ctx.role === 'super_admin' || ctx.role === 'candidate') return false
   return domainLockState(ctx.tenant).locked
 }

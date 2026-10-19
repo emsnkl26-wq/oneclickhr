@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { PauseOctagon, ShieldAlert } from 'lucide-react'
 import { resolveContext, homeFor } from '@/lib/auth/context'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isDomainLockEnforced } from '@/lib/auth/guards'
 import { domainLockState } from '@/lib/domain-lock'
 import { deadlineLabel } from '@/lib/domain'
 import { Button } from '@/components/ui/button'
@@ -10,6 +11,13 @@ import { DomainVerification } from '@/app/org/settings/domain/domain-verificatio
 
 export const metadata: Metadata = { title: 'Verify your website' }
 export const dynamic = 'force-dynamic'
+
+interface TenantDomainRow {
+  domain: string | null
+  domain_token: string | null
+  domain_verified_at: string | null
+  domain_verification_method: string | null
+}
 
 /**
  * Where a PAUSED workspace lands (061): unverified, and out of its three days.
@@ -33,9 +41,17 @@ export default async function VerifyDomainPage() {
   if (!ctx.isActive) redirect('/account-inactive')
 
   // Verified in the meantime, or never locked: nobody is held on this screen a
-  // moment longer than the rule holds them.
+  // moment longer than the rule holds them. The enforcement flag is read for
+  // the same reason — with the lockout switched off nothing is paused, so
+  // holding somebody here would be a pause screen for a pause that is not
+  // happening. See `isDomainLockEnforced`.
   const lock = domainLockState(ctx.tenant)
-  if (!lock.locked || ctx.role === 'super_admin' || ctx.role === 'candidate') {
+  if (
+    !isDomainLockEnforced() ||
+    !lock.locked ||
+    ctx.role === 'super_admin' ||
+    ctx.role === 'candidate'
+  ) {
     redirect(homeFor(ctx.role))
   }
 
@@ -71,12 +87,26 @@ export default async function VerifyDomainPage() {
    * domain reads it that way: it is deliberately absent from `current_profile()`
    * so it never rides along in the context every page render carries. The read
    * is scoped by the tenant id from the verified session.
+   *
+   * WRAPPED, BECAUSE THIS IS THE LAST SCREEN A PAUSED WORKSPACE CAN REACH.
+   * `createAdminClient()` throws outright when SUPABASE_SERVICE_ROLE_KEY is
+   * absent, and a throw in a server component renders the root error boundary —
+   * so a misconfigured environment turned the one page that FIXES a lockout
+   * into "Something went wrong", with no way forward for anybody. A missing
+   * token degrades to the form below asking for the domain again, which is
+   * recoverable; an error page is not.
    */
-  const { data: tenant } = await createAdminClient()
-    .from('tenants')
-    .select('domain, domain_token, domain_verified_at, domain_verification_method')
-    .eq('id', ctx.tenantId)
-    .single()
+  let tenant: TenantDomainRow | null = null
+  try {
+    const { data } = await createAdminClient()
+      .from('tenants')
+      .select('domain, domain_token, domain_verified_at, domain_verification_method')
+      .eq('id', ctx.tenantId)
+      .single()
+    tenant = (data as TenantDomainRow | null) ?? null
+  } catch (error) {
+    console.error('[verify-domain] could not read the tenant domain row', error)
+  }
 
   return (
     <div className="min-h-screen bg-page px-4 py-10">
