@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Check, Search } from 'lucide-react'
+import { Check, ChevronRight, Search } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/primitives'
 import { Input } from '@/components/ui/input'
 import type { MessagingPerson } from '@/lib/messaging-shared'
@@ -17,6 +17,11 @@ import { cn, initials } from '@/lib/utils'
  * Already-in-the-room people stay VISIBLE and disabled rather than being
  * filtered out, because a roster with holes in it reads as a search that is
  * broken. The row says why instead.
+ *
+ * In `instant` mode there is no checklist at all: tapping a row IS the action,
+ * so the trailing control is a chevron, not a checkbox, and the running count
+ * at the bottom is dropped. This is how a direct message is started — one tap,
+ * straight into the thread, the way every chat app does it.
  */
 export function PeoplePicker({
   people,
@@ -26,6 +31,7 @@ export function PeoplePicker({
   disabled = {},
   emptyLabel = 'No one matches that.',
   max,
+  instant = false,
 }: {
   people: MessagingPerson[]
   selected: Set<string>
@@ -33,6 +39,8 @@ export function PeoplePicker({
   disabled?: Record<string, string>
   emptyLabel?: string
   max?: number
+  /** One tap opens — no checkboxes, no count. For direct messages. */
+  instant?: boolean
 }) {
   const [term, setTerm] = React.useState('')
 
@@ -97,15 +105,19 @@ export function PeoplePicker({
                     {reason ?? person.jobTitle ?? person.email ?? ''}
                   </span>
                 </span>
-                <span
-                  className={cn(
-                    'grid size-5 shrink-0 place-items-center rounded-md border',
-                    isSelected ? 'border-brand-600 bg-brand-600 text-white' : 'border-line'
-                  )}
-                  aria-hidden
-                >
-                  {isSelected ? <Check className="size-3.5" /> : null}
-                </span>
+                {instant ? (
+                  <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden />
+                ) : (
+                  <span
+                    className={cn(
+                      'grid size-5 shrink-0 place-items-center rounded-md border',
+                      isSelected ? 'border-brand-600 bg-brand-600 text-white' : 'border-line'
+                    )}
+                    aria-hidden
+                  >
+                    {isSelected ? <Check className="size-3.5" /> : null}
+                  </span>
+                )}
               </button>
             </li>
           )
@@ -116,10 +128,12 @@ export function PeoplePicker({
         ) : null}
       </ul>
 
-      <p className="text-[11px] text-ink-muted">
-        {selected.size} selected
-        {max !== undefined ? ` of ${max}` : ''}
-      </p>
+      {instant ? null : (
+        <p className="text-[11px] text-ink-muted">
+          {selected.size} selected
+          {max !== undefined ? ` of ${max}` : ''}
+        </p>
+      )}
     </div>
   )
 }

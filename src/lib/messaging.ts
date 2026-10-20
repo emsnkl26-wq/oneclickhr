@@ -739,35 +739,52 @@ export async function createConversation(
 
     const directKey = [ctx.userId, other].sort().join(':')
 
-    // Already there? Then this is the answer, and no write happens at all.
-    const { data: existing } = await supabase
+    /*
+     * A DIRECT MESSAGE IS INSERTED WITH THE ADMIN CLIENT.
+     *
+     * Unlike a group or a project room — where the caller's own
+     * `conversations_insert` policy is the authorization (does this person
+     * manage this project?) — a DM carries no such decision: the only rules are
+     * tenant scope, an active member, and `created_by = me`, and every one of
+     * them is already enforced above in TypeScript (`assertTenantScope`,
+     * `assertInTenant`, the self check). Routing it through the caller's client
+     * bought nothing and cost everything: the creator is not yet a member, so a
+     * RETURNING `select` fails `conversations_select` and Postgres rolls the
+     * insert back with it. The admin client has no such RETURNING hazard, so the
+     * id comes straight back.
+     */
+    const { data: inserted, error: insertErr } = await admin
       .from('conversations')
+      .insert({
+        tenant_id: tenantId,
+        kind: 'direct',
+        created_by: ctx.userId,
+        direct_key: directKey,
+      })
       .select('id')
-      .eq('direct_key', directKey)
       .maybeSingle()
-    if (existing) return { id: existing.id as string, created: false }
 
-    const created = await insertConversation(supabase, {
-      tenant_id: tenantId,
-      kind: 'direct',
-      created_by: ctx.userId,
-      direct_key: directKey,
-    })
+    let id = inserted?.id as string | undefined
 
-    if (!created.ok) {
+    if (!id) {
       /*
-       * The only expected failure is the unique index doing its job: the other
-       * person opened the same conversation a moment earlier. Re-reading is the
-       * correct answer, and it is attempted for ANY insert failure because a
-       * second row for this pair cannot exist — if one is there, it is the one.
+       * The one expected failure is the unique index doing its job: the other
+       * person opened the same conversation a moment earlier (or this caller did,
+       * in another tab). Re-read by the unique key and return that row — it
+       * already has both of us as members.
        */
-      const { data: raced } = await supabase
+      if (insertErr && insertErr.code !== '23505') {
+        console.error('[messaging] direct insert failed', insertErr)
+        throw new MessagingError(conversationInsertMessage(insertErr.code), 400)
+      }
+      const { data: raced } = await admin
         .from('conversations')
         .select('id')
+        .eq('tenant_id', tenantId)
         .eq('direct_key', directKey)
         .maybeSingle()
-      if (raced) return { id: raced.id as string, created: false }
-      throw new MessagingError(created.error, 400)
+      if (!raced) throw new MessagingError('That conversation could not be created.', 400)
+      return { id: raced.id as string, created: false }
     }
 
     /*
@@ -777,42 +794,31 @@ export async function createConversation(
      * which is not theirs. Leaving is still available to both.
      */
     await admin.from('conversation_members').insert([
-      { conversation_id: created.id, profile_id: ctx.userId, tenant_id: tenantId, role: 'member', added_by: ctx.userId },
-      { conversation_id: created.id, profile_id: other, tenant_id: tenantId, role: 'member', added_by: ctx.userId },
+      { conversation_id: id, profile_id: ctx.userId, tenant_id: tenantId, role: 'member', added_by: ctx.userId },
+      { conversation_id: id, profile_id: other, tenant_id: tenantId, role: 'member', added_by: ctx.userId },
     ])
 
-    return { id: created.id, created: true }
+    return { id, created: true }
   }
 
   // ---- a group or a project room ------------------------------------------
 
   if (!input.name) throw new MessagingError('Name the group.')
 
-  let memberIds = Array.from(new Set((input.memberIds ?? []).filter((id) => id !== ctx.userId)))
+  const memberIds = Array.from(new Set((input.memberIds ?? []).filter((id) => id !== ctx.userId)))
 
-  if (input.kind === 'project') {
-    if (!input.projectId) throw new MessagingError('Choose a project.')
-    /*
-     * A project room starts with the project's people in it. Reading the
-     * assignment list through the CALLER'S client is the authorization: an
-     * employee who cannot see the project's roster gets an empty one, and
-     * `conversations_insert` has already refused them the room itself unless
-     * they manage it.
-     */
-    const { data: assigned } = await supabase
-      .from('project_assignments')
-      .select('employee_id')
-      .eq('project_id', input.projectId)
-    memberIds = Array.from(
-      new Set([
-        ...memberIds,
-        ...((assigned ?? []) as Array<{ employee_id: string }>)
-          .map((row) => row.employee_id)
-          .filter((id) => id !== ctx.userId),
-      ])
-    )
+  if (input.kind === 'project' && !input.projectId) {
+    throw new MessagingError('Choose a project.')
   }
 
+  /*
+   * A project room's roster is whatever the caller sent. The dialog seeds that
+   * list with the project's assignees — ticked, so the common case is one
+   * click — but leaves them removable, so the roster here is the deliberate
+   * one, not an automatic union with everybody on the project. Authorization is
+   * unchanged: `conversations_insert` has already refused anyone who does not
+   * manage the project, and `assertInTenant` keeps every id inside the tenant.
+   */
   const verified = await assertInTenant(admin, tenantId, memberIds)
 
   const created = await insertConversation(supabase, {

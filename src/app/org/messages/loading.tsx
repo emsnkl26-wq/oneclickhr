@@ -8,7 +8,7 @@
  */
 export default function Loading() {
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] min-h-[32rem] overflow-hidden rounded-2xl border border-line bg-card shadow-card">
+    <div className="flex h-[calc(100dvh-5rem)] min-h-[32rem] overflow-hidden rounded-2xl border border-line bg-card shadow-card">
       <div className="hidden w-80 shrink-0 flex-col gap-2 border-r border-line p-3 lg:flex">
         <div className="h-9 animate-pulse rounded-lg bg-page" />
         {Array.from({ length: 7 }).map((_, index) => (

@@ -29,6 +29,8 @@ export interface ProjectOption {
   code: string
   name: string
   conversationId: string | null
+  /** The project's assignees as profile ids, viewer excluded — the room's default roster. */
+  memberIds: string[]
 }
 
 export interface MessagingPageData {
@@ -77,13 +79,18 @@ async function loadProjectOptions(
   const rows = (data ?? []) as Array<{ id: string; code: string; name: string }>
   if (!rows.length) return []
 
-  const { data: rooms } = await supabase
-    .from('conversations')
-    .select('id, project_id')
-    .in(
-      'project_id',
-      rows.map((row) => row.id)
-    )
+  const projectIds = rows.map((row) => row.id)
+
+  /*
+   * The existing room (if any) and the project's assignees, read through the
+   * CALLER'S client so RLS scopes both. The assignees seed the picker, where
+   * they are ticked but removable — the room no longer force-adds them, so a
+   * ticked-then-unticked person stays out.
+   */
+  const [{ data: rooms }, { data: assignments }] = await Promise.all([
+    supabase.from('conversations').select('id, project_id').in('project_id', projectIds),
+    supabase.from('project_assignments').select('project_id, employee_id').in('project_id', projectIds),
+  ])
 
   const roomByProject = new Map(
     ((rooms ?? []) as Array<{ id: string; project_id: string | null }>)
@@ -91,11 +98,20 @@ async function loadProjectOptions(
       .map((row) => [row.project_id as string, row.id])
   )
 
+  const membersByProject = new Map<string, string[]>()
+  for (const row of (assignments ?? []) as Array<{ project_id: string; employee_id: string }>) {
+    if (row.employee_id === ctx.userId) continue
+    const list = membersByProject.get(row.project_id) ?? []
+    if (!list.includes(row.employee_id)) list.push(row.employee_id)
+    membersByProject.set(row.project_id, list)
+  }
+
   return rows.map((row) => ({
     id: row.id,
     code: row.code,
     name: row.name,
     conversationId: roomByProject.get(row.id) ?? null,
+    memberIds: membersByProject.get(row.id) ?? [],
   }))
 }
 

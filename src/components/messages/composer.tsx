@@ -83,7 +83,6 @@ export function Composer({
 }) {
   const [draft, setDraft] = React.useState('')
   const [pending, setPending] = React.useState<Pending[]>([])
-  const [sending, setSending] = React.useState(false)
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null)
   const [mentionIndex, setMentionIndex] = React.useState(0)
 
@@ -93,10 +92,15 @@ export function Composer({
 
   // A fresh conversation gets a fresh box. Carrying a half-typed message into
   // somebody else's thread is the kind of mistake that is hard to undo.
+  //
+  // Opening a conversation also lands the cursor in the box, the way every chat
+  // tool does — but only on a device with a real keyboard. Autofocus on a phone
+  // throws the on-screen keyboard up over the thread the person just opened.
   React.useEffect(() => {
     setDraft('')
     setPending([])
     setMentionQuery(null)
+    if (!isTouch()) textarea.current?.focus()
   }, [conversationId])
 
   // Grow with the content, to a ceiling: a composer that eats the thread is
@@ -244,25 +248,34 @@ export function Composer({
 
   const uploading = pending.some((row) => !row.uploaded && !row.failed)
   const ready = pending.filter((row) => row.uploaded).map((row) => row.uploaded!)
-  const canSubmit = (!!draft.trim() || ready.length > 0) && !uploading && !sending
+  const canSubmit = (!!draft.trim() || ready.length > 0) && !uploading
 
-  async function submit() {
+  function submit() {
     if (!canSubmit) return
-    setSending(true)
-    const ok = await onSend({
+
+    const payload = {
       body: draft.trim() || null,
       replyToId: replyTo?.id ?? null,
       attachments: ready,
-    })
-    setSending(false)
-    if (!ok) return
-    // Only cleared on success. A failed send leaves the words in the box,
-    // because the one thing worse than a message that did not send is a
-    // message that did not send and is gone.
+    }
+
+    /*
+     * THE BOX EMPTIES ON ENTER, not when the network answers.
+     *
+     * The optimistic bubble already carries the message into the thread, where
+     * it shows a clock, then a tick, and — if the send fails — its own "not
+     * sent / try again" line. So there is nothing left for the composer to wait
+     * for: holding the words here until a round trip completes is the lag that
+     * makes a chat feel broken. Clear now, send in the background, and the
+     * person can type the next line immediately.
+     */
     setDraft('')
     setPending([])
     setMentionQuery(null)
     onCancelReply()
+    requestAnimationFrame(() => textarea.current?.focus())
+
+    void onSend(payload)
   }
 
   if (!canPost) {
@@ -285,6 +298,8 @@ export function Composer({
         addFiles(event.dataTransfer.files)
       }}
     >
+     {/* Aligned with the thread's centered column above it. */}
+     <div className="mx-auto w-full max-w-5xl">
       {replyTo ? (
         <div className="flex items-start gap-2 border-b border-line bg-page px-4 py-2">
           <div className="min-w-0 flex-1 border-l-2 border-brand-600 pl-2">
@@ -461,7 +476,7 @@ export function Composer({
               }
               if (event.key === 'Enter' && !event.shiftKey && !isTouch()) {
                 event.preventDefault()
-                void submit()
+                submit()
               }
             }}
             className={
@@ -471,17 +486,16 @@ export function Composer({
             }
           />
 
-          <VoiceRecorder onRecorded={onRecorded} disabled={sending} />
+          <VoiceRecorder onRecorded={onRecorded} disabled={uploading} />
 
           <Button
             size="icon"
             onClick={submit}
             disabled={!canSubmit}
-            loading={sending}
             aria-label="Send"
             className="shrink-0"
           >
-            {sending ? null : <Send />}
+            <Send />
           </Button>
         </div>
 
@@ -489,6 +503,7 @@ export function Composer({
           <p className="px-1 pt-1 text-[11px] text-ink-muted">Uploading — Send waits for this.</p>
         ) : null}
       </div>
+     </div>
     </div>
   )
 }

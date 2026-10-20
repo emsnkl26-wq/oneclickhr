@@ -21,6 +21,8 @@ export interface ProjectOption {
   name: string
   /** Already has a room — offered, but as the room it already is. */
   conversationId: string | null
+  /** The project's assignees (profile ids, viewer excluded) — the room's default roster. */
+  memberIds: string[]
 }
 
 type Mode = 'direct' | 'group' | 'project'
@@ -77,23 +79,43 @@ export function NewConversationDialog({
     setProjectId('')
   }, [open])
 
+  // Add or remove one person from a group's / room's roster. A direct message
+  // does not come through here — it opens on the tap (`startDirect`).
   const toggle = React.useCallback((profileId: string) => {
     setSelected((current) => {
       const next = new Set(current)
-      if (mode === 'direct') {
-        // One person, by definition. Tapping a second REPLACES the first rather
-        // than refusing it, which is what a radio list should do.
-        next.clear()
-        if (!current.has(profileId)) next.add(profileId)
-        return next
-      }
       if (next.has(profileId)) next.delete(profileId)
       else next.add(profileId)
       return next
     })
-  }, [mode])
+  }, [])
 
   const chosenProject = projects.find((project) => project.id === projectId) ?? null
+
+  /**
+   * Start a direct message in one tap.
+   *
+   * A DM has exactly one recipient, so there is nothing to confirm: picking the
+   * person IS the decision, and a second "Start messaging" click is a step that
+   * only ever means "yes, the person I just chose". Clicking a row creates (or
+   * reopens) the thread and lands in it.
+   */
+  async function startDirect(profileId: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await apiPost<{ id: string; created: boolean }>(
+        '/api/messaging/conversations',
+        { kind: 'direct', withProfileId: profileId }
+      )
+      onCreated(result.id)
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'That conversation could not be opened')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function create() {
     if (mode === 'project' && chosenProject?.conversationId) {
@@ -129,12 +151,12 @@ export function NewConversationDialog({
     }
   }
 
+  // Whether the Create / Open action is allowed. Direct messages have no such
+  // button — they open on the tap — so this only governs groups and rooms.
   const ready =
-    mode === 'direct'
-      ? selected.size === 1
-      : mode === 'group'
-        ? !!name.trim()
-        : !!projectId && (!!chosenProject?.conversationId || !!name.trim())
+    mode === 'group'
+      ? !!name.trim()
+      : !!projectId && (!!chosenProject?.conversationId || !!name.trim())
 
   const tabs: Array<{ id: Mode; label: string; icon: typeof Users }> = [
     { id: 'direct', label: 'Direct', icon: MessageSquare },
@@ -186,10 +208,18 @@ export function NewConversationDialog({
                   const next = event.target.value
                   setProjectId(next)
                   const project = projects.find((candidate) => candidate.id === next)
-                  // The room's default name is the project's — nobody wants to
-                  // retype it, and a differently named room for the same
-                  // project is how two places end up meaning one thing.
-                  if (project && !project.conversationId) setName(project.name)
+                  if (project && !project.conversationId) {
+                    // The room's default name is the project's — nobody wants to
+                    // retype it, and a differently named room for the same
+                    // project is how two places end up meaning one thing.
+                    setName(project.name)
+                    // The project's own people are ticked by default — the room
+                    // is for them — but they are only a starting point: anyone
+                    // can be unticked before the room is created.
+                    setSelected(new Set(project.memberIds))
+                  } else {
+                    setSelected(new Set())
+                  }
                 }}
                 options={[
                   { value: '', label: 'Choose a project' },
@@ -262,8 +292,8 @@ export function NewConversationDialog({
               <PeoplePicker
                 people={people}
                 selected={selected}
-                onToggle={toggle}
-                max={mode === 'direct' ? 1 : undefined}
+                onToggle={mode === 'direct' ? startDirect : toggle}
+                instant={mode === 'direct'}
                 emptyLabel="Nobody in this workspace matches that."
               />
             </div>
@@ -274,13 +304,14 @@ export function NewConversationDialog({
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={create} loading={busy} disabled={!ready}>
-            {chosenProject?.conversationId
-              ? 'Open room'
-              : mode === 'direct'
-                ? 'Start messaging'
-                : 'Create'}
-          </Button>
+          {/* A direct message needs no confirm button — a tap on the person
+              opens the thread. The others gather a roster first, so they keep
+              their Create (or Open) action. */}
+          {mode === 'direct' ? null : (
+            <Button onClick={create} loading={busy} disabled={!ready}>
+              {chosenProject?.conversationId ? 'Open room' : 'Create'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -99,6 +99,8 @@ export interface ConversationController {
   react: (messageId: string, emoji: string, on: boolean) => Promise<void>
   pin: (messageId: string, pinned: boolean) => Promise<void>
   announceTyping: () => void
+  /** Broadcast that we have read the thread, so our ticks go blue for the sender. */
+  announceRead: () => void
   refresh: () => void
 }
 
@@ -227,30 +229,46 @@ export function useConversation(args: {
       }, SYNC_DEBOUNCE_MS)
     }
 
+    /*
+     * Does this change belong to the room on screen?
+     *
+     * The subscriptions below carry NO server-side `filter`, deliberately. A
+     * filtered `postgres_changes` binding on an RLS table is the one Supabase
+     * Realtime shape that silently fails to deliver — the list hook has always
+     * subscribed unfiltered for exactly this reason, and this hook now matches
+     * it, narrowing to the open conversation here in the client instead. The
+     * payload carries `conversation_id` because every one of these tables keeps
+     * it and the tables publish with `replica identity full`.
+     */
+    const sameRoom = (payload: { new?: unknown; old?: unknown }) => {
+      const row = (payload.new ?? payload.old) as { conversation_id?: string } | undefined
+      return row?.conversation_id === conversationId
+    }
+
     const channel = supabase
       .channel(`conversation:${conversationId}`, {
-        // Our own typing pings must not come back to us.
+        // Our own typing/sync pings must not come back to us.
         config: { broadcast: { self: false } },
       })
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-        () => schedule(false)
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => { if (sameRoom(payload)) schedule(false) }
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-        () => schedule(true)
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        (payload) => { if (sameRoom(payload)) schedule(true) }
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'message_reactions', filter: `conversation_id=eq.${conversationId}` },
-        () => schedule(true)
+        { event: '*', schema: 'public', table: 'message_reactions' },
+        (payload) => { if (sameRoom(payload)) schedule(true) }
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'message_attachments', filter: `conversation_id=eq.${conversationId}` },
-        () => schedule(true)
+        { event: '*', schema: 'public', table: 'message_attachments' },
+        (payload) => { if (sameRoom(payload)) schedule(true) }
       )
       /*
        * Read receipts and the roster. These ARE patched from the payload,
@@ -260,8 +278,9 @@ export function useConversation(args: {
        */
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'conversation_members', filter: `conversation_id=eq.${conversationId}` },
+        { event: '*', schema: 'public', table: 'conversation_members' },
         (payload) => {
+          if (!sameRoom(payload)) return
           const row = (payload.new ?? payload.old) as
             | { profile_id?: string; last_read_at?: string | null }
             | undefined
@@ -279,6 +298,46 @@ export function useConversation(args: {
           )
         }
       )
+      /*
+       * The fast path. A `postgres_changes` event can lag a second or two behind
+       * the write; a broadcast is sender-to-receiver with no database in the
+       * loop, so a message lands in the other person's thread the instant it is
+       * sent. It carries no content — just "something changed, re-read" — so the
+       * actual fetch still goes through the RLS-protected API and a non-member
+       * who guessed the channel name learns nothing. `postgres_changes` above
+       * stays as the backstop for anyone who was not subscribed at send time.
+       */
+      /*
+       * THE FULL MESSAGE, pushed over the socket.
+       *
+       * A text message carries everything a bubble needs, so it is broadcast
+       * whole and appended on arrival with NO request at all — the fastest and
+       * cheapest path, and the one that makes a live back-and-forth feel live.
+       * `mine` is recomputed against THIS viewer, and `mergeMessages` keys by
+       * id, so the later `postgres_changes` echo (or a reload) folds into the
+       * same bubble rather than doubling it. Anything with attachments comes as
+       * a `sync` signal instead, since its files still need the hydrated URLs.
+       */
+      .on('broadcast', { event: 'message' }, (payload) => {
+        const msg = payload.payload as MessageView | undefined
+        if (!msg?.id || msg.senderId === args.viewerId) return
+        absorb([{ ...msg, mine: false, status: undefined }])
+      })
+      .on('broadcast', { event: 'sync' }, () => schedule(false))
+      /*
+       * A read receipt, patched straight from the broadcast — the other side
+       * read up to `at`, so their tick on our messages turns blue at once
+       * rather than waiting on a `conversation_members` change event.
+       */
+      .on('broadcast', { event: 'read' }, (payload) => {
+        const who = payload.payload as { id?: string; at?: string } | undefined
+        if (!who?.id || !who.at || who.id === args.viewerId) return
+        setMembers((current) =>
+          current.map((member) =>
+            member.id === who.id ? { ...member, lastReadAt: who.at ?? member.lastReadAt } : member
+          )
+        )
+      })
       .on('broadcast', { event: 'typing' }, (payload) => {
         const who = payload.payload as { id?: string; name?: string } | undefined
         const id = who?.id
@@ -298,7 +357,7 @@ export function useConversation(args: {
       channelRef.current = null
       supabase.removeChannel(channel)
     }
-  }, [conversationId, syncNew, syncTail, args.viewerId])
+  }, [conversationId, syncNew, syncTail, absorb, args.viewerId])
 
   /*
    * Expire typing flags on a timer rather than on a "stopped typing" message.
@@ -328,25 +387,68 @@ export function useConversation(args: {
     })
   }, [args.viewerId, args.viewerName])
 
+  /*
+   * Tell everyone else in the room to re-read, now. Sent after an edit, a
+   * delete or a reaction — changes to an EXISTING bubble, which the other side
+   * resolves by re-reading the tail.
+   */
+  const broadcastSync = React.useCallback(() => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'sync' })
+  }, [])
+
+  /* Push a whole new bubble to the room — the fast path for a plain message. */
+  const broadcastMessage = React.useCallback((message: MessageView) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'message', payload: message })
+  }, [])
+
+  /* Tell the room we have read up to now, so our ticks turn blue on their end. */
+  const announceRead = React.useCallback(() => {
+    void channelRef.current?.send({
+      type: 'broadcast',
+      event: 'read',
+      payload: { id: args.viewerId, at: new Date().toISOString() },
+    })
+  }, [args.viewerId])
+
   /* ------------------------------------------------------------ mutations */
 
   const post = React.useCallback(
     async (bubble: MessageView, attachments: OutgoingFile[]): Promise<boolean> => {
       try {
-        await apiPost(`/api/messaging/conversations/${conversationId}/messages`, {
-          body: bubble.body,
-          replyToId: bubble.replyTo?.id ?? null,
-          attachments,
-          clientToken: bubble.clientToken,
-        })
+        const saved = await apiPost<{ id: string; createdAt: string }>(
+          `/api/messaging/conversations/${conversationId}/messages`,
+          {
+            body: bubble.body,
+            replyToId: bubble.replyTo?.id ?? null,
+            attachments,
+            clientToken: bubble.clientToken,
+          }
+        )
         /*
-         * The row now exists. We do NOT swap the optimistic bubble for the
-         * response here: the realtime echo arrives with the attachments and
-         * reactions hydrated, and `mergeMessages` matches it to this bubble by
-         * its token. Patching from the POST's thin answer would redraw the
-         * photo as a blank and then fill it in again.
+         * The row exists. Clear the clock the instant the POST answers by
+         * adopting the server's id and timestamp — the tick should not wait on
+         * a second round trip. The realtime echo (or `syncNew`) then merges the
+         * fully hydrated row by that same id, which is what fills in a photo's
+         * attachments; a text message is already complete here.
          */
-        void syncNew()
+        const confirmed: MessageView = {
+          ...bubble,
+          id: saved.id,
+          createdAt: saved.createdAt,
+          status: undefined,
+        }
+        setMessages((current) =>
+          current.map((message) => (message.id === bubble.id ? confirmed : message))
+        )
+        if (attachments.length) {
+          // The files need hydrated URLs the other side does not have, so it is
+          // told to re-read rather than handed an incomplete bubble.
+          broadcastSync()
+          void syncNew()
+        } else {
+          // A plain message is complete as-is: push it whole, no fetch anywhere.
+          broadcastMessage(confirmed)
+        }
         return true
       } catch (err) {
         setMessages((current) =>
@@ -358,7 +460,7 @@ export function useConversation(args: {
         return false
       }
     },
-    [conversationId, syncNew]
+    [conversationId, syncNew, broadcastSync, broadcastMessage]
   )
 
   const pendingFiles = React.useRef(new Map<string, OutgoingFile[]>())
@@ -466,6 +568,7 @@ export function useConversation(args: {
       )
       try {
         await apiPatch(`/api/messaging/messages/${messageId}`, { body })
+        broadcastSync()
         return true
       } catch (err) {
         setMessages(previous)
@@ -473,7 +576,7 @@ export function useConversation(args: {
         return false
       }
     },
-    [messages]
+    [messages, broadcastSync]
   )
 
   const remove = React.useCallback(
@@ -488,12 +591,13 @@ export function useConversation(args: {
       )
       try {
         await apiDelete(`/api/messaging/messages/${messageId}`)
+        broadcastSync()
       } catch (err) {
         setMessages(previous)
         toast.error(err instanceof ApiClientError ? err.message : 'That message could not be deleted')
       }
     },
-    [messages]
+    [messages, broadcastSync]
   )
 
   const react = React.useCallback(
@@ -512,12 +616,13 @@ export function useConversation(args: {
         } else {
           await apiDelete(`/api/messaging/messages/${messageId}/reactions`, { emoji })
         }
+        broadcastSync()
       } catch (err) {
         setMessages(previous)
         if (err instanceof ApiClientError && err.status !== 0) toast.error(err.message)
       }
     },
-    [messages]
+    [messages, broadcastSync]
   )
 
   const pin = React.useCallback(
@@ -533,12 +638,13 @@ export function useConversation(args: {
             ? [...current.pinned, ...messages.filter((message) => message.id === messageId)]
             : current.pinned.filter((message) => message.id !== messageId),
         }))
+        broadcastSync()
         toast.success(pinned ? 'Pinned to this conversation' : 'Unpinned')
       } catch (err) {
         toast.error(err instanceof ApiClientError ? err.message : 'That could not be pinned')
       }
     },
-    [messages]
+    [messages, broadcastSync]
   )
 
   return {
@@ -557,6 +663,7 @@ export function useConversation(args: {
     react,
     pin,
     announceTyping,
+    announceRead,
     refresh,
   }
 }

@@ -191,8 +191,12 @@ export function MessageThread({
       <div
         ref={scroller}
         onScroll={onScroll}
-        className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain py-2"
+        className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
+       {/* A centered reading column, so a wide pane frames the conversation
+           instead of stretching it edge to edge. `justify-end` keeps a short
+           conversation resting on the composer, the way chat apps do. */}
+       <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col justify-end px-1 py-2 sm:px-3">
         {loadingMore ? (
           <p className="flex items-center justify-center gap-2 py-3 text-[12px] text-ink-muted">
             <Loader2 className="size-3.5 animate-spin" aria-hidden />
@@ -246,6 +250,7 @@ export function MessageThread({
             {typingLine(typingNames)}
           </p>
         ) : null}
+       </div>
       </div>
 
       {!atBottom ? (

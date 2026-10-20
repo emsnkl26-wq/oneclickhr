@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import {
-  AlertCircle, Check, CheckCheck, Loader2, MoreVertical, Pencil, Pin, PinOff,
+  AlertCircle, Check, CheckCheck, Clock, MoreVertical, Pencil, Pin, PinOff,
   Reply, SmilePlus, Trash2, X,
 } from 'lucide-react'
 import {
@@ -311,6 +311,10 @@ export function MessageBubble({
  * the room. A per-person "seen by" list is deliberately absent — in a group of
  * forty it is a popover nobody opens, and the honest summary ("everyone" or
  * not) is the only part anybody acts on.
+ *
+ * The icons follow the convention every chat tool shares: a clock while the
+ * message is still in flight, one tick once it is stored, two ticks — and only
+ * these turn colour — once everybody else has read it.
  */
 function Receipt({
   status,
@@ -321,11 +325,13 @@ function Receipt({
   readByCount: number
   memberCount: number
 }) {
-  if (status === 'sending') return <Loader2 className="size-3 animate-spin" aria-label="Sending" />
+  if (status === 'sending') return <Clock className="size-3" aria-label="Sending" />
   if (status === 'failed') return null
   const others = Math.max(0, memberCount - 1)
   if (others > 0 && readByCount >= others) {
-    return <CheckCheck className="size-3" aria-label="Read" />
+    // The read ticks are the one receipt that changes colour, so "they've seen
+    // it" reads at a glance — a light sky blue that holds up on the brand bubble.
+    return <CheckCheck className="size-3.5 text-sky-300" aria-label="Read" />
   }
   return <Check className="size-3" aria-label="Sent" />
 }

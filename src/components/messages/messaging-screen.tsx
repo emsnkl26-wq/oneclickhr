@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/primitives'
 import { apiGet, apiPost, ApiClientError } from '@/lib/fetcher'
-import { useProgressRouter } from '@/lib/use-progress-router'
 import {
   messageDateLabel, messageTime,
   type ConversationDetail, type ConversationSummary, type MessageView, type MessagingPerson,
@@ -66,7 +65,6 @@ export function MessagingScreen({
   viewerName: string
   tenantId: string
 }) {
-  const router = useProgressRouter()
   const list = useConversations({ initialConversations, initialPeople })
 
   const [detail, setDetail] = React.useState<ConversationDetail | null>(initialDetail)
@@ -76,7 +74,18 @@ export function MessagingScreen({
   const [replyTo, setReplyTo] = React.useState<MessageView | null>(null)
   const [searching, setSearching] = React.useState(false)
 
-  // The server's copy wins on navigation — it is the conversation in the URL.
+  /*
+   * The id of the thread on screen, as a ref, so the navigation helpers below
+   * can tell "already open" from "switch to" without re-subscribing to `detail`.
+   */
+  const openId = React.useRef<string | null>(initialDetail?.conversation.id ?? null)
+  React.useEffect(() => {
+    openId.current = detail?.conversation.id ?? null
+  }, [detail])
+
+  // The server's copy wins when a REAL navigation lands here (a deep link, a
+  // notification, a hard refresh). In-screen switches change `detail` directly
+  // and never remount, so this does not fight them.
   React.useEffect(() => {
     setDetail(initialDetail)
     setReplyTo(null)
@@ -84,34 +93,66 @@ export function MessagingScreen({
     setSearching(false)
   }, [initialDetail])
 
+  /** Fetch one thread and show it, with the header's spinner while it loads. */
+  const loadInto = React.useCallback(async (id: string) => {
+    setLoadingThread(true)
+    try {
+      setDetail(await apiGet<ConversationDetail>(`/api/messaging/conversations/${id}`))
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : 'That conversation could not be opened')
+    } finally {
+      setLoadingThread(false)
+    }
+  }, [])
+
   /**
-   * Open a conversation.
+   * Go to a conversation — or back to the empty index — WITHOUT a route change.
    *
-   * The thread is fetched here AND the URL is pushed, in that order, so the
-   * pane fills from the client's own request rather than waiting for the server
-   * render — which keeps the list from flashing — while the address still ends
-   * up linkable. The server render that follows is the same data and simply
-   * replaces it.
+   * The URL is updated with `history.pushState`, which Next's router adopts, so
+   * the thread stays linkable and the back button works; but the page is never
+   * re-requested, so the LIST on the left keeps its scroll, its filter and its
+   * live subscription. Only the right pane fetches, and only what it needs.
    */
-  const open = React.useCallback(
-    async (conversation: ConversationSummary) => {
-      if (conversation.id === detail?.conversation.id) return
-      list.markOpened(conversation.id)
-      setLoadingThread(true)
-      router.push(`${basePath}/${conversation.id}`)
-      try {
-        const next = await apiGet<ConversationDetail>(
-          `/api/messaging/conversations/${conversation.id}`
-        )
-        setDetail(next)
-      } catch (err) {
-        toast.error(err instanceof ApiClientError ? err.message : 'That conversation could not be opened')
-      } finally {
-        setLoadingThread(false)
+  const go = React.useCallback(
+    (id: string | null, opts?: { replace?: boolean }) => {
+      if (id === openId.current && !opts?.replace) return
+      const url = id ? `${basePath}/${id}` : basePath
+      if (typeof window !== 'undefined' && window.location.pathname !== url) {
+        if (opts?.replace) window.history.replaceState(null, '', url)
+        else window.history.pushState(null, '', url)
       }
+      if (id) void loadInto(id)
+      else setDetail(null)
     },
-    [basePath, detail?.conversation.id, list, router]
+    [basePath, loadInto]
   )
+
+  const open = React.useCallback(
+    (conversation: ConversationSummary) => {
+      if (conversation.id === openId.current) return
+      list.markOpened(conversation.id)
+      go(conversation.id)
+    },
+    [go, list]
+  )
+
+  /*
+   * Back and forward. The browser has already changed the URL by the time this
+   * fires, so the thread is loaded to match it — never pushed again — and a URL
+   * that has left the messaging section is left to Next's own router.
+   */
+  React.useEffect(() => {
+    const onPop = () => {
+      const path = window.location.pathname
+      if (!path.startsWith(basePath)) return
+      const id = path.slice(basePath.length).replace(/^\/+/, '') || null
+      if (id === openId.current) return
+      if (id) void loadInto(id)
+      else setDetail(null)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [basePath, loadInto])
 
   const reloadThread = React.useCallback(async () => {
     const id = detail?.conversation.id
@@ -126,17 +167,15 @@ export function MessagingScreen({
 
   const leave = React.useCallback(() => {
     toast.success('You left the conversation')
-    setDetail(null)
-    router.push(basePath)
+    go(null)
     list.refresh()
-  }, [basePath, list, router])
+  }, [go, list])
 
   const destroyed = React.useCallback(() => {
     toast.success('Conversation deleted')
-    setDetail(null)
-    router.push(basePath)
+    go(null)
     list.refresh()
-  }, [basePath, list, router])
+  }, [go, list])
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -147,7 +186,7 @@ export function MessagingScreen({
         projects={projects}
         canCreateProjectRoom={canCreateProjectRoom}
         onCreated={(conversationId) => {
-          router.push(`${basePath}/${conversationId}`)
+          go(conversationId)
           list.refresh()
         }}
       />
@@ -172,7 +211,7 @@ export function MessagingScreen({
       {/* A fixed-height shell: the two panes scroll inside it, the page does
           not. A thread that scrolls the whole document loses its composer off
           the bottom of the screen. */}
-      <div className="flex h-[calc(100vh-7.5rem)] min-h-[32rem] overflow-hidden rounded-2xl border border-line bg-card shadow-card">
+      <div className="flex h-[calc(100dvh-5rem)] min-h-[32rem] overflow-hidden rounded-2xl border border-line bg-card shadow-card">
         <ConversationList
           conversations={list.conversations}
           activeId={detail?.conversation.id ?? null}
@@ -198,10 +237,7 @@ export function MessagingScreen({
               onShowInfo={() => setShowInfo(true)}
               searching={searching}
               onSearchingChange={setSearching}
-              onBack={() => {
-                setDetail(null)
-                router.push(basePath)
-              }}
+              onBack={() => go(null)}
               onListRefresh={list.refresh}
             />
           ) : (
@@ -256,6 +292,7 @@ function Thread({
 }) {
   const conversation = useConversation({ initial: detail, viewerId, viewerName, tenantId })
   const { conversation: room } = conversation.detail
+  const { announceRead } = conversation
 
   /*
    * The read mark, throttled.
@@ -270,10 +307,14 @@ function Thread({
     const now = Date.now()
     if (now - lastMark.current < 3000) return
     lastMark.current = now
+    // Blue-tick the sender immediately over the socket, then persist. The
+    // broadcast is what makes "seen" feel instant; the POST is what makes it
+    // survive a refresh.
+    announceRead()
     void apiPost(`/api/messaging/conversations/${room.id}/read`).then(onListRefresh).catch(() => {
       // A read mark that did not land is re-sent by the next scroll.
     })
-  }, [room.id, onListRefresh])
+  }, [room.id, onListRefresh, announceRead])
 
   // The ROOM's roster is what `@` offers and what the server resolves against.
   const roster = React.useMemo(
