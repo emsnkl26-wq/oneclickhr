@@ -23,6 +23,7 @@ in a state you can verify before moving on.
 11. [Verification checklist](#11-verification-checklist)
 12. [Troubleshooting](#12-troubleshooting)
 13. [Browser push notifications](#13-browser-push-notifications)
+14. [Messaging](#14-messaging)
 
 ---
 
@@ -106,6 +107,8 @@ Later migrations run the same way, in number order. The most recent batch:
 | 53 | `053_super_admin_talent_and_purge.sql` | The platform console's talent directory view (service role only) and `purge_tenant()` for permanently deleting an organization |
 | 54 | `054_brand_refresh.sql` | The OneclickHR rebrand: moves the workspace colour default from the old crimson (`#C41E33`) to the brand orange (`#FF6A00`), and moves every workspace still on the old default. The app already treats the old default as "unset", so this is not urgent — it makes the stored data match what is shown |
 | 56 | `056_recruiters_storage_support.sql` | 1099 job type; company LinkedIn on the workspace; recruiters (employees whose designation contains "recruit") manage job postings and applicants; Sign in with Google helpers (§7b); two-way support threads; the 1 GB per-workspace storage quota and storage requests; the modern invoice layout. **Required** — the job portal, uploads and Google sign-in read its columns |
+| 57–61 | — | Job-portal performance, the recruiter toggle, profile links and project updates, local JWT verification, the seat limit and the domain deadline. Additive; run them in order like everything above |
+| 62 | `062_messaging.sql` | **Required for Messages.** Team messaging: conversations (direct, group, project room), messages with attachments and reactions, and the five policies that make a conversation readable to its members and to nobody else — including the workspace's own administrators. See §14 |
 
 `009` is not optional either — `/org/documents` and `/super/organizations` call
 `search_documents()` and `platform_tenant_stats()`, and both pages error without
@@ -1119,6 +1122,60 @@ card says so rather than showing a button that cannot work.
 
 ---
 
+## 14. Messaging
+
+Direct messages, groups and project rooms, with images, files, voice notes,
+replies and reactions. Two things to do, and one thing to understand.
+
+**1. Apply `062_messaging.sql`.** Nothing else is needed for messaging to work:
+it uses the R2 bucket from §6 for attachments and the VAPID keys from §13 for
+notifications, both of which it shares with the rest of the product.
+
+**2. Turn Realtime on for the five tables.** The migration adds them to the
+`supabase_realtime` publication *if that publication exists* — it is created the
+first time Realtime is enabled for the project, so on a brand-new project the
+step is skipped silently and messaging still works, just without live updates:
+messages appear on refresh and the unread badge lags until the tab regains
+focus. In **Database → Replication**, enable `supabase_realtime` for
+`conversations`, `conversation_members`, `messages`, `message_attachments` and
+`message_reactions`, then re-run `062` (it is idempotent) so the publication
+picks them up.
+
+> Realtime is safe to enable here. A subscriber receives only rows their own RLS
+> policies admit, so a browser subscribed to the `messages` table is subscribed
+> to its own conversations and nothing else. See §12 of `062_messaging.sql`.
+
+### What an administrator can and cannot see
+
+This is the one place in the product where an org administrator is **not**
+privileged inside their own workspace, and it is deliberate — a messaging
+feature the employer can read over your shoulder is one nobody uses, and the
+organization ends up back on WhatsApp with none of its records.
+
+| | Org administrator | Member of the conversation |
+|---|---|---|
+| Read the messages | **No** | Yes |
+| Read the attachments | **No** | Yes |
+| See that a group exists, and its roster | Yes | Yes |
+| See that a direct message exists | **No** | Yes |
+| Rename, re-colour, archive, delete a group | Yes | Its admins |
+| Add or remove people in a group | Yes | Its admins |
+| Add anybody to a direct message | **No — nobody can** | No |
+
+Every roster change writes a visible system line into the conversation, so an
+administrator joining a room to read it is something the room sees happen,
+permanently. That is the counterweight to the custody in the right-hand column.
+
+The guarantee is enforced by Postgres, not by the application: the policies in
+`062_messaging.sql` resolve message access to membership with no role test at
+all, `/api/files/view` re-asks the database before signing any `chat-` key, and
+`npm run test:isolation` proves a workspace owner cannot read a conversation
+between two of their own employees.
+
+**One consequence worth knowing before you promise it to a customer:** there is
+no admin transcript and no export. If an organization needs message retention
+for compliance, that is a feature to design — not a setting to find.
+
 ---
 
 ## Reference
@@ -1137,6 +1194,9 @@ card says so rather than showing a button that cannot work.
 | What gets emailed vs. pushed | `src/lib/notifications/events.ts` |
 | VAPID keys, fail-closed | `src/lib/push/vapid.ts` |
 | Push delivery + dead-endpoint pruning | `src/lib/push/send.ts` |
+| Messaging privacy model | `supabase/migrations/062_messaging.sql` |
+| Conversation loading and writes | `src/lib/messaging.ts` |
+| Shared message parsers (mentions, links) | `src/lib/messaging-shared.ts` |
 | Service worker (no fetch handler) | `public/sw.js` |
 | Two-way calendar sync | `src/lib/calendar-sync.ts` |
 | Isolation proof | `scripts/tenant-isolation-test.ts` |

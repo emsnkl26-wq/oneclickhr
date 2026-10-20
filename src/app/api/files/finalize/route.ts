@@ -17,7 +17,17 @@ export const dynamic = 'force-dynamic'
  * courtesy), so a purpose allowed there and refused here would let an employee
  * upload bytes that are then deleted out from under them.
  */
-const EMPLOYEE_PURPOSES = ['photo', 'general', 'employee_doc', 'work_auth', 'payment_proof']
+const EMPLOYEE_PURPOSES = [
+  'photo',
+  'general',
+  'employee_doc',
+  'work_auth',
+  'payment_proof',
+  // Chat (062). See the box in /api/files/presign.
+  'chat_image',
+  'chat_voice',
+  'chat_file',
+]
 
 const DOC_KINDS: Record<string, DocumentKind> = {
   employee_doc: 'employee_doc',
@@ -80,6 +90,13 @@ async function handlePOST(request: NextRequest) {
    * a bank document. Filing it into `documents` would put every employee's
    * salary evidence into the org's general Documents screen, which is not
    * where anybody expects to find it or wants it browsed.
+   *
+   * The three `chat_*` purposes (062) are absent for a stronger version of
+   * exactly that reason. A `documents` row is readable by the org admin —
+   * `documents_select` says so — so filing a conversation's attachments there
+   * would route every private photo and voice note straight into the screen
+   * the privacy rules in 062 exist to keep them out of. A chat attachment is
+   * referenced by `message_attachments` and by nothing else.
    */
   // Counted against the workspace's storage quota (056), at the size actually stored.
   await addStorageUsed(ctx.tenantId, result.size)

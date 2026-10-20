@@ -31,12 +31,25 @@ export const dynamic = 'force-dynamic'
  * confirmation that the money arrived. It is the only purpose here that an org
  * admin has no reason to use.
  */
+/*
+ * The three chat purposes (062) are here because messaging is not a thing the
+ * org does TO an employee — it is the employee talking to their team, and an
+ * attachment they cannot upload is a feature they do not have. What they may
+ * upload is still narrow: a photo must sniff as an image, a voice note as a
+ * recording, and `/api/messages/.../messages` refuses a key that is not
+ * referenced by a message it is about to write. What they may READ is
+ * unchanged, and for chat keys it is NARROWER than for anything else in the
+ * bucket — see the `chat-` arm in /api/files/view.
+ */
 const EMPLOYEE_PURPOSES = new Set([
   'photo',
   'general',
   'employee_doc',
   'work_auth',
   'payment_proof',
+  'chat_image',
+  'chat_voice',
+  'chat_file',
 ])
 
 const FOLDERS: Record<string, string> = {
@@ -53,6 +66,17 @@ const FOLDERS: Record<string, string> = {
   // announcement, so only an org admin has a reason to upload its banner.
   notification_image: 'announcements',
   expense_receipt: 'receipts',
+  /*
+   * Chat (062). All three begin `chat-`, and that prefix is LOAD BEARING: it
+   * is how /api/files/view recognises a conversation attachment and withholds
+   * the blanket "an org admin may read anything in its own tenant" rule from
+   * it. Renaming these folders without changing that test would silently hand
+   * every administrator the ability to read their employees' private
+   * attachments, so the two places are cross-referenced in both directions.
+   */
+  chat_image: 'chat-images',
+  chat_voice: 'chat-voice',
+  chat_file: 'chat-files',
   general: 'files',
 }
 

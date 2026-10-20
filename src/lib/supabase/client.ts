@@ -17,9 +17,27 @@ let cached: ReturnType<typeof createBrowserClient> | null = null
 
 export function createClient() {
   if (cached) return cached
-  cached = createBrowserClient(
+  const client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
+
+  /*
+   * KEEP THE REALTIME SOCKET AUTHENTICATED.
+   *
+   * With cookie-based SSR auth the socket can otherwise connect with only the
+   * anon key, and a `postgres_changes` subscription evaluated as the anon role
+   * matches no RLS-protected rows — so live message/receipt events never
+   * arrive and the thread looks frozen until a manual reload. Feeding the
+   * socket the user's JWT (now, and on every refresh) is what makes Supabase
+   * Realtime actually deliver this person's rows. `onAuthStateChange` fires an
+   * INITIAL_SESSION event immediately, so the token is set right after
+   * creation; broadcast does not need this, but postgres_changes does.
+   */
+  client.auth.onAuthStateChange((_event, session) => {
+    client.realtime.setAuth(session?.access_token ?? null)
+  })
+
+  cached = client
   return cached
 }

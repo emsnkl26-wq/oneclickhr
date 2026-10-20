@@ -1049,7 +1049,10 @@ export const presignSchema = z.object({
   sizeBytes: z.number().int().positive().max(50 * 1024 * 1024),
   purpose: z.enum([
     'photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo',
-    'notification_image', 'expense_receipt', 'general',
+    'notification_image', 'expense_receipt',
+    // Chat (062): a photo, a voice note, or any other attachment.
+    'chat_image', 'chat_voice', 'chat_file',
+    'general',
   ]),
 })
 
@@ -1061,7 +1064,10 @@ export const finalizeUploadSchema = z.object({
   // a presigned URL, uploads its bytes, then fails at finalize.
   purpose: z.enum([
     'photo', 'payslip', 'payment_proof', 'employee_doc', 'work_auth', 'logo',
-    'notification_image', 'expense_receipt', 'general',
+    'notification_image', 'expense_receipt',
+    // Chat (062): a photo, a voice note, or any other attachment.
+    'chat_image', 'chat_voice', 'chat_file',
+    'general',
   ]),
   employeeId: uuid.nullable().optional(),
 })
@@ -2130,4 +2136,193 @@ export const candidateProfileSchema = z.object({
   resumeName: optionalText(255),
   /** Remove the saved CV. Ignored when a new one is being set. */
   removeResume: z.boolean().default(false),
+})
+
+// ---------------------------------------------------------------------------
+// Messaging (062)
+// ---------------------------------------------------------------------------
+
+export const CONVERSATION_KINDS = ['direct', 'group', 'project'] as const
+export const CONVERSATION_POSTING = ['everyone', 'admins'] as const
+
+/**
+ * The emoji a message may be reacted with.
+ *
+ * AN ALLOWLIST, NOT A LENGTH CHECK, and the difference matters. `emoji` is the
+ * one piece of user input in this feature that is rendered as a LABEL — on a
+ * chip, in a tooltip, in an aria-label — and an open text field there is an
+ * invitation to store a 16-character string of combining marks that paints over
+ * the rest of the thread. A fixed set also means the picker, the chip and the
+ * database all agree on what a reaction is, so a client cannot invent one the
+ * UI has no room for.
+ */
+export const REACTION_EMOJI = ['👍', '❤️', '😂', '🎉', '😮', '😢', '🙏', '👀', '✅', '🔥'] as const
+
+export const reactionSchema = z.object({
+  emoji: z.enum(REACTION_EMOJI),
+})
+
+/**
+ * Create a conversation.
+ *
+ * One schema for all three kinds, discriminated after parse rather than with
+ * `discriminatedUnion`, because the three differ by which fields they REQUIRE
+ * rather than by shape — and a union here produced error messages that named
+ * the wrong branch ("Expected 'project', received 'group'") for what is really
+ * "a group needs a name".
+ */
+export const conversationSchema = z
+  .object({
+    kind: z.enum(CONVERSATION_KINDS),
+    name: z.string().trim().min(1, 'Name the group').max(120).optional(),
+    description: optionalText(2000),
+    color: hexColor.optional(),
+    posting: z.enum(CONVERSATION_POSTING).default('everyone'),
+    /** For a direct message: the one other person. */
+    withProfileId: uuid.optional(),
+    /** For a project room. */
+    projectId: uuid.optional(),
+    /** Everyone to put in a group at creation, besides the creator. */
+    memberIds: z.array(uuid).max(500).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (value.kind === 'direct') {
+      if (!value.withProfileId) {
+        ctx.addIssue({ code: 'custom', path: ['withProfileId'], message: 'Choose who to message' })
+      }
+      return
+    }
+    if (!value.name) {
+      ctx.addIssue({ code: 'custom', path: ['name'], message: 'Name the group' })
+    }
+    if (value.kind === 'project' && !value.projectId) {
+      ctx.addIssue({ code: 'custom', path: ['projectId'], message: 'Choose a project' })
+    }
+  })
+
+/**
+ * A partial update to a conversation.
+ *
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ `optionalText` IS DELIBERATELY NOT USED HERE                            │
+ * │                                                                          │
+ * │ It is the right helper everywhere else in this file and exactly wrong    │
+ * │ for a PATCH. `optionalText` ends in `.transform(v => v ? v : null)`, so  │
+ * │ an ABSENT field arrives as `null` rather than `undefined` — which is     │
+ * │ indistinguishable from "clear this". Written that way, saving the        │
+ * │ posting policy would have wiped the group's description and its         │
+ * │ picture, and the `refine` below would never have fired because every    │
+ * │ field was always present.                                               │
+ * │                                                                          │
+ * │ So these are `.nullable().optional()` with no transform, and the three    │
+ * │ states stay distinct: absent means leave it, `null` means clear it, a    │
+ * │ string means set it. The route reads them as exactly that.               │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ */
+export const conversationUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Name the group').max(120).optional(),
+    description: z.string().trim().max(2000).nullable().optional(),
+    color: hexColor.optional(),
+    posting: z.enum(CONVERSATION_POSTING).optional(),
+    /** An R2 key from an upload with purpose `chat_image`. Null removes it. */
+    avatarKey: z.string().trim().max(300).nullable().optional(),
+    /** True archives the room, false reopens it. */
+    archived: z.boolean().optional(),
+  })
+  .refine((v) => Object.values(v).some((field) => field !== undefined), {
+    message: 'Nothing to change',
+  })
+
+export const conversationMembersSchema = z.object({
+  profileIds: z.array(uuid).min(1, 'Choose at least one person').max(200),
+})
+
+export const conversationMemberRoleSchema = z.object({
+  role: z.enum(['member', 'admin']),
+})
+
+/** What a member may change about their OWN side of a conversation. */
+export const conversationPrefsSchema = z
+  .object({
+    muted: z.boolean().optional(),
+    pinned: z.boolean().optional(),
+  })
+  .refine((v) => v.muted !== undefined || v.pinned !== undefined, { message: 'Nothing to change' })
+
+/**
+ * One attachment on an outgoing message.
+ *
+ * The client has already uploaded the bytes and had them inspected by
+ * `/api/files/finalize`, so what arrives here is a KEY, never content. The
+ * route still re-proves the key belongs to the caller's tenant — a key that
+ * came back from a browser is a key a browser can change.
+ *
+ * `durationSeconds`, `width` and `height` are the browser's own measurements of
+ * a file it just recorded or picked. They are presentation hints — a voice
+ * note's length, an image's aspect ratio so the bubble does not jump when it
+ * loads — and are deliberately not trusted for anything else.
+ */
+export const messageAttachmentSchema = z.object({
+  key: z.string().trim().min(1).max(300),
+  name: z.string().trim().min(1).max(300),
+  contentType: z.string().trim().min(1).max(160),
+  sizeBytes: z.number().int().min(0).max(100 * 1024 * 1024),
+  durationSeconds: z.number().int().min(0).max(7200).optional(),
+  width: z.number().int().min(1).max(20000).optional(),
+  height: z.number().int().min(1).max(20000).optional(),
+})
+
+export const MAX_MESSAGE_ATTACHMENTS = 10
+
+export const messageSchema = z
+  .object({
+    body: z.string().trim().max(8000).optional().transform((v) => (v ? v : null)),
+    replyToId: uuid.nullable().optional(),
+    attachments: z.array(messageAttachmentSchema).max(MAX_MESSAGE_ATTACHMENTS).default([]),
+    /**
+     * The sender's idempotency token. A flaky connection retries a POST whose
+     * first attempt actually landed; the unique index on
+     * (conversation_id, sender_id, client_token) is what stops the room seeing
+     * the message twice, and this is the value it keys on.
+     */
+    clientToken: z.string().trim().min(1).max(64).optional(),
+  })
+  .refine((v) => !!v.body || v.attachments.length > 0, {
+    message: 'Write something or attach a file',
+    path: ['body'],
+  })
+
+export const messageEditSchema = z.object({
+  body: z.string().trim().min(1, 'Write something first').max(8000),
+})
+
+export const messagePinSchema = z.object({
+  pinned: z.boolean(),
+})
+
+/**
+ * A page of a thread, in one of the two directions it is ever asked for.
+ *
+ * `before` is the scroll upwards: the oldest timestamp the reader already
+ * holds. `after` is the live tail: the newest one. They are mutually exclusive
+ * because a request for both describes a window, and nothing in this feature
+ * wants a window — a Realtime event asks "what is new", and a scroll asks
+ * "what came before", and conflating them produces a query that can skip
+ * messages at one end while re-serving them at the other.
+ */
+export const messageHistorySchema = z
+  .object({
+    before: z.string().datetime().optional(),
+    after: z.string().datetime().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(40),
+  })
+  .refine((v) => !(v.before && v.after), {
+    message: 'Ask for older or newer messages, not both',
+  })
+
+export const messageSearchSchema = z.object({
+  q: z.string().trim().min(2, 'Type at least two characters').max(120),
+  conversationId: uuid.optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(25),
 })

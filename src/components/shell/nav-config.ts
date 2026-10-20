@@ -3,7 +3,7 @@ import {
   Building2, ShieldCheck, Activity, Settings, KanbanSquare,
   BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
   LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send, Network,
-  CalendarRange, MessageSquare, TrendingDown, ChartLine, HardDrive,
+  CalendarRange, MessageSquare, MessagesSquare, TrendingDown, ChartLine, HardDrive,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { UserRole, TrackingMode } from '@/types/db'
@@ -14,6 +14,16 @@ export interface NavItem {
   icon: LucideIcon
   /** Match child routes too (`/org/employees/123` highlights `/org/employees`). */
   prefix?: boolean
+  /**
+   * A live count this entry carries, if any.
+   *
+   * A NAME, NOT A NUMBER, and that is the point: this table is plain data that
+   * the server imports too, so it cannot hold a value that only exists in a
+   * browser. The sidebar maps the name to a component that owns its own
+   * subscription (`MessagesBadge`), which keeps the counting out of here and
+   * out of every page that renders a nav.
+   */
+  badge?: 'messages'
 }
 
 export interface NavSection {
@@ -89,6 +99,7 @@ const ORG_NAV: NavSection[] = [
   {
     label: 'Workspace',
     items: [
+      { href: '/org/messages', label: 'Messages', icon: MessagesSquare, prefix: true, badge: 'messages' },
       { href: '/org/board', label: 'Task boards', icon: KanbanSquare },
       { href: '/org/calendar', label: 'Calendar', icon: CalendarRange },
       { href: '/org/helpdesk', label: 'Help desk', icon: LifeBuoy, prefix: true },
@@ -127,6 +138,7 @@ const EMPLOYEE_NAV: NavSection[] = [
     items: [
       { href: '/employee/attendance', label: 'My attendance', icon: CalendarCheck },
       { href: '/employee/leaves', label: 'Leaves', icon: CalendarOff },
+      { href: '/employee/messages', label: 'Messages', icon: MessagesSquare, prefix: true, badge: 'messages' },
       { href: '/employee/tasks', label: 'My tasks', icon: ClipboardList },
       { href: '/employee/calendar', label: 'Calendar', icon: CalendarRange },
     ],

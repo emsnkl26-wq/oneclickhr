@@ -123,7 +123,10 @@ export async function uploadFile(
   file: File,
   purpose:
     | 'photo' | 'payslip' | 'payment_proof' | 'employee_doc' | 'work_auth'
-    | 'logo' | 'notification_image' | 'expense_receipt' | 'general',
+    | 'logo' | 'notification_image' | 'expense_receipt'
+    // Chat (062). `chat_image` also carries a group's avatar.
+    | 'chat_image' | 'chat_voice' | 'chat_file'
+    | 'general',
   extra: Record<string, unknown> = {}
 ): Promise<{ key: string; fileName: string; contentType: string; documentId?: string }> {
   const presigned = await apiPost<{ url: string; key: string }>('/api/files/presign', {

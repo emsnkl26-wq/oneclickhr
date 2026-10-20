@@ -1316,3 +1316,132 @@ export interface NotificationDelivery {
   detail: string | null
   created_at: string
 }
+
+// ---------------------------------------------------------------------------
+// Messaging (062)
+// ---------------------------------------------------------------------------
+
+export type ConversationKind = 'direct' | 'group' | 'project'
+export type ConversationPosting = 'everyone' | 'admins'
+export type ConversationMemberRole = 'member' | 'admin'
+/** The DOMINANT content of a message — what a list preview or a push says. */
+export type MessageKind = 'text' | 'image' | 'file' | 'voice' | 'system'
+export type AttachmentKind = 'image' | 'video' | 'audio' | 'file'
+
+/**
+ * A direct message, a group, or a project room.
+ *
+ * `last_message_*` are DENORMALIZED, maintained by `tg_messages_after_write`,
+ * and exist only so the conversation list can sort and preview without a
+ * correlated subquery per row. The messages are the truth; these are a cache of
+ * the newest one.
+ */
+export interface Conversation {
+  id: string
+  tenant_id: string
+  kind: ConversationKind
+  /** Null for a direct message — its name is whoever the other person is. */
+  name: string | null
+  description: string | null
+  color: string
+  /** An R2 object key for the room's picture, never a URL. */
+  avatar_url: string | null
+  /** Set only for `kind = 'project'`, where it is the room's whole identity. */
+  project_id: string | null
+  posting: ConversationPosting
+  created_by: string | null
+  /** Archived rooms are readable history and refuse new messages. */
+  archived_at: string | null
+  /**
+   * WHEN it last moved, and deliberately not what was said.
+   *
+   * A timestamp is ordering metadata; a message's text is content, and RLS is
+   * row level — an org administrator may select a room's row, so any column
+   * here is a column they can read. The preview therefore lives in
+   * `conversation_previews`, which is members-only.
+   */
+  last_message_at: string
+  /** The two profile ids, sorted — the uniqueness rule for a DM. */
+  direct_key: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** The conversation list's one line of content. Members only — see 062. */
+export interface ConversationPreview {
+  conversation_id: string
+  tenant_id: string
+  last_message_at: string
+  last_message_text: string | null
+  last_message_by: string | null
+  last_message_kind: MessageKind | null
+}
+
+export interface ConversationMemberRow {
+  conversation_id: string
+  profile_id: string
+  tenant_id: string
+  role: ConversationMemberRole
+  /**
+   * Everything the reader has seen. The WHOLE unread model — see
+   * `messaging_unread()` and the header of 062 for why this is not a counter.
+   */
+  last_read_at: string | null
+  /** Silences push and email for this room. Never the unread count. */
+  muted: boolean
+  pinned: boolean
+  added_by: string | null
+  created_at: string
+}
+
+export interface MessageRow {
+  id: string
+  tenant_id: string
+  conversation_id: string
+  sender_id: string | null
+  /** A SNAPSHOT, so a thread still reads correctly after someone leaves. */
+  sender_name: string | null
+  sender_role: string | null
+  kind: MessageKind
+  body: string | null
+  reply_to_id: string | null
+  /** Profile ids an `@` in the body named. Parsed once, on the server. */
+  mentions: string[]
+  edited_at: string | null
+  /** Set on retraction. The row stays so replies to it still resolve. */
+  deleted_at: string | null
+  deleted_by: string | null
+  pinned_at: string | null
+  pinned_by: string | null
+  /** The sender's own idempotency token for this send. */
+  client_token: string | null
+  system_event: string | null
+  system_meta: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface MessageAttachmentRow {
+  id: string
+  tenant_id: string
+  conversation_id: string
+  message_id: string
+  kind: AttachmentKind
+  /** An R2 object key. Reads go through /api/files/view. */
+  storage_key: string
+  file_name: string
+  mime_type: string
+  size_bytes: number
+  duration_seconds: number | null
+  width: number | null
+  height: number | null
+  created_at: string
+}
+
+export interface MessageReactionRow {
+  message_id: string
+  profile_id: string
+  emoji: string
+  tenant_id: string
+  conversation_id: string
+  created_at: string
+}

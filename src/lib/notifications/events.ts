@@ -61,6 +61,7 @@ export type NotificationEvent =
   | 'visa.expiring'
   | 'meeting.invited'
   | 'support.replied'
+  | 'message.received'
   | 'generic'
 
 interface EventSpec {
@@ -233,6 +234,28 @@ const CATALOG: Record<NotificationEvent, EventSpec> = {
     path: employeeOrOrg(EMPLOYEE_ROUTES.support, ORG_ROUTES.support),
   },
 
+  /*
+   * Messaging (062), and the one entry in this table that is NOT the whole
+   * story for its event.
+   *
+   * A message itself never reaches `raiseNotification`: it would be a durable
+   * row per member per message, and one busy afternoon would bury the rejected
+   * timesheet under three hundred lines of small talk. Messaging has a better
+   * in-app surface of its own — the unread count, which clears itself when the
+   * thread is read — so `notifyNewMessage` sends the push directly and writes
+   * nothing. The argument in full is in the box on that function.
+   *
+   * What DOES come through here is being ADDED to a conversation: rare,
+   * durable, and the only way somebody finds out a room exists. Hence `normal`
+   * (push, no mail) and the path and tag below, which that notification and
+   * the direct pushes both use.
+   */
+  'message.received': {
+    importance: 'normal',
+    path: employeeOrOrg(EMPLOYEE_ROUTES.messages, ORG_ROUTES.messages),
+    tag: (targetId) => (targetId ? `conversation:${targetId}` : undefined),
+  },
+
   generic: {
     importance: 'normal',
     path: employeeOrOrg(EMPLOYEE_ROUTES.notifications, ORG_ROUTES.notifications),
@@ -294,6 +317,9 @@ export function cardPathFor(
     'ticket.created',
     'ticket.replied',
     'ticket.status',
+    // The subject is the CONVERSATION, and both portals have a route for one,
+    // so the card opens the thread the message is actually in (062).
+    'message.received',
   ]
   if (event && DEEP_LINKABLE.includes(event)) return `${base}/${subjectId}`
   // Meetings open as a dialog over the calendar rather than on a page of their

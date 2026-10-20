@@ -239,6 +239,20 @@ async function main() {
     'generated_documents',
     'employee_experience',
     'employee_education',
+    /*
+     * Messaging (062). Checked here like everything else, and worth a note:
+     * these five are the only tables in the schema whose SELECT policy does
+     * NOT admit an org administrator to its own tenant's rows — membership is
+     * the whole rule. So a pass here proves the weaker property (no
+     * cross-tenant read) and the stronger one is proved below, where Org A is
+     * refused its OWN tenant's conversation that it is not a member of.
+     */
+    'conversations',
+    'conversation_previews',
+    'conversation_members',
+    'messages',
+    'message_attachments',
+    'message_reactions',
   ]) {
     await expectNoRows(
       `Org A cannot read Tenant B's ${table.replace(/_/g, ' ')}`,
@@ -466,6 +480,134 @@ async function main() {
       .insert({ tenant_id: tenantA.id, invoice_number: 'EMP-001', total: 1, balance_due: 1 })
       .select()
   )
+
+  // ========================================================================
+  console.log('\n\x1b[1mC2. Messaging is private to its members (062)\x1b[0m')
+  // ========================================================================
+  /*
+   * THE ONE PLACE IN THIS SCHEMA WHERE AN ORG ADMIN IS NOT PRIVILEGED.
+   *
+   * Every other section above proves a tenant boundary. This proves something
+   * stronger and narrower: a conversation inside Tenant A, between two Tenant A
+   * employees, is unreadable to Tenant A's own OWNER. That is the guarantee the
+   * whole feature rests on, it is the opposite of how the rest of the schema
+   * behaves, and it is exactly the kind of rule a well-meaning future policy
+   * edit ("the org should see everything in its tenant") would undo without a
+   * single other test noticing.
+   *
+   * The fixture is built with the service role — test setup, never an
+   * assertion — and torn down at the end so re-runs stay clean.
+   */
+  if (a1Id && a2Profile?.id) {
+    const directKey = [a1Id, a2Profile.id].sort().join(':')
+
+    const { data: room } = await admin
+      .from('conversations')
+      .insert({ tenant_id: tenantA.id, kind: 'direct', created_by: a1Id, direct_key: directKey })
+      .select('id')
+      .single()
+
+    if (room?.id) {
+      await admin.from('conversation_members').insert([
+        { conversation_id: room.id, profile_id: a1Id, tenant_id: tenantA.id },
+        { conversation_id: room.id, profile_id: a2Profile.id, tenant_id: tenantA.id },
+      ])
+      const { data: note } = await admin
+        .from('messages')
+        .insert({
+          tenant_id: tenantA.id,
+          conversation_id: room.id,
+          sender_id: a1Id,
+          sender_name: 'A1',
+          body: 'isolation probe',
+        })
+        .select('id')
+        .single()
+
+      await expectRows(
+        'Employee A1 CAN read their own direct conversation',
+        empA1.from('messages').select('id').eq('conversation_id', room.id)
+      )
+
+      await expectNoRows(
+        "Org A CANNOT read its own employees' direct conversation",
+        orgA.from('messages').select('id').eq('conversation_id', room.id)
+      )
+      await expectNoRows(
+        "Org A cannot even see that the direct conversation exists",
+        orgA.from('conversations').select('id').eq('id', room.id)
+      )
+      await expectNoRows(
+        "Org A cannot read the direct conversation's roster",
+        orgA.from('conversation_members').select('profile_id').eq('conversation_id', room.id)
+      )
+      /*
+       * The preview, specifically. It is a separate table precisely so this is
+       * false: while it was a column on `conversations`, an administrator who
+       * could select the room's row could read the latest line of every group
+       * in the workspace, because row-level security cannot hide a column.
+       */
+      await expectNoRows(
+        "Org A cannot read the conversation's last-message preview",
+        orgA
+          .from('conversation_previews')
+          .select('last_message_text')
+          .eq('conversation_id', room.id)
+      )
+      await expectRows(
+        'Employee A1 CAN read their own conversation preview',
+        empA1.from('conversation_previews').select('last_message_text').eq('conversation_id', room.id)
+      )
+      await expectDenied(
+        'Org A cannot add itself to a direct conversation',
+        orgA
+          .from('conversation_members')
+          .insert({ conversation_id: room.id, profile_id: a1Id, tenant_id: tenantA.id })
+          .select()
+      )
+      await expectDenied(
+        'Org B cannot post into a Tenant A conversation',
+        (await signIn(ORG_B))
+          .from('messages')
+          .insert({ tenant_id: tenantA.id, conversation_id: room.id, body: 'injected' })
+          .select()
+      )
+
+      if (note?.id) {
+        await expectDenied(
+          "Employee A1 cannot forge authorship of a message",
+          empA1
+            .from('messages')
+            .insert({
+              tenant_id: tenantA.id,
+              conversation_id: room.id,
+              sender_id: a2Profile.id,
+              body: 'impersonation',
+            })
+            .select()
+        )
+        await expectDenied(
+          'Employee A1 cannot write a system message',
+          empA1
+            .from('messages')
+            .insert({
+              tenant_id: tenantA.id,
+              conversation_id: room.id,
+              sender_id: a1Id,
+              kind: 'system',
+              system_event: 'members.left',
+              body: 'A2 left',
+            })
+            .select()
+        )
+      }
+
+      // Fixture teardown. The cascades take the members and the messages.
+      await admin.from('conversations').delete().eq('id', room.id)
+    } else {
+      console.log('  \x1b[33m•\x1b[0m skipped: 062_messaging.sql does not appear to be applied')
+    }
+  }
 
   // ========================================================================
   console.log('\n\x1b[1mD. Deactivation takes effect immediately\x1b[0m')

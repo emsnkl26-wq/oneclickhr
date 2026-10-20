@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/primitives'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { NotificationBell } from '@/components/notifications/notification-bell'
+import { MessagesBadge, MessagesDot } from '@/components/messages/unread-badge'
 import { BrandLogo } from '@/components/brand/logo'
 import { cn, initials } from '@/lib/utils'
 import type { UserRole, TrackingMode } from '@/types/db'
@@ -459,6 +460,24 @@ function NavLink({
         aria-hidden
       />
       <span className="rail-label">{item.label}</span>
+      {/*
+        The live count, where an entry declares one.
+
+        Expanded, it is a number at the end of the row. Collapsed, the number
+        has nowhere to go — the label is gone and the rail is half as wide — so
+        it becomes a dot on the icon, which answers the only question there is
+        room for: is there anything.
+      */}
+      {item.badge === 'messages' ? (
+        <>
+          <span className="rail-expanded-only ml-auto">
+            <MessagesBadge />
+          </span>
+          <span className="rail-collapsed-only">
+            <MessagesDot />
+          </span>
+        </>
+      ) : null}
     </Link>
   )
 
