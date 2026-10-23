@@ -220,7 +220,13 @@ export function TimesheetQueue({
         <StatCard
           label={`Total hours · ${total} ${total === 1 ? 'timesheet' : 'timesheets'}`}
           value={totals.total ? `${formatHours(totals.total)}${floor}` : '—'}
-          hint={searching ? 'Across every page matching these filters' : 'Across every page of this tab'}
+          hint={
+            from || to
+              ? 'Only the hours worked on the days in this range'
+              : searching
+                ? 'Across every page matching these filters'
+                : 'Across every page of this tab'
+          }
           accent
         />
         <StatCard

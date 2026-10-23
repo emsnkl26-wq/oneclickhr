@@ -7,7 +7,7 @@ import { DataTable, EmptyState, StatusChip, StatCard, type Column } from '@/comp
 import { Button } from '@/components/ui/button'
 import { DateRangeFilter } from '@/components/ui/date-range-filter'
 import { toCsv, downloadCsv } from '@/lib/csv'
-import { formatPeriod, WEEK_DAY_LABELS } from '@/lib/time'
+import { formatPeriod, WEEK_DAY_LABELS, hoursInRange, weekDaysInRange } from '@/lib/time'
 import { formatHours } from '@/lib/utils'
 import type { TimesheetStatus } from '@/types/db'
 
@@ -28,7 +28,16 @@ export interface SheetRow {
   employeeName?: string | null
 }
 
-const rowTotal = (row: SheetRow) => row.hours.reduce((sum, value) => sum + value, 0)
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * A row's hours that fall inside the range on screen. When the range clips the
+ * row's week (only its edge weeks ever do — the inner weeks sit wholly inside),
+ * this is less than the week's full total, and the day cells outside the range
+ * are muted so the ones that remain still add up to this number.
+ */
+const rowInRange = (row: SheetRow, from: string, to: string) =>
+  hoursInRange(row.weekStart, row.hours, from, to)
 
 /**
  * Every logged line, flattened into one spreadsheet.
@@ -60,15 +69,15 @@ export function HoursSheet({
   timesheetBasePath: string
 }) {
   const totals = React.useMemo(() => {
-    const all = rows.reduce((sum, row) => sum + rowTotal(row), 0)
+    const all = rows.reduce((sum, row) => sum + rowInRange(row, from, to), 0)
     const approved = rows
       .filter((row) => row.status === 'approved')
-      .reduce((sum, row) => sum + rowTotal(row), 0)
+      .reduce((sum, row) => sum + rowInRange(row, from, to), 0)
     const billable = rows
       .filter((row) => row.billable)
-      .reduce((sum, row) => sum + rowTotal(row), 0)
-    return { all, approved, billable }
-  }, [rows])
+      .reduce((sum, row) => sum + rowInRange(row, from, to), 0)
+    return { all: round2(all), approved: round2(approved), billable: round2(billable) }
+  }, [rows, from, to])
 
   function exportCsv() {
     const csv = toCsv(
@@ -78,18 +87,23 @@ export function HoursSheet({
         'Period start', 'Period end', 'Project / task', 'Client',
         ...WEEK_DAY_LABELS, 'Total hours', 'Billable', 'Status',
       ],
-      rows.map((row) => [
-        row.timesheetCode,
-        ...(showEmployee ? [row.employeeName ?? ''] : []),
-        row.weekStart,
-        row.weekEnd,
-        row.projectLabel,
-        row.clientName ?? '',
-        ...row.hours,
-        rowTotal(row),
-        row.billable ? 'Yes' : 'No',
-        row.status,
-      ])
+      rows.map((row) => {
+        // Only the day cells inside the range are written, so the day columns
+        // still add up to the Total — the same clipped view that is on screen.
+        const mask = weekDaysInRange(row.weekStart, from, to)
+        return [
+          row.timesheetCode,
+          ...(showEmployee ? [row.employeeName ?? ''] : []),
+          row.weekStart,
+          row.weekEnd,
+          row.projectLabel,
+          row.clientName ?? '',
+          ...row.hours.map((value, index) => (mask[index] ? value : '')),
+          rowInRange(row, from, to),
+          row.billable ? 'Yes' : 'No',
+          row.status,
+        ]
+      })
     )
     downloadCsv(`hours-${from}_${to}.csv`, csv)
   }
@@ -142,18 +156,30 @@ export function HoursSheet({
       header: label,
       className: 'text-center',
       headerClassName: 'text-center',
-      cell: (row: SheetRow) => (
-        <span className={row.hours[index] ? 'tabular font-medium' : 'tabular text-ink-muted'}>
-          {row.hours[index] || 0}
-        </span>
-      ),
+      cell: (row: SheetRow) => {
+        // A day outside the selected range is shown, but dimmed and uncounted —
+        // so the visible cells reconcile with the (prorated) Total beside them.
+        const outside = !weekDaysInRange(row.weekStart, from, to)[index]
+        if (outside) {
+          return (
+            <span className="tabular text-ink-muted/40" title="Outside the selected dates">
+              {row.hours[index] || 0}
+            </span>
+          )
+        }
+        return (
+          <span className={row.hours[index] ? 'tabular font-medium' : 'tabular text-ink-muted'}>
+            {row.hours[index] || 0}
+          </span>
+        )
+      },
     })),
     {
       key: 'total',
       header: 'Total',
       className: 'text-right',
       headerClassName: 'text-right',
-      cell: (row) => <span className="tabular font-semibold">{rowTotal(row)}</span>,
+      cell: (row) => <span className="tabular font-semibold">{rowInRange(row, from, to)}</span>,
     },
     {
       key: 'status',

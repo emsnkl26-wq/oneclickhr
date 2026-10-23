@@ -185,6 +185,83 @@ export function timesheetWeek(date: string): string[] {
   return Array.from({ length: 7 }, (_, i) => addDays(start, i))
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * Clipping a stored WEEK to a requested DATE RANGE.
+ *
+ * A timesheet is always a whole Sunday→Saturday week, but a report asks for
+ * exact dates — "September", "the 3rd to the 19th". Matching or summing a week
+ * as one indivisible block is how a single day inside the range drags a whole
+ * foreign week's hours into the answer, and how a week that straddles the edge
+ * of the range gets dropped entirely. These helpers answer the two questions a
+ * correct range report needs: does this week TOUCH the range at all, and WHICH
+ * of its seven days fall inside it.
+ *
+ * Bounds are inclusive `YYYY-MM-DD`; an empty string is "unbounded on that
+ * side". Comparison is lexical on purpose — a zero-padded `YYYY-MM-DD` orders
+ * chronologically as a string, so no parsing is needed or wanted.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Does the Sunday→Saturday week `[weekStart, weekEnd]` touch `[from, to]` at
+ * all? This is the INCLUSION test for a range report: a week with even one day
+ * in the range belongs in it, where `weekStart >= from AND weekEnd <= to` would
+ * keep only weeks that fall ENTIRELY inside and silently drop the edges.
+ */
+export function weekOverlapsRange(
+  weekStart: string,
+  weekEnd: string,
+  from: string,
+  to: string
+): boolean {
+  return (!from || weekEnd >= from) && (!to || weekStart <= to)
+}
+
+/**
+ * Is the whole week inside `[from, to]`? Used for figures that are a property of
+ * a COMPLETE week and do not prorate — weekly overtime above all: a clipped week
+ * has no meaningful "hours above forty", so it contributes none.
+ */
+export function weekWithinRange(
+  weekStart: string,
+  weekEnd: string,
+  from: string,
+  to: string
+): boolean {
+  return (!from || weekStart >= from) && (!to || weekEnd <= to)
+}
+
+/**
+ * Which of a Sunday-first week's seven days fall inside `[from, to]`, as a
+ * seven-element Sunday-first mask. The order matches the grid and the stored
+ * `hours_sun..hours_sat`, so it lines up index-for-index with an hours row.
+ */
+export function weekDaysInRange(weekStart: string, from: string, to: string): boolean[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const day = addDays(weekStart, i)
+    return (!from || day >= from) && (!to || day <= to)
+  })
+}
+
+/**
+ * The hours from a Sunday-first array that fall inside `[from, to]`, to 2dp.
+ *
+ * This is the whole point of the range helpers: summing only the days the report
+ * actually asked for, so a week clipped by the range contributes its in-range
+ * days and nothing more. With no bounds it is just the week's total.
+ */
+export function hoursInRange(
+  weekStart: string,
+  hours: number[],
+  from: string,
+  to: string
+): number {
+  const mask = weekDaysInRange(weekStart, from, to)
+  const sum = mask.reduce((acc, inRange, i) => acc + (inRange ? hours[i] || 0 : 0), 0)
+  return Math.round(sum * 100) / 100
+}
+
 /** Short weekday labels for the timesheet grid, in the order the week runs. */
 export const WEEK_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 

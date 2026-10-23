@@ -3,6 +3,7 @@ import {
   localDate, isLateLogin, hoursBetween, daysUntil, inclusiveDays, weekDates,
   isValidTimezone, safeTimezone, formatDateLabel, formatInstantLabel,
   toZonedInput, fromZonedInput,
+  weekOverlapsRange, weekWithinRange, weekDaysInRange, hoursInRange,
 } from '@/lib/time'
 
 /**
@@ -234,5 +235,76 @@ describe('toZonedInput / fromZonedInput', () => {
   it('returns empty / null for missing or unparseable values', () => {
     expect(toZonedInput('nonsense', 'UTC')).toBe('')
     expect(fromZonedInput('', 'UTC')).toBeNull()
+  })
+})
+
+/**
+ * Clipping a stored Sunday→Saturday week to a requested date range.
+ *
+ * The bug these fix: a report for "September" either dragged a whole straddling
+ * week's hours in (a single in-range day pulling six foreign ones with it) or
+ * dropped the week entirely. The anchor case below is the exact week from the
+ * report that surfaced it — Sep 27 – Oct 3, four of its days in September.
+ */
+describe('clipping a week to a date range', () => {
+  // Sun 2026-09-27 → Sat 2026-10-03. Mon–Fri at 8h, weekend off: 40h total,
+  // of which only Sun 27 – Wed 30 (here 24h) fall inside September.
+  const weekStart = '2026-09-27'
+  const weekEnd = '2026-10-03'
+  const hours = [0, 8, 8, 8, 8, 8, 0] // Sun..Sat
+  const sep = { from: '2026-09-01', to: '2026-09-30' }
+
+  describe('weekOverlapsRange', () => {
+    it('is true when even one day of the week is in range', () => {
+      expect(weekOverlapsRange(weekStart, weekEnd, sep.from, sep.to)).toBe(true)
+    })
+    it('is false when the week sits entirely outside the range', () => {
+      expect(weekOverlapsRange('2026-10-04', '2026-10-10', sep.from, sep.to)).toBe(false)
+      expect(weekOverlapsRange('2026-08-23', '2026-08-29', sep.from, sep.to)).toBe(false)
+    })
+    it('treats an empty bound as open on that side', () => {
+      expect(weekOverlapsRange(weekStart, weekEnd, '', '')).toBe(true)
+      expect(weekOverlapsRange('2026-08-23', '2026-08-29', '', sep.to)).toBe(true)
+    })
+  })
+
+  describe('weekWithinRange', () => {
+    it('is true only when the whole week fits inside the range', () => {
+      expect(weekWithinRange('2026-09-06', '2026-09-12', sep.from, sep.to)).toBe(true)
+    })
+    it('is false for a week clipped by either edge', () => {
+      expect(weekWithinRange(weekStart, weekEnd, sep.from, sep.to)).toBe(false) // spills into October
+      expect(weekWithinRange('2026-08-30', '2026-09-05', sep.from, sep.to)).toBe(false) // starts in August
+    })
+  })
+
+  describe('weekDaysInRange', () => {
+    it('masks the week to the days inside the range, Sunday-first', () => {
+      expect(weekDaysInRange(weekStart, sep.from, sep.to)).toEqual([
+        true, true, true, true, false, false, false,
+      ])
+    })
+    it('is all true when the week is wholly inside, or unbounded', () => {
+      expect(weekDaysInRange('2026-09-06', sep.from, sep.to)).toEqual(Array(7).fill(true))
+      expect(weekDaysInRange(weekStart, '', '')).toEqual(Array(7).fill(true))
+    })
+  })
+
+  describe('hoursInRange', () => {
+    it('sums only the hours on the days inside the range', () => {
+      // The whole point: 24 of the 40 hours, not 40, and not 0.
+      expect(hoursInRange(weekStart, hours, sep.from, sep.to)).toBe(24)
+    })
+    it('returns the full week when it is wholly inside or unbounded', () => {
+      expect(hoursInRange('2026-09-06', hours, sep.from, sep.to)).toBe(40)
+      expect(hoursInRange(weekStart, hours, '', '')).toBe(40)
+    })
+    it('counts zero when no day of the week is in range', () => {
+      expect(hoursInRange('2026-10-04', hours, sep.from, sep.to)).toBe(0)
+    })
+    it('tolerates a short or sparse hours array', () => {
+      expect(hoursInRange(weekStart, [], sep.from, sep.to)).toBe(0)
+      expect(hoursInRange(weekStart, [0, 4.5], sep.from, sep.to)).toBe(4.5)
+    })
   })
 })

@@ -6,7 +6,7 @@ import { PageHeader, LoadError, TableCardSkeleton } from '@/components/ui/patter
 import { LinkTabs } from '@/components/ui/link-tabs'
 import { HoursSheet, type SheetRow } from '@/components/timesheet/hours-sheet'
 import { TimesheetQueue, type QueueRow, type QueueTotals } from './timesheet-queue'
-import { todayIn, weekStartSunday, addDays } from '@/lib/time'
+import { todayIn, weekStartSunday, addDays, hoursInRange, weekWithinRange } from '@/lib/time'
 import type { TimesheetStatus } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Timesheets' }
@@ -179,7 +179,10 @@ async function SheetView({
     .select(
       'id, task_name, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat, project:projects(id, code, name, client_name), timesheet:timesheets!inner(id, code, week_start, week_end, status, employee:profiles!timesheets_employee_id_fkey(full_name, email))'
     )
-    .gte('timesheet.week_start', rangeFrom)
+    // Weeks that OVERLAP the range, not only those that start inside it: a week
+    // straddling the start of the range (it began the previous Sunday) still has
+    // days the report asked for, and the sheet prorates each row to those days.
+    .gte('timesheet.week_end', rangeFrom)
     .lte('timesheet.week_start', rangeTo)
     .limit(MAX_SHEET_ROWS)
 
@@ -269,38 +272,18 @@ async function QueueView({
   // name; without it the filter would prune only the embedded object and leave
   // the timesheet behind with nobody attached to it.
   if (search) query = query.ilike('employee.full_name', `%${search}%`)
-  if (from) query = query.gte('week_start', from)
-  if (to) query = query.lte('week_end', to)
-
-  /*
-   * Hours across EVERY timesheet the filters match, not just this page — the
-   * figure someone reconciling an invoice needs ("approved, March, Priya").
-   * Only the three numbers are read, so this stays cheap even over a quarter.
-   */
-  let totalsQuery = supabase
-    .from('timesheets')
-    .select('total_hours, billable_hours, overtime_hours, employee:profiles!timesheets_employee_id_fkey!inner(full_name)')
-    .limit(MAX_TOTAL_ROWS)
-  if (filter !== 'all') totalsQuery = totalsQuery.eq('status', filter)
-  if (search) totalsQuery = totalsQuery.ilike('employee.full_name', `%${search}%`)
-  if (from) totalsQuery = totalsQuery.gte('week_start', from)
-  if (to) totalsQuery = totalsQuery.lte('week_end', to)
+  // Weeks that OVERLAP [from, to], so a week clipped by the range still appears
+  // and its in-range hours are counted — `week_start >= from AND week_end <= to`
+  // would show only weeks falling entirely inside and drop the edges.
+  if (from) query = query.gte('week_end', from)
+  if (to) query = query.lte('week_start', to)
 
   // The pending badge has to survive the other tabs, so it is its own count.
-  const [{ data, count }, pending, { data: totalRows }] = await Promise.all([
+  const [{ data, count }, pending, totals] = await Promise.all([
     query,
     supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
-    totalsQuery,
+    loadQueueTotals(supabase, { filter, search, from, to }),
   ])
-
-  const sum = (key: 'total_hours' | 'billable_hours' | 'overtime_hours') =>
-    Math.round((totalRows ?? []).reduce((acc, row) => acc + Number(row[key] ?? 0), 0) * 100) / 100
-  const totals: QueueTotals = {
-    total: sum('total_hours'),
-    billable: sum('billable_hours'),
-    overtime: sum('overtime_hours'),
-    capped: (totalRows?.length ?? 0) >= MAX_TOTAL_ROWS,
-  }
 
   const rows: QueueRow[] = ((data ?? []) as unknown as TimesheetWithEmployee[]).map((sheet) => ({
     id: sheet.id,
@@ -334,4 +317,113 @@ async function QueueView({
       timezone={ctx.tenant.timezone}
     />
   )
+}
+
+/**
+ * The three figures on the queue's stat cards — summed across EVERY timesheet
+ * the filters match, not just the page on screen.
+ *
+ * TWO PATHS, because a week is stored as one indivisible Sunday→Saturday block
+ * but a date range asks for exact days:
+ *
+ *   NO RANGE — the whole-week aggregates on the timesheet row are exactly right
+ *     and cheap: three numbers per week, no entry rows read.
+ *   A RANGE  — the aggregates would over-count (a week straddling the edge drags
+ *     its outside days in) or under-count (a clipped week dropped entirely), so
+ *     the hours are re-summed from the day cells, counting only the days inside
+ *     [from, to]. Overtime stays a whole-week figure: it counts only for weeks
+ *     that fall entirely within the range, never prorated across a clipped one.
+ */
+async function loadQueueTotals(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  { filter, search, from, to }: { filter: Filter; search: string; from: string; to: string }
+): Promise<QueueTotals> {
+  const round2 = (n: number) => Math.round(n * 100) / 100
+
+  if (!from && !to) {
+    let q = supabase
+      .from('timesheets')
+      .select('total_hours, billable_hours, overtime_hours, employee:profiles!timesheets_employee_id_fkey!inner(full_name)')
+      .limit(MAX_TOTAL_ROWS)
+    if (filter !== 'all') q = q.eq('status', filter)
+    if (search) q = q.ilike('employee.full_name', `%${search}%`)
+    const { data } = await q
+    const rows = (data ?? []) as unknown as Array<{
+      total_hours: number | string | null
+      billable_hours: number | string | null
+      overtime_hours: number | string | null
+    }>
+    const sum = (key: 'total_hours' | 'billable_hours' | 'overtime_hours') =>
+      round2(rows.reduce((acc, row) => acc + Number(row[key] ?? 0), 0))
+    return {
+      total: sum('total_hours'),
+      billable: sum('billable_hours'),
+      overtime: sum('overtime_hours'),
+      capped: rows.length >= MAX_TOTAL_ROWS,
+    }
+  }
+
+  // The weeks that OVERLAP the range, with the week bounds we need to clip each
+  // one and the whole-week overtime figure.
+  let wq = supabase
+    .from('timesheets')
+    .select('id, week_start, week_end, overtime_hours, employee:profiles!timesheets_employee_id_fkey!inner(full_name)')
+    .limit(MAX_TOTAL_ROWS)
+  if (filter !== 'all') wq = wq.eq('status', filter)
+  if (search) wq = wq.ilike('employee.full_name', `%${search}%`)
+  if (from) wq = wq.gte('week_end', from)
+  if (to) wq = wq.lte('week_start', to)
+  const { data: weekData } = await wq
+  const weeks = (weekData ?? []) as Array<{
+    id: string
+    week_start: string
+    week_end: string
+    overtime_hours: number | string | null
+  }>
+
+  const overtime = round2(
+    weeks.reduce(
+      (acc, w) =>
+        acc + (weekWithinRange(w.week_start, w.week_end, from, to) ? Number(w.overtime_hours ?? 0) : 0),
+      0
+    )
+  )
+
+  const weekStartById = new Map(weeks.map((w) => [w.id, w.week_start]))
+  const ids = weeks.map((w) => w.id)
+
+  let total = 0
+  let billable = 0
+  // Chunked so even a years-wide range cannot pack thousands of ids into one URL.
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: entryData } = await supabase
+      .from('timesheet_entries')
+      .select('timesheet_id, billable, hours_sun, hours_mon, hours_tue, hours_wed, hours_thu, hours_fri, hours_sat')
+      .in('timesheet_id', ids.slice(i, i + 200))
+    for (const e of (entryData ?? []) as Array<{
+      timesheet_id: string
+      billable: boolean
+      hours_sun: number | string; hours_mon: number | string; hours_tue: number | string
+      hours_wed: number | string; hours_thu: number | string; hours_fri: number | string
+      hours_sat: number | string
+    }>) {
+      const ws = weekStartById.get(e.timesheet_id)
+      if (!ws) continue
+      const inRange = hoursInRange(
+        ws,
+        [e.hours_sun, e.hours_mon, e.hours_tue, e.hours_wed, e.hours_thu, e.hours_fri, e.hours_sat].map(Number),
+        from,
+        to
+      )
+      total += inRange
+      if (e.billable) billable += inRange
+    }
+  }
+
+  return {
+    total: round2(total),
+    billable: round2(billable),
+    overtime,
+    capped: weeks.length >= MAX_TOTAL_ROWS,
+  }
 }
