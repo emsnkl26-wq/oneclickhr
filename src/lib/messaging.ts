@@ -768,10 +768,10 @@ export async function createConversation(
 
     if (!id) {
       /*
-       * The one expected failure is the unique index doing its job: the other
-       * person opened the same conversation a moment earlier (or this caller did,
-       * in another tab). Re-read by the unique key and return that row — it
-       * already has both of us as members.
+       * The unique index fired — the conversation already exists. This happens
+       * when the other person raced us to create it, or when either side left
+       * the DM and is now reopening it. Re-read by the unique key and re-join
+       * any member whose row was removed by a prior leave.
        */
       if (insertErr && insertErr.code !== '23505') {
         console.error('[messaging] direct insert failed', insertErr)
@@ -784,6 +784,18 @@ export async function createConversation(
         .eq('direct_key', directKey)
         .maybeSingle()
       if (!raced) throw new MessagingError('That conversation could not be created.', 400)
+
+      // Either side may have left this DM earlier — re-add missing members
+      // so the conversation is usable again. ignoreDuplicates is a no-op for
+      // whoever is still present.
+      await admin.from('conversation_members').upsert(
+        [
+          { conversation_id: raced.id, profile_id: ctx.userId, tenant_id: tenantId, role: 'member' as const, added_by: ctx.userId },
+          { conversation_id: raced.id, profile_id: other, tenant_id: tenantId, role: 'member' as const, added_by: ctx.userId },
+        ],
+        { onConflict: 'conversation_id,profile_id', ignoreDuplicates: true }
+      )
+
       return { id: raced.id as string, created: false }
     }
 
