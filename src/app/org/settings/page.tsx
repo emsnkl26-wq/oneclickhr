@@ -1,19 +1,10 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
-import { BadgeCheck, CalendarDays, Globe, Users } from 'lucide-react'
 import { requireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/ui/patterns'
-import { AppearanceSetting } from '@/components/theme-toggle'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { SettingsForm } from './settings-form'
-import { CompanyForm } from './company-form'
-import { DepartmentManager } from './department-manager'
-import { OvertimeForm } from './overtime-form'
-import { TwoFactorCard } from './two-factor-card'
-import { StorageCard, type StorageRequestRow } from './storage-card'
+import { SettingsTabs } from './settings-tabs'
 import { getStorageUsage } from '@/lib/storage-quota'
+import type { StorageRequestRow } from './storage-card'
 import type { CompanyDetails } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Settings' }
@@ -25,8 +16,6 @@ export default async function SettingsPage() {
 
   const [{ data: departments }, { data: tenant }, storage, { data: storageRequests }] = await Promise.all([
     supabase.from('departments').select('id, name').order('name'),
-    // The letterhead fields are not in the session context — that RPC carries
-    // only what every page needs, and these are read on this one screen.
     supabase
       .from('tenants')
       .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details, overtime_weekly_threshold, company_linkedin_url, two_factor_window_hours')
@@ -66,117 +55,44 @@ export default async function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Branding, working hours, departments and the details your documents are issued on."
+        description="Manage your workspace, company details, security and integrations."
       />
 
-      <AppearanceSetting />
-
-      <div className="grid items-start gap-5 lg:grid-cols-2">
-        <SettingsForm
-          tenant={{
+      <SettingsTabs
+        ctx={{
+          email: ctx.email,
+          userId: ctx.userId,
+          fullName: ctx.fullName,
+          isOwner: ctx.isOwner,
+          twoFactorEnabled: ctx.twoFactorEnabled,
+          tenant: {
             name: ctx.tenant.name,
             primaryColor: ctx.tenant.primaryColor,
             timezone: ctx.tenant.timezone,
             workStartTime: ctx.tenant.workStartTime,
-            defaultTrackingMode: ctx.tenant.defaultTrackingMode ?? '',
+            defaultTrackingMode: ctx.tenant.defaultTrackingMode,
             logoUrl: ctx.tenant.logoUrl,
-          }}
-        />
-
-        <div className="space-y-5">
-          <TwoFactorCard
-            enabled={ctx.twoFactorEnabled}
-            windowHours={
-              tenant?.two_factor_window_hours == null ? 8 : Number(tenant.two_factor_window_hours)
-            }
-          />
-
-          <DepartmentManager departments={departments ?? []} />
-
-          <StorageCard
-            used={storage.used}
-            limit={storage.limit}
-            requests={((storageRequests ?? []) as StorageRequestRow[]).map((r) => ({
-              ...r,
-              requested_bytes: Number(r.requested_bytes),
-              granted_bytes: r.granted_bytes == null ? null : Number(r.granted_bytes),
-            }))}
-          />
-
-          <OvertimeForm
-            threshold={
-              tenant?.overtime_weekly_threshold == null ? null : Number(tenant.overtime_weekly_threshold)
-            }
-          />
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                Company website
-                {ctx.tenant.domainVerified ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                    <BadgeCheck className="size-3" aria-hidden />
-                    Verified
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                    Not verified
-                  </span>
-                )}
-              </CardTitle>
-              <CardDescription>
-                {ctx.tenant.domain
-                  ? `${ctx.tenant.domain} — verifying it reserves this workspace for your company.`
-                  : 'Reserve this workspace for your company so nobody opens a second one.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild variant="secondary">
-                <Link href="/org/settings/domain">
-                  <Globe />
-                  {ctx.tenant.domainVerified ? 'Manage website' : 'Verify website'}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Administrators</CardTitle>
-              <CardDescription>
-                {ctx.isOwner
-                  ? 'Invite colleagues to help run this workspace. They get the same access as you.'
-                  : 'See who else can manage this workspace.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild variant="secondary">
-                <Link href="/org/settings/team">
-                  <Users />
-                  {ctx.isOwner ? 'Manage administrators' : 'View administrators'}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Integrations</CardTitle>
-              <CardDescription>Connect Google Calendar for two-way meeting sync.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild variant="secondary">
-                <Link href="/org/settings/integrations">
-                  <CalendarDays />
-                  Manage integrations
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <CompanyForm company={company} />
+            domain: ctx.tenant.domain,
+            domainVerified: ctx.tenant.domainVerified,
+            defaultCurrency: ctx.tenant.defaultCurrency,
+          },
+        }}
+        tenant={{
+          org_code: tenant?.org_code ?? null,
+          two_factor_window_hours:
+            tenant?.two_factor_window_hours == null ? null : Number(tenant.two_factor_window_hours),
+          overtime_weekly_threshold:
+            tenant?.overtime_weekly_threshold == null ? null : Number(tenant.overtime_weekly_threshold),
+        }}
+        departments={departments ?? []}
+        company={company}
+        storage={storage}
+        storageRequests={((storageRequests ?? []) as StorageRequestRow[]).map((r) => ({
+          ...r,
+          requested_bytes: Number(r.requested_bytes),
+          granted_bytes: r.granted_bytes == null ? null : Number(r.granted_bytes),
+        }))}
+      />
     </div>
   )
 }
