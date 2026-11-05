@@ -49,6 +49,13 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
   const payload = isJson ? await res.json().catch(() => null) : null
 
   if (!res.ok) {
+    // Org 2FA (064): a call that hits the expired window sends the person to the
+    // verify screen rather than leaving them staring at a failed action. The
+    // page guard does the same for navigations; this covers background calls.
+    if (res.status === 403 && payload?.twoFactorRequired && typeof window !== 'undefined') {
+      const next = encodeURIComponent(window.location.pathname + window.location.search)
+      window.location.assign(`/verify-2fa?next=${next}`)
+    }
     throw new ApiClientError(
       payload?.error || 'Something went wrong. Please try again.',
       res.status,

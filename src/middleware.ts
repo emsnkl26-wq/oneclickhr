@@ -27,6 +27,9 @@ type CookieToSet = { name: string; value: string; options: CookieOptions }
  */
 const ROLE_NEUTRAL = [
   '/change-password',
+  // (064) Where an org admin enters their authenticator code. Top-level, like
+  // /change-password, so the org layout guard never loops on it.
+  '/verify-2fa',
   '/reset-password',
   '/account-inactive',
   '/workspace-suspended',

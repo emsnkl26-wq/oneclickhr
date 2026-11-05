@@ -7,11 +7,13 @@
  * that costs trust rather than money.
  */
 import { invoiceNumberFor } from '@/lib/org-code'
-import type { InvoiceItem, InvoiceUnit } from '@/types/db'
+import type { InvoiceDeduction, InvoiceItem, InvoiceUnit } from '@/types/db'
 
 export interface InvoiceTotals {
   subtotal: number
   tax: number
+  /** The sum of all deductions (063), already subtracted from `total`. */
+  deductions: number
   total: number
   balanceDue: number
 }
@@ -27,19 +29,27 @@ export function lineAmount(quantity: number, rate: number): number {
 export function computeTotals(
   items: Array<{ quantity: number; rate: number }>,
   taxPercent = 0,
-  amountPaid = 0
+  amountPaid = 0,
+  deductions: Array<{ amount: number }> = []
 ): InvoiceTotals {
   const subtotalCents = items.reduce(
     (sum, item) => sum + Math.round(toCents(item.quantity * item.rate)),
     0
   )
   const taxCents = Math.round((subtotalCents * (Number.isFinite(taxPercent) ? taxPercent : 0)) / 100)
-  const totalCents = subtotalCents + taxCents
+  // Deductions come OFF the subtotal + tax. The total never goes below zero:
+  // a deduction larger than what is owed leaves nothing to pay, not a credit.
+  const deductionCents = deductions.reduce(
+    (sum, deduction) => sum + Math.max(0, toCents(deduction.amount)),
+    0
+  )
+  const totalCents = Math.max(0, subtotalCents + taxCents - deductionCents)
   const balanceCents = Math.max(0, totalCents - toCents(amountPaid))
 
   return {
     subtotal: toAmount(subtotalCents),
     tax: toAmount(taxCents),
+    deductions: toAmount(deductionCents),
     total: toAmount(totalCents),
     balanceDue: toAmount(balanceCents),
   }
@@ -55,6 +65,16 @@ export function normalizeItems(
     rate: item.rate,
     amount: lineAmount(item.quantity, item.rate),
     ...(item.unit ? { unit: item.unit } : {}),
+  }))
+}
+
+/** Normalise deduction input into the `deductions` jsonb shape, rounded to cents. */
+export function normalizeDeductions(
+  deductions: Array<{ label: string; amount: number }>
+): InvoiceDeduction[] {
+  return deductions.map((deduction) => ({
+    label: deduction.label,
+    amount: toAmount(toCents(deduction.amount)),
   }))
 }
 

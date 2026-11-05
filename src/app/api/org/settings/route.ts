@@ -33,6 +33,7 @@ const BRANDING_COLUMNS = {
   workStartTime: 'work_start_time',
   defaultTrackingMode: 'default_tracking_mode',
   overtimeWeeklyThreshold: 'overtime_weekly_threshold',
+  twoFactorWindowHours: 'two_factor_window_hours',
 } as const
 
 const COMPANY_COLUMNS = {

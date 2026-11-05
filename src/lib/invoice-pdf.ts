@@ -32,7 +32,7 @@ import type { jsPDF as JsPDF } from 'jspdf'
 export type PrintableInvoice = Pick<
   Invoice,
   | 'invoice_number' | 'issue_date' | 'due_date' | 'currency' | 'bill_to' | 'subject'
-  | 'items' | 'subtotal' | 'tax_percent' | 'total' | 'amount_paid' | 'balance_due'
+  | 'items' | 'deductions' | 'subtotal' | 'tax_percent' | 'total' | 'amount_paid' | 'balance_due'
   | 'notes' | 'payment_details'
 > & {
   /** Which page to draw (056). Absent or 'classic' is the boxed staffing invoice. */
@@ -356,10 +356,16 @@ export async function buildInvoicePdf(
   const total = Number(invoice.total) || 0
   const subtotal = Number(invoice.subtotal) || 0
   const paid = Number(invoice.amount_paid) || 0
+  const taxPercent = Number(invoice.tax_percent) || 0
+  // Tax from the subtotal, not `total - subtotal`: once deductions exist the
+  // latter is tax minus deductions, not tax.
+  const taxAmount = Math.round(subtotal * taxPercent) / 100
+  const deductions = (invoice.deductions ?? []).filter((d) => (Number(d.amount) || 0) > 0)
   const rows: Array<[string, number]> = []
-  if (Number(invoice.tax_percent) > 0) {
-    rows.push(['SUBTOTAL', subtotal])
-    rows.push([`TAX (${invoice.tax_percent}%)`, total - subtotal])
+  if (taxPercent > 0 || deductions.length) rows.push(['SUBTOTAL', subtotal])
+  if (taxPercent > 0) rows.push([`TAX (${invoice.tax_percent}%)`, taxAmount])
+  for (const deduction of deductions) {
+    rows.push([(deduction.label || 'DEDUCTION').toUpperCase(), -(Number(deduction.amount) || 0)])
   }
   rows.push(['TOTAL AMOUNT', total])
   if (paid > 0) {
@@ -593,8 +599,15 @@ function drawModernInvoice(
   const total = Number(invoice.total) || 0
   const subtotal = Number(invoice.subtotal) || 0
   const paid = Number(invoice.amount_paid) || 0
+  const taxPercent = Number(invoice.tax_percent) || 0
+  // From the subtotal, never `total - subtotal` — see the classic layout.
+  const taxAmount = Math.round(subtotal * taxPercent) / 100
+  const deductions = (invoice.deductions ?? []).filter((d) => (Number(d.amount) || 0) > 0)
   const rows: Array<[string, number]> = [['Subtotal', subtotal]]
-  if (Number(invoice.tax_percent) > 0) rows.push([`Tax (${invoice.tax_percent}%)`, total - subtotal])
+  if (taxPercent > 0) rows.push([`Tax (${invoice.tax_percent}%)`, taxAmount])
+  for (const deduction of deductions) {
+    rows.push([deduction.label || 'Deduction', -(Number(deduction.amount) || 0)])
+  }
   rows.push(['Total', total])
   if (paid > 0) rows.push(['Paid', -paid])
 

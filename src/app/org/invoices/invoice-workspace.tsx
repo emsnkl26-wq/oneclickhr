@@ -39,8 +39,15 @@ interface DraftItem {
   unit: InvoiceUnit
 }
 
+/** A deduction being typed: amount is a string so the field can be emptied. */
+interface DraftDeduction {
+  label: string
+  amount: string
+}
+
 // Hourly by default: the invoices this is built for bill hours × a rate.
 const EMPTY_ITEM: DraftItem = { description: '', quantity: '1', rate: '0', unit: 'hour' }
+const EMPTY_DEDUCTION: DraftDeduction = { label: '', amount: '0' }
 
 /**
  * A new invoice started from one person's placement (see `employeePrefill` on
@@ -403,6 +410,7 @@ function InvoiceDialog({
   const [subject, setSubject] = React.useState('')
   const [paymentDetails, setPaymentDetails] = React.useState('')
   const [items, setItems] = React.useState<DraftItem[]>([{ ...EMPTY_ITEM }])
+  const [deductions, setDeductions] = React.useState<DraftDeduction[]>([])
   const [currency, setCurrency] = React.useState('USD')
   const [taxPercent, setTaxPercent] = React.useState('0')
   const [amountPaid, setAmountPaid] = React.useState('0')
@@ -461,6 +469,9 @@ function InvoiceDialog({
           unit: i.unit ?? 'item',
         }))
       )
+      setDeductions(
+        (invoice.deductions ?? []).map((d) => ({ label: d.label, amount: String(d.amount) }))
+      )
       setCurrency(invoice.currency)
       setTaxPercent(String(invoice.tax_percent))
       setAmountPaid(String(invoice.amount_paid))
@@ -489,6 +500,7 @@ function InvoiceDialog({
             ]
           : [{ ...EMPTY_ITEM }]
       )
+      setDeductions([])
       setCurrency(prefill?.currency ?? 'USD')
       setTaxPercent('0')
       setAmountPaid('0')
@@ -507,9 +519,10 @@ function InvoiceDialog({
       computeTotals(
         items.map((i) => ({ quantity: Number(i.quantity) || 0, rate: Number(i.rate) || 0 })),
         Number(taxPercent) || 0,
-        Number(amountPaid) || 0
+        Number(amountPaid) || 0,
+        deductions.map((d) => ({ amount: Number(d.amount) || 0 }))
       ),
-    [items, taxPercent, amountPaid]
+    [items, taxPercent, amountPaid, deductions]
   )
 
   /*
@@ -533,6 +546,10 @@ function InvoiceDialog({
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)))
   }
 
+  function updateDeduction(index: number, patch: Partial<DraftDeduction>) {
+    setDeductions((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)))
+  }
+
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
@@ -550,6 +567,10 @@ function InvoiceDialog({
         rate: Number(i.rate) || 0,
         unit: i.unit,
       })),
+      // Only deductions with a name are sent; a blank row is treated as removed.
+      deductions: deductions
+        .filter((d) => d.label.trim())
+        .map((d) => ({ label: d.label.trim(), amount: Number(d.amount) || 0 })),
       currency,
       taxPercent: Number(taxPercent) || 0,
       amountPaid: Number(amountPaid) || 0,
@@ -773,6 +794,108 @@ function InvoiceDialog({
               </Button>
             </div>
 
+            {/*
+              Deductions (063): named amounts taken OFF the total — a discount, a
+              retainer already paid, a withholding. Each one subtracts from the
+              subtotal + tax, and the running total below (and the live preview on
+              the right) show exactly what the client will owe.
+            */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[13px] font-medium">Deductions</p>
+                <span className="text-xs text-ink-muted">Subtracted from the total</span>
+              </div>
+              {deductions.length ? (
+                <div className="space-y-2">
+                  {deductions.map((deduction, index) => (
+                    <div key={index} className="flex items-start gap-2">
+                      <div className="flex-1">
+                        <Input
+                          value={deduction.label}
+                          onChange={(e) => updateDeduction(index, { label: e.target.value })}
+                          placeholder="e.g. Early-payment discount"
+                          aria-label={`Deduction ${index + 1} label`}
+                        />
+                      </div>
+                      <div className="w-32">
+                        <Input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={deduction.amount}
+                          onChange={(e) => updateDeduction(index, { amount: e.target.value })}
+                          aria-label={`Deduction ${index + 1} amount`}
+                          className="tabular"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Remove deduction ${index + 1}`}
+                        onClick={() =>
+                          setDeductions((prev) => prev.filter((_, i) => i !== index))
+                        }
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[13px] text-ink-muted">
+                  No deductions. Add one to take an amount off this invoice’s total.
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeductions((prev) => [...prev, { ...EMPTY_DEDUCTION }])}
+              >
+                <Plus />
+                Add deduction
+              </Button>
+            </div>
+
+            {/*
+              A plain-language running total, so the effect of a deduction is
+              unmistakable without reading the rendered document. The preview on
+              the right is the final word; this is the quick confirmation.
+            */}
+            <dl className="space-y-1 rounded-xl border border-line bg-page px-4 py-3 text-sm">
+              <div className="flex items-center justify-between">
+                <dt className="text-ink-muted">Subtotal</dt>
+                <dd className="tabular">{formatMoney(totals.subtotal, currency)}</dd>
+              </div>
+              {Number(taxPercent) > 0 ? (
+                <div className="flex items-center justify-between">
+                  <dt className="text-ink-muted">Tax ({Number(taxPercent) || 0}%)</dt>
+                  <dd className="tabular">{formatMoney(totals.tax, currency)}</dd>
+                </div>
+              ) : null}
+              {deductions
+                .filter((d) => d.label.trim() || Number(d.amount))
+                .map((d, i) => (
+                  <div key={i} className="flex items-center justify-between text-ink-muted">
+                    <dt className="truncate pr-3">− {d.label.trim() || 'Deduction'}</dt>
+                    <dd className="tabular shrink-0">
+                      −{formatMoney(Number(d.amount) || 0, currency)}
+                    </dd>
+                  </div>
+                ))}
+              <div className="flex items-center justify-between border-t border-line pt-1 font-semibold">
+                <dt>Total</dt>
+                <dd className="tabular">{formatMoney(totals.total, currency)}</dd>
+              </div>
+              {Number(amountPaid) > 0 ? (
+                <div className="flex items-center justify-between">
+                  <dt className="text-ink-muted">Balance due</dt>
+                  <dd className="tabular">{formatMoney(totals.balanceDue, currency)}</dd>
+                </div>
+              ) : null}
+            </dl>
+
             <div className="grid gap-4 sm:grid-cols-4">
               <FormField label="Billed in" hint="The currency the client pays.">
                 <CurrencySelect value={currency} onChange={setCurrency} />
@@ -931,6 +1054,10 @@ function InvoiceDialog({
                   quantity: Number(item.quantity) || 0,
                   rate: Number(item.rate) || 0,
                   unit: item.unit,
+                })),
+                deductions: deductions.map((d) => ({
+                  label: d.label,
+                  amount: Number(d.amount) || 0,
                 })),
               }}
             />

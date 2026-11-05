@@ -11,6 +11,7 @@ import { SettingsForm } from './settings-form'
 import { CompanyForm } from './company-form'
 import { DepartmentManager } from './department-manager'
 import { OvertimeForm } from './overtime-form'
+import { TwoFactorCard } from './two-factor-card'
 import { StorageCard, type StorageRequestRow } from './storage-card'
 import { getStorageUsage } from '@/lib/storage-quota'
 import type { CompanyDetails } from '@/types/db'
@@ -28,7 +29,7 @@ export default async function SettingsPage() {
     // only what every page needs, and these are read on this one screen.
     supabase
       .from('tenants')
-      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details, overtime_weekly_threshold, company_linkedin_url')
+      .select('org_code, default_currency, address_line1, address_line2, city, state_province, postal_code, country, registration_number, company_email, company_phone, website, signatory_name, signatory_title, signatory_phone, invoice_payment_details, overtime_weekly_threshold, company_linkedin_url, two_factor_window_hours')
       .eq('id', ctx.tenantId)
       .single(),
     getStorageUsage(ctx.tenantId),
@@ -83,6 +84,13 @@ export default async function SettingsPage() {
         />
 
         <div className="space-y-5">
+          <TwoFactorCard
+            enabled={ctx.twoFactorEnabled}
+            windowHours={
+              tenant?.two_factor_window_hours == null ? 8 : Number(tenant.two_factor_window_hours)
+            }
+          />
+
           <DepartmentManager departments={departments ?? []} />
 
           <StorageCard

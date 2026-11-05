@@ -275,6 +275,16 @@ export interface InvoiceItem {
   unit?: InvoiceUnit
 }
 
+/**
+ * A deduction on an invoice (063): a named amount taken OFF the total — a
+ * discount, a retainer already paid, a withholding, an adjustment. Stored as a
+ * jsonb array; absent on invoices written before 063, read as none.
+ */
+export interface InvoiceDeduction {
+  label: string
+  amount: number
+}
+
 export type InvoiceLayout = 'classic' | 'modern'
 
 export interface Invoice {
@@ -299,6 +309,8 @@ export interface Invoice {
   /** The bank block printed at the foot, snapshotted per invoice (042). */
   payment_details: string | null
   items: InvoiceItem[]
+  /** Named amounts subtracted from the total (063). Empty on pre-063 rows. */
+  deductions?: InvoiceDeduction[] | null
   currency: string
   subtotal: number
   tax_percent: number
@@ -645,6 +657,14 @@ export interface CurrentProfile {
    * server instead. Never narrow this to `boolean`.
    */
   session_active?: boolean | null
+  /**
+   * Added by 064. Does this user have an ENABLED authenticator (org 2FA)?
+   *
+   * Optional for the same reason as `session_active`: a database without 064
+   * applied returns `undefined`, which the gate reads as "not enrolled" — the
+   * behaviour before the feature existed.
+   */
+  two_factor_enabled?: boolean | null
 }
 
 // ---------------------------------------------------------------------------

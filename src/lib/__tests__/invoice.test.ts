@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  computeTotals, lineAmount, normalizeItems, suggestInvoiceNumber,
+  computeTotals, lineAmount, normalizeItems, normalizeDeductions, suggestInvoiceNumber,
   invoiceMoney, invoiceQuantity, invoiceRate, quantityHeading, invoiceDate, billToAddressText,
 } from '@/lib/invoice'
 
@@ -58,7 +58,48 @@ describe('computeTotals', () => {
 
   it('handles an empty invoice', () => {
     const totals = computeTotals([], 10, 0)
-    expect(totals).toEqual({ subtotal: 0, tax: 0, total: 0, balanceDue: 0 })
+    expect(totals).toEqual({ subtotal: 0, tax: 0, deductions: 0, total: 0, balanceDue: 0 })
+  })
+
+  it('subtracts deductions from the total', () => {
+    const totals = computeTotals(
+      [{ quantity: 1, rate: 1000 }],
+      0,
+      0,
+      [{ amount: 150 }, { amount: 50 }]
+    )
+    expect(totals.subtotal).toBe(1000)
+    expect(totals.deductions).toBe(200)
+    expect(totals.total).toBe(800)
+    expect(totals.balanceDue).toBe(800)
+  })
+
+  it('applies tax to the subtotal, then takes the deduction off the taxed amount', () => {
+    const totals = computeTotals([{ quantity: 1, rate: 1000 }], 10, 0, [{ amount: 100 }])
+    expect(totals.subtotal).toBe(1000)
+    expect(totals.tax).toBe(100)
+    expect(totals.deductions).toBe(100)
+    // 1000 + 100 tax − 100 deduction
+    expect(totals.total).toBe(1000)
+  })
+
+  it('never lets a deduction push the total below zero', () => {
+    const totals = computeTotals([{ quantity: 1, rate: 100 }], 0, 0, [{ amount: 250 }])
+    expect(totals.total).toBe(0)
+    expect(totals.balanceDue).toBe(0)
+  })
+
+  it('leaves the total unchanged when there are no deductions', () => {
+    const totals = computeTotals([{ quantity: 2, rate: 50 }], 0, 0, [])
+    expect(totals.total).toBe(100)
+    expect(totals.deductions).toBe(0)
+  })
+})
+
+describe('normalizeDeductions', () => {
+  it('rounds each amount to whole cents', () => {
+    const deductions = normalizeDeductions([{ label: 'Discount', amount: 12.345 }])
+    expect(deductions).toEqual([{ label: 'Discount', amount: 12.35 }])
   })
 })
 

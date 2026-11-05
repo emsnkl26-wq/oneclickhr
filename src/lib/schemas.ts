@@ -184,6 +184,21 @@ export const tenantSettingsSchema = z.object({
     .min(1, 'Use at least 1 hour')
     .max(168, 'A week only has 168 hours')
     .nullable(),
+  /**
+   * How long an authenticator check is honoured before an admin is asked again
+   * (064). Org-level, 1–720 hours. Optional here — the 2FA card is the only form
+   * that sends it, and every other settings form must leave it alone.
+   */
+  twoFactorWindowHours: z.coerce.number().int().min(1).max(720).optional(),
+})
+
+/** The 6-digit code from an authenticator app (064). */
+export const twoFactorCodeSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/\s+/g, ''))
+    .pipe(z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from your app')),
 })
 
 export const onboardingSchema = z.object({
@@ -730,6 +745,12 @@ export const invoiceItemSchema = z.object({
   unit: z.enum(['hour', 'day', 'month', 'year', 'item']).optional(),
 })
 
+/** A named amount taken off the total (063): a discount, retainer, withholding. */
+export const invoiceDeductionSchema = z.object({
+  label: z.string().trim().min(1, 'Name the deduction').max(80),
+  amount: z.coerce.number().min(0).max(100_000_000),
+})
+
 export const invoiceTypeEnum = z.enum(['normal', 'freelancer'])
 
 export const invoiceSchema = z.object({
@@ -743,6 +764,8 @@ export const invoiceSchema = z.object({
   subject: optionalText(200),
   paymentDetails: optionalText(1000),
   items: z.array(invoiceItemSchema).min(1, 'Add at least one line item').max(100),
+  // Optional, and an empty list is fine — most invoices have no deductions.
+  deductions: z.array(invoiceDeductionSchema).max(20).default([]),
   currency: z.string().trim().length(3).toUpperCase().default('USD'),
   taxPercent: z.coerce.number().min(0).max(100).default(0),
   amountPaid: z.coerce.number().min(0).default(0),

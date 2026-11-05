@@ -55,6 +55,12 @@ export interface AppContext {
   isOwner: boolean
   isActive: boolean
   mustChangePassword: boolean
+  /**
+   * Has this user enabled authenticator-app 2FA (064)? Drives the org gate.
+   * False when the column is absent (064 not applied) — nobody is gated by a
+   * feature the database has not got.
+   */
+  twoFactorEnabled: boolean
   tenant: {
     id: string
     name: string
@@ -328,6 +334,8 @@ async function loadContextUncached(): Promise<ContextResult> {
     isOwner: !!row.is_owner,
     isActive: !!row.is_active,
     mustChangePassword: !!row.must_change_password,
+    // Absent column (064 not applied) is falsy — unenrolled, so never gated.
+    twoFactorEnabled: !!row.two_factor_enabled,
     tenant: row.tenant_id
       ? {
           id: row.tenant_id,

@@ -4,7 +4,7 @@ import { apiRequireOrg } from '@/lib/auth/guards'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { todayIn } from '@/lib/time'
 import { invoiceWriteSchema, resolvePaidAt, payoutColumns } from './status-fields'
-import { computeTotals, normalizeItems } from '@/lib/invoice'
+import { computeTotals, normalizeItems, normalizeDeductions } from '@/lib/invoice'
 import { audit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
@@ -24,9 +24,9 @@ async function handlePOST(request: NextRequest) {
   const input = await parseBody(request, invoiceWriteSchema)
   // "Paid" means fully collected: the amount received follows the total rather
   // than leaving a paid invoice with a balance still showing.
-  const draftTotals = computeTotals(input.items, input.taxPercent, 0)
+  const draftTotals = computeTotals(input.items, input.taxPercent, 0, input.deductions)
   const amountPaid = input.status === 'paid' ? draftTotals.total : input.amountPaid
-  const totals = computeTotals(input.items, input.taxPercent, amountPaid)
+  const totals = computeTotals(input.items, input.taxPercent, amountPaid, input.deductions)
   const today = todayIn(ctx.tenant.timezone)
 
   const supabase = await createSupabaseServerClient()
@@ -44,6 +44,7 @@ async function handlePOST(request: NextRequest) {
       subject: input.subject,
       payment_details: input.paymentDetails,
       items: normalizeItems(input.items),
+      deductions: normalizeDeductions(input.deductions),
       currency: input.currency,
       subtotal: totals.subtotal,
       tax_percent: input.taxPercent,

@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   computeTotals, invoiceDate, invoiceMoney, invoiceQuantity, invoiceRate, normalizeItems,
-  quantityHeading,
+  normalizeDeductions, quantityHeading,
 } from '@/lib/invoice'
 import { buildInvoicePdf, type PrintableInvoice } from '@/lib/invoice-pdf'
 import { loadOrgLogo, type LogoAsset } from '@/lib/document-pdf'
@@ -43,6 +43,8 @@ export interface PreviewInvoice {
   paymentDetails: string
   billTo: { name: string; email: string; address: string }
   items: Array<{ description: string; quantity: number; rate: number; unit?: InvoiceUnit }>
+  /** Named amounts taken off the total (063). */
+  deductions: Array<{ label: string; amount: number }>
   /** Which printed page to preview (056). */
   layout?: InvoiceLayout | null
 }
@@ -55,7 +57,8 @@ function toPrintable(invoice: PreviewInvoice): PrintableInvoice {
   const items = invoice.items.filter(
     (item) => item.description.trim() || item.quantity || item.rate
   )
-  const totals = computeTotals(items, invoice.taxPercent, invoice.amountPaid)
+  const deductions = invoice.deductions.filter((d) => d.label.trim() || d.amount)
+  const totals = computeTotals(items, invoice.taxPercent, invoice.amountPaid, deductions)
   return {
     invoice_number: invoice.invoiceNumber || '—',
     issue_date: invoice.issueDate,
@@ -64,6 +67,7 @@ function toPrintable(invoice: PreviewInvoice): PrintableInvoice {
     bill_to: { name: invoice.billTo.name, email: invoice.billTo.email, address: invoice.billTo.address },
     subject: invoice.subject.trim() || null,
     items: normalizeItems(items),
+    deductions: normalizeDeductions(deductions),
     subtotal: totals.subtotal,
     tax_percent: invoice.taxPercent,
     total: totals.total,
@@ -165,16 +169,22 @@ function InvoiceHtmlPreview({
   org: PreviewOrg
   invoice: PreviewInvoice
 }) {
-  const totals = computeTotals(invoice.items, invoice.taxPercent, invoice.amountPaid)
+  const deductions = invoice.deductions.filter((d) => (Number(d.amount) || 0) > 0)
+  const totals = computeTotals(
+    invoice.items, invoice.taxPercent, invoice.amountPaid, deductions
+  )
   const items = invoice.items.filter(
     (item) => item.description.trim() || item.quantity || item.rate
   )
   const currency = invoice.currency || 'USD'
 
   const totalRows: Array<[string, number]> = []
-  if (invoice.taxPercent > 0) {
+  if (invoice.taxPercent > 0 || deductions.length) {
     totalRows.push(['SUBTOTAL', totals.subtotal])
-    totalRows.push([`TAX (${invoice.taxPercent}%)`, totals.tax])
+  }
+  if (invoice.taxPercent > 0) totalRows.push([`TAX (${invoice.taxPercent}%)`, totals.tax])
+  for (const deduction of deductions) {
+    totalRows.push([(deduction.label || 'DEDUCTION').toUpperCase(), -(Number(deduction.amount) || 0)])
   }
   totalRows.push(['TOTAL AMOUNT', totals.total])
   if (invoice.amountPaid > 0) {

@@ -19,6 +19,9 @@ import { redirect } from 'next/navigation'
 import { NextResponse } from 'next/server'
 import { resolveContext, homeFor, isUsable, type AppContext } from '@/lib/auth/context'
 import { domainLockState, DOMAIN_LOCK_PATH, DOMAIN_LOCKED_MESSAGE } from '@/lib/domain-lock'
+import {
+  hasValidProof, TWO_FACTOR_VERIFY_PATH, TWO_FACTOR_REQUIRED_MESSAGE,
+} from '@/lib/auth/two-factor'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { safeEqual } from '@/lib/crypto'
 import { rateLimit, limitKey, getClientIp } from '@/lib/rate-limit'
@@ -44,6 +47,28 @@ export interface OrgContext extends AppContext {
  */
 export interface GuardOptions {
   allowDomainLocked?: boolean
+  /**
+   * Let an org admin through even though their authenticator check is pending or
+   * expired (064). Exactly one kind of screen passes it — the one that FIXES the
+   * pending check, /verify-2fa and the endpoint it posts to — for the same reason
+   * `allowDomainLocked` exists: the screen that clears a lock cannot sit behind it.
+   */
+  allow2faPending?: boolean
+}
+
+/**
+ * Is this org admin blocked pending an authenticator code (064)?
+ *
+ * Only org-portal users are covered, and only once they have ENABLED 2FA. The
+ * enrolled flag rides on the profile row already loaded for the request, so the
+ * common cases — not an org user, or not enrolled — cost nothing. A valid proof
+ * cookie (set when they last entered a code, good for the org's window) is read
+ * from the request with no database work.
+ */
+async function twoFactorBlocked(ctx: AppContext): Promise<boolean> {
+  if (ctx.role !== 'org') return false
+  if (!ctx.twoFactorEnabled) return false
+  return !(await hasValidProof(ctx.userId))
 }
 
 /**
@@ -131,9 +156,11 @@ function leaveTenantArea(ctx: AppContext, expected: AppContext['role']): never {
 }
 
 /** An ACTIVE org user in an ACTIVE tenant. */
-export async function requireOrg(): Promise<OrgContext> {
-  const ctx = await requireUser()
+export async function requireOrg(options: GuardOptions = {}): Promise<OrgContext> {
+  const ctx = await requireUser(options)
   if (ctx.role !== 'org' || !ctx.tenantId || !ctx.tenant) leaveTenantArea(ctx, 'org')
+  // Same one-screen-until-met shape as the password and domain gates above.
+  if (!options.allow2faPending && (await twoFactorBlocked(ctx))) redirect(TWO_FACTOR_VERIFY_PATH)
   return ctx as OrgContext
 }
 
@@ -199,6 +226,19 @@ const deny = (message: string, status: number): { ok: false; response: NextRespo
   response: NextResponse.json({ error: message }, { status }),
 })
 
+/**
+ * The API counterpart of the /verify-2fa redirect. The `twoFactorRequired` flag
+ * lets the client send the person to the verify screen instead of only toasting
+ * an error, when a background call is what first hits the expired window.
+ */
+const denyTwoFactor = (): { ok: false; response: NextResponse } => ({
+  ok: false,
+  response: NextResponse.json(
+    { error: TWO_FACTOR_REQUIRED_MESSAGE, twoFactorRequired: true },
+    { status: 403 }
+  ),
+})
+
 export async function apiRequireUser(options: GuardOptions = {}): Promise<Gate<AppContext>> {
   const result = await resolveContext()
   if (result.status === 'anonymous') return deny('Not authenticated', 401)
@@ -225,6 +265,9 @@ export async function apiRequireOrg(options: GuardOptions = {}): Promise<Gate<Or
   if (!gate.ok) return gate
   if (gate.ctx.role !== 'org' || !gate.ctx.tenantId || !gate.ctx.tenant) {
     return deny('Organization access required', 403)
+  }
+  if (!options.allow2faPending && (await twoFactorBlocked(gate.ctx))) {
+    return denyTwoFactor()
   }
   return { ok: true, ctx: gate.ctx as OrgContext }
 }
