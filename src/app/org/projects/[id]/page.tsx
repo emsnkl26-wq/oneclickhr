@@ -67,7 +67,7 @@ export default async function ProjectDetailPage({
   const BASE_COLUMNS =
     'id, code, name, client_name, end_client_name, description, start_date, end_date, status'
   const FULL_SELECT =
-    `${BASE_COLUMNS}, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))`
+    `${BASE_COLUMNS}, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation, is_active))`
 
   const { data: full, error: fullError } = await supabase
     .from('projects')
@@ -169,16 +169,20 @@ export default async function ProjectDetailPage({
         email: string | null
         photo_url: string | null
         designation: string | null
+        is_active: boolean | null
       } | null
     }>
   )
     .map((assignment) => assignment.employee)
-    .filter(Boolean) as Array<{
+    // Removed/deactivated employees stay in project_assignments but must not be
+    // shown anywhere — only active people appear on the project.
+    .filter((employee) => employee && employee.is_active !== false) as Array<{
     id: string
     full_name: string | null
     email: string | null
     photo_url: string | null
     designation: string | null
+    is_active: boolean | null
   }>
 
   return (

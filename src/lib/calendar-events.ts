@@ -84,6 +84,62 @@ interface MeetingRow {
   organizer: { full_name: string | null } | null
 }
 
+/** Signature of a meeting's content — title + exact span. */
+function meetingContentKey(r: MeetingRow): string {
+  return [(r.title ?? '').trim().toLowerCase(), r.start_time, r.end_time, r.all_day ? '1' : '0'].join('|')
+}
+
+/** Of two rows for the same meeting, keep the editable app row over a read-only Google echo. */
+function preferMeeting(a: MeetingRow, b: MeetingRow): MeetingRow {
+  if (a.source === b.source) return a
+  return a.source === 'app' ? a : b
+}
+
+/**
+ * Collapse a meeting that exists as two rows — the app row and its Google echo.
+ *
+ * A meeting created here is inserted with `source:'app'`, and its
+ * `google_event_id` is written only after Google round-trips. If the push
+ * webhook syncs the echoed event before that id lands (a create/sync race), or
+ * a recurring instance id never matches the stored base id, the echo is
+ * INSERTED as a second `source:'google'` row and the calendar shows the meeting
+ * twice (001 `meetings_google_event_uidx` only dedupes on a matching id).
+ *
+ * Two rows are the same meeting when they share a non-null `google_event_id`,
+ * or when they have the same content but different sources (the app/google
+ * pair). Same-source rows with identical content are left alone — those are
+ * genuinely distinct meetings that happen to line up.
+ */
+function dedupeMeetings(rows: MeetingRow[]): MeetingRow[] {
+  const kept: MeetingRow[] = []
+  const gidIndex = new Map<string, number>()
+  const contentIndex = new Map<string, number>()
+
+  for (const row of rows) {
+    const gid = row.google_event_id ?? null
+    const ck = meetingContentKey(row)
+
+    let idx: number | undefined
+    if (gid && gidIndex.has(gid)) {
+      idx = gidIndex.get(gid)
+    } else if (contentIndex.has(ck) && kept[contentIndex.get(ck)!].source !== row.source) {
+      idx = contentIndex.get(ck)
+    }
+
+    if (idx === undefined) {
+      const newIdx = kept.length
+      kept.push(row)
+      if (gid) gidIndex.set(gid, newIdx)
+      if (!contentIndex.has(ck)) contentIndex.set(ck, newIdx)
+      continue
+    }
+
+    kept[idx] = preferMeeting(kept[idx], row)
+    if (gid) gidIndex.set(gid, idx)
+  }
+  return kept
+}
+
 /** The columns every meeting surface reads — the grid, the agenda and the dialogs. */
 export const MEETING_COLUMNS =
   'id, title, description, location, meet_link, start_time, end_time, attendees, source, read_only, all_day, google_event_id, ' +
@@ -179,7 +235,7 @@ export async function loadCalendarEvents(
 
   const events: CalendarEvent[] = []
 
-  for (const raw of meetings.data ?? []) {
+  for (const raw of dedupeMeetings((meetings.data ?? []) as unknown as MeetingRow[])) {
     const meeting = toCalendarMeeting(raw)
     events.push({
       id: `meeting-${meeting.id}`,
@@ -292,8 +348,11 @@ export async function loadUpcomingMeetings(
     .is('cancelled_at', null)
     .gte('end_time', new Date().toISOString())
     .order('start_time', { ascending: true })
-    .limit(limit)
-  return (data ?? []).map(toCalendarMeeting)
+    // Fetch extra so the dedupe (app row + Google echo) still leaves `limit`.
+    .limit(limit * 2)
+  return dedupeMeetings((data ?? []) as unknown as MeetingRow[])
+    .slice(0, limit)
+    .map(toCalendarMeeting)
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

@@ -37,9 +37,9 @@ async function handlePOST(request: NextRequest) {
       tenant_id: ctx.tenantId,
       invoice_number: input.invoiceNumber,
       invoice_type: input.invoiceType,
-      // Written on the Invoices page, so it prints the modern page (056). The
-      // ones generated from an employee's timesheets keep 'classic'.
-      layout: 'modern',
+      // The printed format chosen in the form (modern by default, or VDart).
+      // Invoices generated from an employee's timesheets keep 'classic'.
+      layout: input.layout,
       bill_to: input.billTo,
       subject: input.subject,
       payment_details: input.paymentDetails,

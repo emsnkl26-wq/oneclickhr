@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import { EmptyState, StatusChip } from '@/components/ui/patterns'
 import { Button } from '@/components/ui/button'
 import { Input, Select, Textarea } from '@/components/ui/input'
-import { apiPatch, ApiClientError } from '@/lib/fetcher'
+import { apiPatch, apiPost, ApiClientError } from '@/lib/fetcher'
 import { formatInstantLabel } from '@/lib/time'
 import { APPLICATION_STATUSES } from '@/lib/schemas'
 import { cn, initials } from '@/lib/utils'
@@ -195,6 +195,10 @@ export function ApplicantList({
     null
   )
   const [message, setMessage] = React.useState('')
+  // An email being composed to a candidate at their current stage (011).
+  const [emailing, setEmailing] = React.useState<ApplicantRow | null>(null)
+  const [emailMessage, setEmailMessage] = React.useState('')
+  const [sendingEmail, setSendingEmail] = React.useState(false)
 
   const [query, setQuery] = React.useState('')
   const term = query.trim().toLowerCase()
@@ -247,6 +251,23 @@ export function ApplicantList({
     if (ok) {
       setMoving(null)
       setMessage('')
+    }
+  }
+
+  async function sendEmail() {
+    if (!emailing || !emailMessage.trim()) return
+    setSendingEmail(true)
+    try {
+      await apiPost(`${endpoint}/${emailing.id}/email`, { message: emailMessage.trim() })
+      toast.success(`Email sent to ${emailing.fullName || emailing.email}`)
+      setEmailing(null)
+      setEmailMessage('')
+    } catch (err) {
+      toast.error(
+        err instanceof ApiClientError ? err.message : 'Could not send the email. Please try again.'
+      )
+    } finally {
+      setSendingEmail(false)
     }
   }
 
@@ -489,6 +510,19 @@ export function ApplicantList({
                       ) : (
                         <p className="text-xs text-ink-muted">No CV attached.</p>
                       )}
+                      {row.email ? (
+                        <Button
+                          variant="secondary"
+                          className="w-full"
+                          onClick={() => {
+                            setEmailMessage('')
+                            setEmailing(row)
+                          }}
+                        >
+                          <Mail />
+                          Email candidate
+                        </Button>
+                      ) : null}
                     </div>
 
                     <div className="space-y-2">
@@ -536,9 +570,9 @@ export function ApplicantList({
               Move to {moving ? STATUS_LABELS[moving.status] : ''}?
             </DialogTitle>
             <DialogDescription>
-              Applicants with an account see the new stage
-              {moving ? ` (“${APPLICATION_STATUS_LABELS[moving.status]}”)` : ''} on their
-              applications page and get an email about it.
+              The candidate is emailed the new stage
+              {moving ? ` (“${APPLICATION_STATUS_LABELS[moving.status]}”)` : ''}, and sees it on
+              their applications page if they have an account.
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -565,6 +599,44 @@ export function ApplicantList({
             </Button>
             <Button loading={busyId !== null} onClick={confirmMove}>
               Update stage
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!emailing}
+        onOpenChange={(open) => {
+          if (!open && !sendingEmail) setEmailing(null)
+        }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Email {emailing?.fullName || emailing?.email}</DialogTitle>
+            <DialogDescription>
+              Sent to {emailing?.email}
+              {emailing ? `, who is at the “${STATUS_LABELS[emailing.status]}” stage.` : '.'} Use
+              this to send an invitation, an offer, or any message — their current status is
+              included.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <FormField label="Message" hint="The candidate sees exactly this.">
+              <Textarea
+                rows={5}
+                maxLength={2000}
+                value={emailMessage}
+                onChange={(e) => setEmailMessage(e.target.value)}
+                placeholder="Congratulations — we’d like to move forward and invite you to an interview…"
+              />
+            </FormField>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setEmailing(null)} disabled={sendingEmail}>
+              Cancel
+            </Button>
+            <Button loading={sendingEmail} disabled={!emailMessage.trim()} onClick={sendEmail}>
+              Send email
             </Button>
           </DialogFooter>
         </DialogContent>

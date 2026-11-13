@@ -273,6 +273,13 @@ export interface InvoiceItem {
   rate: number
   amount: number
   unit?: InvoiceUnit
+  /**
+   * Optional service period for the line (010-dates). When both are set on an
+   * hourly line the form auto-fills the quantity (hours) from the span, and the
+   * dates print on the invoice. `YYYY-MM-DD`.
+   */
+  startDate?: string | null
+  endDate?: string | null
 }
 
 /**
@@ -285,7 +292,7 @@ export interface InvoiceDeduction {
   amount: number
 }
 
-export type InvoiceLayout = 'classic' | 'modern'
+export type InvoiceLayout = 'classic' | 'modern' | 'vdart'
 
 export interface Invoice {
   id: string
@@ -303,7 +310,8 @@ export interface Invoice {
   subject: string | null
   /**
    * Which printed page it uses (056): 'classic' for invoices generated from an
-   * employee's timesheets, 'modern' for those written on the Invoices page.
+   * employee's timesheets, 'modern' for those written on the Invoices page,
+   * 'vdart' for the VDart vendor format (chosen per invoice in the form).
    */
   layout?: InvoiceLayout | null
   /** The bank block printed at the foot, snapshotted per invoice (042). */

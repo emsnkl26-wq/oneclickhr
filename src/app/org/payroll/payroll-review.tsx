@@ -41,7 +41,7 @@ import { UsPayslipFields, defaultUsDraft, usDetailsFromDraft, type UsDraft } fro
 import { MONTH_NAMES } from '@/lib/time'
 import { initials, formatMoney } from '@/lib/utils'
 import type { ExtractedPayslip } from '@/lib/payslip-extracted'
-import { periodLabel, periodsOf, type PayPeriod, type PaySchedule } from '@/lib/pay-schedule'
+import { periodStubLabel, periodsOf, type PayPeriod, type PaySchedule } from '@/lib/pay-schedule'
 
 export interface EmployeeRow {
   id: string
@@ -117,10 +117,13 @@ interface Row extends EmployeeRow {
   confirmation: ConfirmationRow | null
 }
 
+// Shown in the "Pay period" column. Semi-monthly runs are labelled by which
+// paystub of the month they are, not by date range (1st–15th / 16th–end), per
+// how the team refers to them.
 const PERIOD_SHORT: Record<PayPeriod, string> = {
-  0: 'Whole month',
-  1: '1st – 15th',
-  2: '16th – end',
+  0: 'Monthly',
+  1: '1st paystub',
+  2: '2nd paystub',
 }
 
 export function PayrollReview({
@@ -426,7 +429,7 @@ function ReviewDialog({ row, onClose }: { row: Row | null; onClose: () => void }
           <DialogTitle>{row?.full_name || row?.email}</DialogTitle>
           <DialogDescription>
             {confirmation
-              ? `${periodLabel(confirmation.year, confirmation.month, confirmation.period)} payment confirmation`
+              ? `${periodStubLabel(confirmation.year, confirmation.month, confirmation.period)} payment confirmation`
               : ''}
           </DialogDescription>
         </DialogHeader>

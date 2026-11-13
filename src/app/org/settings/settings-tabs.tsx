@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   Building2,
   CalendarDays,
+  FolderOpen,
   Globe,
   HardDrive,
   Mail,
@@ -26,12 +27,14 @@ import { DepartmentManager } from './department-manager'
 import { OvertimeForm } from './overtime-form'
 import { TwoFactorCard } from './two-factor-card'
 import { StorageCard, type StorageRequestRow } from './storage-card'
+import { OrgFilesTab, type OrgFileRow } from './org-files-tab'
 import type { CompanyDetails } from '@/types/db'
 import { cn } from '@/lib/utils'
 
 const TABS = [
   { value: '', label: 'General', icon: Settings2 },
   { value: 'company', label: 'Company', icon: Building2 },
+  { value: 'files', label: 'Files', icon: FolderOpen },
   { value: 'security', label: 'Security', icon: Shield },
   { value: 'advanced', label: 'Advanced', icon: Settings2 },
 ] as const
@@ -45,6 +48,7 @@ export function SettingsTabs({
   company,
   storage,
   storageRequests,
+  files,
 }: {
   ctx: {
     email: string
@@ -73,6 +77,7 @@ export function SettingsTabs({
   company: CompanyDetails
   storage: { used: number; limit: number }
   storageRequests: StorageRequestRow[]
+  files: OrgFileRow[]
 }) {
   const searchParams = useSearchParams()
   const activeTab = (searchParams.get('tab') ?? '') as TabValue
@@ -172,6 +177,10 @@ export function SettingsTabs({
       )}
 
       {activeTab === 'company' && <CompanyTab company={company} />}
+
+      {activeTab === 'files' && (
+        <OrgFilesTab initialFiles={files} timezone={ctx.tenant.timezone} />
+      )}
 
       {activeTab === 'security' && (
         <SecurityTab

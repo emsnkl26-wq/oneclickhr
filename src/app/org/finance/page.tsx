@@ -25,6 +25,16 @@ const MAX_PAGES = 20
 type Range = ReturnType<typeof resolveRange>
 
 /**
+ * Label for a spend bucket in the finance view. Payroll spend here is the salary
+ * paid out (verified pay confirmations from the payroll system), so it reads as
+ * "Salaries" rather than "Payroll".
+ */
+function spendCategoryLabel(category: string): string {
+  if (category === 'payroll') return 'Salaries'
+  return categoryLabel(category as ExpenseCategory)
+}
+
+/**
  * Page through a query so a busy workspace is not silently truncated at
  * PostgREST's row cap.
  */
@@ -255,7 +265,7 @@ async function WindowTotals({ range, currency }: { range: Range; currency: strin
       <StatCard
         label="Net margin"
         value={margin === null ? '—' : `${margin.toFixed(1)}%`}
-        hint={`Expenses ${money(current.expenses)} · Payroll ${money(current.payroll)}`}
+        hint={`Expenses ${money(current.expenses)} · Salaries ${money(current.payroll)}`}
         icon={Percent}
       />
     </>
@@ -338,7 +348,7 @@ async function WindowPanels({ range, currency }: { range: Range; currency: strin
                   <li key={row.category} className="space-y-1">
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate text-ink">
-                        {categoryLabel(row.category as ExpenseCategory)}
+                        {spendCategoryLabel(row.category)}
                       </span>
                       <span className="tabular font-medium text-ink">{money(row.total)}</span>
                     </div>

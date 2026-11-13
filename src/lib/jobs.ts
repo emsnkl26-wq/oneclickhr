@@ -391,11 +391,14 @@ export function engagementColumns(input: JobInput) {
 }
 
 /**
- * Email an applicant that their application changed stage (052).
+ * Email an applicant that their application changed stage (052), or send them a
+ * message at their current stage (011).
  *
- * Only for applications made from an account — applying requires one now, and
- * older anonymous ones get nothing new. Never throws: the stage change is
- * already saved, and a mail outage must not turn it into an error.
+ * Sent to whatever email the application carries — a website candidate who
+ * applied without an account is reachable too, so a recruiter can shortlist them
+ * and email an invitation or offer straight from the applicant list. Never
+ * throws: the stage change is already saved, and a mail outage must not turn it
+ * into an error.
  */
 export async function emailApplicantStatus(
   admin: SupabaseClient,
@@ -415,7 +418,7 @@ export async function emailApplicantStatus(
       applicant_profile_id: string | null
       job: { title: string; tenant_id: string | null } | null
     } | null
-    if (!row?.applicant_profile_id || !row.job) return
+    if (!row?.job || !row.email) return
 
     let companyName = 'OneclickHR'
     let brandColor: string | undefined

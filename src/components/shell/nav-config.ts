@@ -3,7 +3,7 @@ import {
   Building2, ShieldCheck, Activity, Settings, KanbanSquare,
   BadgeCheck, ClipboardList, Receipt, Server, Briefcase, Timer, Table2,
   LifeBuoy, FileSignature, UserRound, BriefcaseBusiness, Send, Network,
-  CalendarRange, MessageSquare, MessagesSquare, TrendingDown, ChartLine, HardDrive,
+  CalendarRange, MessageSquare, MessagesSquare, TrendingDown, ChartLine, HardDrive, Inbox,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { UserRole, TrackingMode } from '@/types/db'
@@ -52,6 +52,8 @@ const SUPER_NAV: NavSection[] = [
   {
     label: 'Operations',
     items: [
+      // Contact-form enquiries from the marketing site (065).
+      { href: '/super/enquiries', label: 'Enquiries', icon: Inbox, prefix: true },
       { href: '/super/support', label: 'Support requests', icon: MessageSquare, prefix: true },
       // Per-workspace quota and requests for more (056).
       { href: '/super/storage', label: 'Storage', icon: HardDrive },

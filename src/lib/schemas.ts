@@ -738,11 +738,20 @@ export const payslipSchema = z.object({
 // Invoices
 // ---------------------------------------------------------------------------
 
+// A blank date string from a form field becomes null (the field is optional).
+const optionalIsoDate = z.preprocess(
+  (v) => (v === '' || v === undefined ? null : v),
+  isoDate.nullable()
+)
+
 export const invoiceItemSchema = z.object({
   description: z.string().trim().min(1, 'Describe the line item').max(500),
   quantity: z.coerce.number().min(0).max(1_000_000),
   rate: z.coerce.number().min(0).max(100_000_000),
   unit: z.enum(['hour', 'day', 'month', 'year', 'item']).optional(),
+  // Optional service period; drives the auto-calculated hours on hourly lines (010).
+  startDate: optionalIsoDate.optional(),
+  endDate: optionalIsoDate.optional(),
 })
 
 /** A named amount taken off the total (063): a discount, retainer, withholding. */
@@ -753,9 +762,14 @@ export const invoiceDeductionSchema = z.object({
 
 export const invoiceTypeEnum = z.enum(['normal', 'freelancer'])
 
+export const invoiceLayoutEnum = z.enum(['classic', 'modern', 'vdart'])
+
 export const invoiceSchema = z.object({
   invoiceNumber: z.string().trim().min(1, 'Enter an invoice number').max(60),
   invoiceType: invoiceTypeEnum.default('normal'),
+  // The printed format. Defaults to the modern page for hand-written invoices;
+  // 'vdart' prints the VDart vendor format.
+  layout: invoiceLayoutEnum.default('modern'),
   billTo: z.object({
     name: z.string().trim().min(1, 'Who is this invoice for?').max(160),
     email: z.string().trim().max(254).optional().or(z.literal('')),
@@ -2300,7 +2314,11 @@ export const MAX_MESSAGE_ATTACHMENTS = 10
 
 export const messageSchema = z
   .object({
-    body: z.string().trim().max(8000).optional().transform((v) => (v ? v : null)),
+    // `.nullish()` (not `.optional()`): the composer sends `body: null` for an
+    // attachment-only message. `.optional()` rejected null before the refine
+    // below could run, so a document with no text 400'd. The refine still
+    // enforces "write something or attach a file".
+    body: z.string().trim().max(8000).nullish().transform((v) => (v ? v : null)),
     replyToId: uuid.nullable().optional(),
     attachments: z.array(messageAttachmentSchema).max(MAX_MESSAGE_ATTACHMENTS).default([]),
     /**

@@ -26,6 +26,28 @@ export function lineAmount(quantity: number, rate: number): number {
   return toAmount(Math.round(toCents(quantity * rate)))
 }
 
+/** Hours worked per business day, used to turn a date span into billable hours. */
+export const HOURS_PER_BUSINESS_DAY = 8
+
+/**
+ * Billable hours for a service period: the weekdays (Mon–Fri) from `start` to
+ * `end` inclusive, times {@link HOURS_PER_BUSINESS_DAY}. Weekends are skipped.
+ * Returns 0 when either date is missing or the range is backwards. The user can
+ * always override the figure by hand — this is only the starting estimate.
+ */
+export function businessHoursBetween(start?: string | null, end?: string | null): number {
+  if (!start || !end) return 0
+  const s = new Date(`${start}T00:00:00Z`)
+  const e = new Date(`${end}T00:00:00Z`)
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return 0
+  let days = 0
+  for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dow = d.getUTCDay() // 0 = Sunday, 6 = Saturday
+    if (dow !== 0 && dow !== 6) days += 1
+  }
+  return days * HOURS_PER_BUSINESS_DAY
+}
+
 export function computeTotals(
   items: Array<{ quantity: number; rate: number }>,
   taxPercent = 0,
@@ -57,7 +79,14 @@ export function computeTotals(
 
 /** Normalise form input into the `items` jsonb shape stored on the row. */
 export function normalizeItems(
-  items: Array<{ description: string; quantity: number; rate: number; unit?: InvoiceUnit }>
+  items: Array<{
+    description: string
+    quantity: number
+    rate: number
+    unit?: InvoiceUnit
+    startDate?: string | null
+    endDate?: string | null
+  }>
 ): InvoiceItem[] {
   return items.map((item) => ({
     description: item.description,
@@ -65,6 +94,8 @@ export function normalizeItems(
     rate: item.rate,
     amount: lineAmount(item.quantity, item.rate),
     ...(item.unit ? { unit: item.unit } : {}),
+    ...(item.startDate ? { startDate: item.startDate } : {}),
+    ...(item.endDate ? { endDate: item.endDate } : {}),
   }))
 }
 

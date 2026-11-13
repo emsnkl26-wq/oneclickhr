@@ -210,6 +210,7 @@ export async function buildInvoicePdf(
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   await registerUnicodeFont(doc)
+  if (invoice.layout === 'vdart') return drawVdartInvoice(doc, invoice, orgName, org, logo)
   if (invoice.layout === 'modern') return drawModernInvoice(doc, invoice, orgName, org, logo)
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -662,6 +663,230 @@ function drawModernInvoice(
   }
   text('Thank you for your business.', left, ty, { bold: true, size: 10 })
   text(orgName, left, ty + 13, { size: 9, color: SLATE_500 })
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(...MUTED)
+  doc.textWithLink('Powered by OneclickHR', left, pageHeight - 24, { url: ONECLICKHR_URL })
+
+  return doc
+}
+
+/** The service period of a line, as the VDart format prints it. */
+function itemPeriod(item: { startDate?: string | null; endDate?: string | null }): string {
+  if (item.startDate && item.endDate) return `${invoiceDate(item.startDate)} – ${invoiceDate(item.endDate)}`
+  if (item.startDate) return invoiceDate(item.startDate)
+  if (item.endDate) return invoiceDate(item.endDate)
+  return ''
+}
+
+/**
+ * The VDart vendor format (046/010).
+ *
+ * VDart only accepts invoices on their own layout, so this draws a clean,
+ * ruled staffing-vendor invoice: a bordered header carrying the invoice number,
+ * dates and amount due; sender (remit-to) and Bill To blocks; and a line-item
+ * table with a SERVICE PERIOD column beside hours × rate. It is deliberately
+ * plainer and more tabular than the modern page.
+ */
+function drawVdartInvoice(
+  doc: JsPDF,
+  invoice: PrintableInvoice,
+  orgName: string,
+  org: InvoiceOrgBranding | undefined,
+  logo: LogoAsset | null
+): JsPDF {
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const left = 44
+  const right = pageWidth - 44
+  const currency = invoice.currency || 'USD'
+
+  const text = (
+    value: string | string[],
+    x: number,
+    y: number,
+    opts: { bold?: boolean; size?: number; color?: RGB; align?: 'left' | 'center' | 'right' } = {}
+  ) => {
+    useFont(doc, value, opts.bold)
+    doc.setFontSize(opts.size ?? 9)
+    doc.setTextColor(...(opts.color ?? INK))
+    doc.text(value, x, y, opts.align ? { align: opts.align } : undefined)
+  }
+  const label = (value: string, x: number, y: number, align: 'left' | 'right' = 'left') =>
+    text(value.toUpperCase(), x, y, { bold: true, size: 7, color: MUTED, align })
+
+  // --- Header -----------------------------------------------------------------
+  let y = 46
+  let companyX = left
+  if (logo) {
+    const box = 42
+    const ratio = logo.width / logo.height
+    const w = ratio >= 1 ? box : box * ratio
+    const h = ratio >= 1 ? box / ratio : box
+    doc.addImage(logo.dataUrl, logo.format, left, y, w, h)
+    companyX = left + w + 12
+  }
+  text(orgName, companyX, y + 13, { bold: true, size: 13 })
+  let addressY = y + 13
+  for (const line of org?.addressLines ?? []) {
+    addressY += 11
+    text(line, companyX, addressY, { size: 8.5, color: MUTED })
+  }
+
+  text('INVOICE', right, y + 16, { bold: true, size: 22, color: INK, align: 'right' })
+
+  // --- Meta box (invoice no, dates, amount due) -------------------------------
+  const balance = Number(invoice.balance_due ?? invoice.total) || 0
+  const boxTop = Math.max(addressY + 14, y + 46)
+  const boxH = 70
+  doc.setDrawColor(...INK)
+  doc.setLineWidth(0.8)
+  doc.rect(left, boxTop, right - left, boxH)
+  doc.setDrawColor(...SLATE_200)
+  doc.setLineWidth(0.5)
+  const colW = (right - left) / 4
+  for (let i = 1; i < 4; i += 1) doc.line(left + colW * i, boxTop, left + colW * i, boxTop + boxH)
+  const metaCols: Array<[string, string]> = [
+    ['Invoice #', invoice.invoice_number],
+    ['Invoice date', invoiceDate(invoice.issue_date) || '—'],
+    ['Due date', invoiceDate(invoice.due_date) || 'On receipt'],
+    ['Amount due', invoiceMoney(balance, currency)],
+  ]
+  metaCols.forEach(([name, value], i) => {
+    const x = left + colW * i + 12
+    label(name, x, boxTop + 22)
+    text(value, x, boxTop + 44, { bold: true, size: i === 3 ? 12 : 10 })
+  })
+  y = boxTop + boxH + 26
+
+  // --- Bill To / For ----------------------------------------------------------
+  label('Bill to', left, y)
+  let toY = y + 15
+  if (invoice.bill_to?.name) text(invoice.bill_to.name, left, toY, { bold: true, size: 10.5 })
+  for (const line of linesOf(invoice.bill_to?.address)) {
+    for (const wrapped of doc.splitTextToSize(line, 240) as string[]) {
+      toY += 12
+      text(wrapped, left, toY, { size: 9, color: MUTED })
+    }
+  }
+  if (invoice.bill_to?.email) {
+    toY += 12
+    text(invoice.bill_to.email, left, toY, { size: 9, color: MUTED })
+  }
+
+  let forY = y
+  if (invoice.subject) {
+    const forX = left + (right - left) * 0.55
+    label('For', forX, y)
+    const wrapped = doc.splitTextToSize(invoice.subject, right - forX) as string[]
+    text(wrapped, forX, y + 15, { bold: true, size: 10 })
+    forY = y + 15 + 12 * (wrapped.length - 1)
+  }
+
+  // --- Line items table -------------------------------------------------------
+  const items = invoice.items ?? []
+  const cols = { desc: left + 6, period: right - 250, qty: right - 150, rate: right - 70, amount: right - 6 }
+  const pageBottom = pageHeight - 70
+
+  const drawHeader = (at: number) => {
+    doc.setFillColor(...SLATE_50)
+    doc.setDrawColor(...INK)
+    doc.setLineWidth(0.8)
+    doc.rect(left, at - 13, right - left, 20, 'FD')
+    label('Description', cols.desc, at)
+    label('Service period', cols.period, at)
+    label(quantityHeading(items), cols.qty, at, 'right')
+    label('Rate', cols.rate, at, 'right')
+    label('Amount', cols.amount, at, 'right')
+    return at + 20
+  }
+
+  let rowY = drawHeader(Math.max(toY, forY) + 42)
+  for (const item of items) {
+    const descWidth = cols.period - cols.desc - 8
+    const description = doc.splitTextToSize(item.description || '', descWidth) as string[]
+    const height = Math.max(1, description.length) * 12
+    if (rowY + height > pageBottom) {
+      doc.addPage()
+      rowY = drawHeader(64)
+    }
+    text(description, cols.desc, rowY, { size: 9 })
+    const period = itemPeriod(item)
+    if (period) {
+      for (const wrapped of doc.splitTextToSize(period, cols.qty - cols.period - 8) as string[]) {
+        text(wrapped, cols.period, rowY, { size: 8.5, color: MUTED })
+      }
+    }
+    text(invoiceQuantity(Number(item.quantity) || 0, item.unit), cols.qty, rowY, { size: 9, align: 'right' })
+    text(invoiceRate(Number(item.rate) || 0, currency, item.unit), cols.rate, rowY, { size: 9, align: 'right' })
+    text(invoiceMoney(Number(item.amount) || 0, currency), cols.amount, rowY, { bold: true, size: 9, align: 'right' })
+    rowY += height + 8
+    doc.setDrawColor(...SLATE_200)
+    doc.setLineWidth(0.5)
+    doc.line(left, rowY - 3, right, rowY - 3)
+    rowY += 8
+  }
+
+  // --- Totals -----------------------------------------------------------------
+  const total = Number(invoice.total) || 0
+  const subtotal = Number(invoice.subtotal) || 0
+  const paid = Number(invoice.amount_paid) || 0
+  const taxPercent = Number(invoice.tax_percent) || 0
+  const taxAmount = Math.round(subtotal * taxPercent) / 100
+  const deductions = (invoice.deductions ?? []).filter((d) => (Number(d.amount) || 0) > 0)
+  const rows: Array<[string, number]> = [['Subtotal', subtotal]]
+  if (taxPercent > 0) rows.push([`Tax (${invoice.tax_percent}%)`, taxAmount])
+  for (const deduction of deductions) rows.push([deduction.label || 'Deduction', -(Number(deduction.amount) || 0)])
+  rows.push(['Total', total])
+  if (paid > 0) rows.push(['Paid', -paid])
+
+  let ty = rowY + 10
+  if (ty + rows.length * 18 + 60 > pageHeight - 48) {
+    doc.addPage()
+    ty = 64
+  }
+  const labelX = right - 200
+  for (const [name, value] of rows) {
+    const isTotal = name === 'Total'
+    text(name, labelX, ty, { bold: isTotal, size: isTotal ? 10 : 9, color: isTotal ? INK : MUTED })
+    text(invoiceMoney(value, currency), right - 6, ty, { bold: isTotal, size: isTotal ? 10 : 9, align: 'right' })
+    ty += 18
+  }
+  doc.setDrawColor(...INK)
+  doc.setLineWidth(0.8)
+  doc.rect(labelX - 12, ty - 2, right - labelX + 6, 26)
+  text('Balance due', labelX, ty + 15, { bold: true, size: 10 })
+  text(invoiceMoney(balance, currency), right - 6, ty + 15, { bold: true, size: 11, align: 'right' })
+  ty += 50
+
+  // --- Payment details & notes ------------------------------------------------
+  const payment = linesOf(invoice.payment_details ?? org?.paymentDetails)
+  if (payment.length) {
+    if (ty + payment.length * 12 + 24 > pageHeight - 60) {
+      doc.addPage()
+      ty = 64
+    }
+    label('Payment details', left, ty)
+    payment.forEach((line, i) => text(line, left, ty + 15 + i * 12, { size: 9 }))
+    ty += 15 + payment.length * 12 + 14
+  }
+  if (invoice.notes) {
+    const notes = doc.splitTextToSize(invoice.notes, right - left) as string[]
+    if (ty + notes.length * 12 + 24 > pageHeight - 60) {
+      doc.addPage()
+      ty = 64
+    }
+    label('Notes', left, ty)
+    notes.forEach((line, i) => text(line, left, ty + 15 + i * 12, { size: 9, color: MUTED }))
+    ty += 15 + notes.length * 12 + 14
+  }
+
+  if (ty > pageHeight - 70) {
+    doc.addPage()
+    ty = 64
+  }
+  text('Thank you for your business.', left, ty, { bold: true, size: 9.5 })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)

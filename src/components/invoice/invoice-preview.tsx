@@ -42,7 +42,14 @@ export interface PreviewInvoice {
   subject: string
   paymentDetails: string
   billTo: { name: string; email: string; address: string }
-  items: Array<{ description: string; quantity: number; rate: number; unit?: InvoiceUnit }>
+  items: Array<{
+    description: string
+    quantity: number
+    rate: number
+    unit?: InvoiceUnit
+    startDate?: string | null
+    endDate?: string | null
+  }>
   /** Named amounts taken off the total (063). */
   deductions: Array<{ label: string; amount: number }>
   /** Which printed page to preview (056). */

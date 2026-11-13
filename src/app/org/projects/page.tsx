@@ -34,6 +34,7 @@ interface ProjectWithAssignments {
       email: string | null
       photo_url: string | null
       designation: string | null
+      is_active: boolean | null
     } | null
   }>
 }
@@ -67,7 +68,7 @@ export default async function ProjectsPage({
   let query = supabase
     .from('projects')
     .select(
-      `id, code, name, client_name, end_client_name, description, start_date, end_date, status, created_at, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation))`,
+      `id, code, name, client_name, end_client_name, description, start_date, end_date, status, created_at, ${MANAGER_EMBED}, assignments:project_assignments(employee:profiles(id, full_name, email, photo_url, designation, is_active))`,
       { count: 'exact' }
     )
     .order('created_at', { ascending: false })
@@ -111,9 +112,11 @@ export default async function ProjectsPage({
       status: project.status,
       totalHours: totals.get(project.id) ?? 0,
       manager: project.manager,
+      // Only active employees appear on a project — deactivated/removed people
+      // are kept in project_assignments but never shown.
       members: project.assignments
         .map((assignment) => assignment.employee)
-        .filter(Boolean) as ProjectRow['members'],
+        .filter((employee) => employee && employee.is_active !== false) as ProjectRow['members'],
     })
   )
 

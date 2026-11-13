@@ -171,13 +171,29 @@ export function usDetailsFromDraft(draft: UsDraft): UsPayslipDetails {
     accountLast4: draft.accountLast4.replace(/\D/g, '').slice(-4),
     earnings: draft.earnings
       .filter((line) => line.label.trim())
-      .map((line) => ({
-        label: line.label.trim(),
-        rate: line.rate.trim() ? num(line.rate) : null,
-        hours: line.hours.trim() ? num(line.hours) : null,
-        amount: round2(num(line.amount)),
-        ytd: round2(num(line.priorYtd) + num(line.amount)),
-      })),
+      .map((line) => {
+        const rate = line.rate.trim() ? num(line.rate) : null
+        const amount = round2(num(line.amount))
+        // Hours missing on printed hourly slips: the hours cell defaults to
+        // blank for hourly lines and a blank serialized to null, which the PDF
+        // drops. When the line is hourly (has a rate) and an amount, derive the
+        // hours from amount ÷ rate so they always print. Salaried lines have no
+        // rate, so they stay null and correctly show no hours.
+        const typedHours = line.hours.trim() ? num(line.hours) : null
+        const hours =
+          typedHours != null
+            ? typedHours
+            : rate != null && rate > 0 && amount > 0
+              ? round2(amount / rate)
+              : null
+        return {
+          label: line.label.trim(),
+          rate,
+          hours,
+          amount,
+          ytd: round2(num(line.priorYtd) + num(line.amount)),
+        }
+      }),
     deductions: draft.deductions
       .filter((line) => line.label.trim())
       .map((line) => ({

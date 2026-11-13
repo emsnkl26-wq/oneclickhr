@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/ui/patterns'
 import { SettingsTabs } from './settings-tabs'
 import { getStorageUsage } from '@/lib/storage-quota'
 import type { StorageRequestRow } from './storage-card'
+import type { OrgFileRow } from './org-files-tab'
 import type { CompanyDetails } from '@/types/db'
 
 export const metadata: Metadata = { title: 'Settings' }
@@ -14,7 +15,7 @@ export default async function SettingsPage() {
   const ctx = await requireOrg()
   const supabase = await createSupabaseServerClient()
 
-  const [{ data: departments }, { data: tenant }, storage, { data: storageRequests }] = await Promise.all([
+  const [{ data: departments }, { data: tenant }, storage, { data: storageRequests }, { data: orgFiles }] = await Promise.all([
     supabase.from('departments').select('id, name').order('name'),
     supabase
       .from('tenants')
@@ -27,6 +28,14 @@ export default async function SettingsPage() {
       .select('id, requested_bytes, reason, status, granted_bytes, admin_note, created_at')
       .order('created_at', { ascending: false })
       .limit(10),
+    // The org's shared files (013): general documents with no employee attached.
+    supabase
+      .from('documents')
+      .select('id, file_url, file_name, label, mime_type, size_bytes, created_at')
+      .eq('kind', 'general')
+      .is('employee_id', null)
+      .order('created_at', { ascending: false })
+      .limit(200),
   ])
 
   const company: CompanyDetails = {
@@ -91,6 +100,25 @@ export default async function SettingsPage() {
           ...r,
           requested_bytes: Number(r.requested_bytes),
           granted_bytes: r.granted_bytes == null ? null : Number(r.granted_bytes),
+        }))}
+        files={(
+          (orgFiles ?? []) as Array<{
+            id: string
+            file_url: string
+            file_name: string | null
+            label: string | null
+            mime_type: string | null
+            size_bytes: number | null
+            created_at: string
+          }>
+        ).map((f): OrgFileRow => ({
+          id: f.id,
+          fileUrl: f.file_url,
+          fileName: f.file_name,
+          label: f.label,
+          mimeType: f.mime_type,
+          sizeBytes: f.size_bytes == null ? null : Number(f.size_bytes),
+          createdAt: f.created_at,
         }))}
       />
     </div>

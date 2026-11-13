@@ -16,7 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter,
 } from '@/components/ui/primitives'
 import { apiPost, apiPatch, apiDelete, ApiClientError } from '@/lib/fetcher'
-import { INVOICE_UNIT_OPTIONS, computeTotals, lineAmount } from '@/lib/invoice'
+import { INVOICE_UNIT_OPTIONS, computeTotals, lineAmount, businessHoursBetween } from '@/lib/invoice'
 import { InvoicePreview, type PreviewOrg } from '@/components/invoice/invoice-preview'
 import { formatMoney } from '@/lib/utils'
 import { downloadInvoicePdf } from '@/lib/invoice-pdf'
@@ -25,18 +25,27 @@ import {
 } from '@/components/invoice/invoice-status'
 import { StatusChip } from '@/components/ui/patterns'
 import { brandColorOrDefault } from '@/lib/brand'
-import type { Invoice, InvoiceStatus, InvoiceType, InvoiceUnit } from '@/types/db'
+import type { Invoice, InvoiceLayout, InvoiceStatus, InvoiceType, InvoiceUnit } from '@/types/db'
 
 const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
   normal: 'Normal',
   freelancer: 'Freelancer',
 }
 
+// The printed formats the form offers. 'classic' is reserved for invoices
+// generated from timesheets, so it is not a choice here.
+const INVOICE_FORMAT_OPTIONS: Array<{ value: InvoiceLayout; label: string }> = [
+  { value: 'modern', label: 'Standard' },
+  { value: 'vdart', label: 'VDart' },
+]
+
 interface DraftItem {
   description: string
   quantity: string
   rate: string
   unit: InvoiceUnit
+  startDate: string
+  endDate: string
 }
 
 /** A deduction being typed: amount is a string so the field can be emptied. */
@@ -46,7 +55,9 @@ interface DraftDeduction {
 }
 
 // Hourly by default: the invoices this is built for bill hours × a rate.
-const EMPTY_ITEM: DraftItem = { description: '', quantity: '1', rate: '0', unit: 'hour' }
+const EMPTY_ITEM: DraftItem = {
+  description: '', quantity: '1', rate: '0', unit: 'hour', startDate: '', endDate: '',
+}
 const EMPTY_DEDUCTION: DraftDeduction = { label: '', amount: '0' }
 
 /**
@@ -404,6 +415,7 @@ function InvoiceDialog({
 }) {
   const [invoiceNumber, setInvoiceNumber] = React.useState('')
   const [invoiceType, setInvoiceType] = React.useState<InvoiceType>('normal')
+  const [layout, setLayout] = React.useState<InvoiceLayout>('modern')
   const [billToName, setBillToName] = React.useState('')
   const [billToEmail, setBillToEmail] = React.useState('')
   const [billToAddress, setBillToAddress] = React.useState('')
@@ -455,6 +467,11 @@ function InvoiceDialog({
     if (invoice) {
       setInvoiceNumber(invoice.invoice_number)
       setInvoiceType(invoice.invoice_type ?? 'normal')
+      // 'classic' (timesheet-generated) stays as-is but isn't offered in the
+      // selector; anything else falls back to the standard modern page.
+      setLayout(
+        invoice.layout === 'vdart' || invoice.layout === 'classic' ? invoice.layout : 'modern'
+      )
       setBillToName(invoice.bill_to?.name ?? '')
       setBillToEmail(invoice.bill_to?.email ?? '')
       setBillToAddress(invoice.bill_to?.address ?? '')
@@ -467,6 +484,8 @@ function InvoiceDialog({
           quantity: String(i.quantity),
           rate: String(i.rate),
           unit: i.unit ?? 'item',
+          startDate: i.startDate ?? '',
+          endDate: i.endDate ?? '',
         }))
       )
       setDeductions(
@@ -483,6 +502,7 @@ function InvoiceDialog({
     } else {
       setInvoiceNumber(suggestedNumber)
       setInvoiceType('normal')
+      setLayout('modern')
       setBillToName(prefill?.billTo.name ?? '')
       setBillToEmail(prefill?.billTo.email ?? '')
       setBillToAddress(prefill?.billTo.address ?? '')
@@ -496,6 +516,8 @@ function InvoiceDialog({
                 quantity: '0',
                 rate: String(prefill.item.rate),
                 unit: prefill.item.unit,
+                startDate: '',
+                endDate: '',
               },
             ]
           : [{ ...EMPTY_ITEM }]
@@ -543,7 +565,20 @@ function InvoiceDialog({
     payout == null ? null : !crossCurrency ? totals.subtotal - payout : rate > 0 ? totals.subtotal * rate - payout : null
 
   function updateItem(index: number, patch: Partial<DraftItem>) {
-    setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+    setItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item
+        const merged = { ...item, ...patch }
+        // Picking the service period auto-fills the hours (weekdays × 8) so the
+        // user doesn't have to count them. They can still type over the figure;
+        // it only recomputes when a date changes.
+        if (('startDate' in patch || 'endDate' in patch) && merged.startDate && merged.endDate) {
+          const hours = businessHoursBetween(merged.startDate, merged.endDate)
+          if (hours > 0) merged.quantity = String(hours)
+        }
+        return merged
+      })
+    )
   }
 
   function updateDeduction(index: number, patch: Partial<DraftDeduction>) {
@@ -558,6 +593,7 @@ function InvoiceDialog({
     const payload = {
       invoiceNumber,
       invoiceType,
+      layout,
       billTo: { name: billToName, email: billToEmail, address: billToAddress },
       subject: subject || undefined,
       paymentDetails: paymentDetails || undefined,
@@ -566,6 +602,8 @@ function InvoiceDialog({
         quantity: Number(i.quantity) || 0,
         rate: Number(i.rate) || 0,
         unit: i.unit,
+        startDate: i.startDate || null,
+        endDate: i.endDate || null,
       })),
       // Only deductions with a name are sent; a blank row is treated as removed.
       deductions: deductions
@@ -659,6 +697,26 @@ function InvoiceDialog({
               </Select>
             </FormField>
 
+            <FormField
+              label="Invoice format"
+              hint={
+                layout === 'vdart'
+                  ? 'Downloads in the VDart vendor format they require.'
+                  : 'The standard invoice page.'
+              }
+            >
+              <Select
+                value={layout === 'classic' ? 'modern' : layout}
+                onChange={(e) => setLayout(e.target.value as InvoiceLayout)}
+              >
+                {INVOICE_FORMAT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+
             <div className="grid gap-4 sm:grid-cols-3">
               <FormField label="Invoice number" error={fields.invoiceNumber} required>
                 <Input
@@ -723,63 +781,94 @@ function InvoiceDialog({
               <p className="text-[13px] font-medium">Line items</p>
               <div className="space-y-2">
                 {items.map((item, index) => (
-                  <div key={index} className="flex items-start gap-2">
-                    <div className="flex-1">
-                      <Textarea
-                        rows={2}
-                        value={item.description}
-                        onChange={(e) => updateItem(index, { description: e.target.value })}
-                        placeholder={'AI/ML Engineer Services rendered for the month of August-2026.\nService Period : ( August 1, 2026 - August 31, 2026 )'}
-                        aria-label={`Item ${index + 1} description`}
-                        required
-                      />
+                  <div key={index} className="space-y-2 rounded-lg border border-line p-2">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1">
+                        <Textarea
+                          rows={2}
+                          value={item.description}
+                          onChange={(e) => updateItem(index, { description: e.target.value })}
+                          placeholder={'AI/ML Engineer Services rendered for the month of August-2026.\nService Period : ( August 1, 2026 - August 31, 2026 )'}
+                          aria-label={`Item ${index + 1} description`}
+                          required
+                        />
+                      </div>
+                      <div className="w-24">
+                        <Select
+                          value={item.unit}
+                          onChange={(e) => updateItem(index, { unit: e.target.value as InvoiceUnit })}
+                          aria-label={`Item ${index + 1} unit`}
+                          options={INVOICE_UNIT_OPTIONS}
+                        />
+                      </div>
+                      <div className="w-20">
+                        <Input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={item.quantity}
+                          onChange={(e) => updateItem(index, { quantity: e.target.value })}
+                          aria-label={`Item ${index + 1} quantity`}
+                          className="tabular"
+                        />
+                      </div>
+                      <div className="w-28">
+                        <Input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={item.rate}
+                          onChange={(e) => updateItem(index, { rate: e.target.value })}
+                          aria-label={`Item ${index + 1} rate`}
+                          className="tabular"
+                        />
+                      </div>
+                      <div className="tabular w-24 pt-2.5 text-right text-sm font-medium">
+                        {formatMoney(
+                          lineAmount(Number(item.quantity) || 0, Number(item.rate) || 0),
+                          currency
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Remove item ${index + 1}`}
+                        disabled={items.length === 1}
+                        onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
+                      >
+                        <Trash2 />
+                      </Button>
                     </div>
-                    <div className="w-24">
-                      <Select
-                        value={item.unit}
-                        onChange={(e) => updateItem(index, { unit: e.target.value as InvoiceUnit })}
-                        aria-label={`Item ${index + 1} unit`}
-                        options={INVOICE_UNIT_OPTIONS}
-                      />
-                    </div>
-                    <div className="w-20">
-                      <Input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={item.quantity}
-                        onChange={(e) => updateItem(index, { quantity: e.target.value })}
-                        aria-label={`Item ${index + 1} quantity`}
-                        className="tabular"
-                      />
-                    </div>
-                    <div className="w-28">
-                      <Input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={item.rate}
-                        onChange={(e) => updateItem(index, { rate: e.target.value })}
-                        aria-label={`Item ${index + 1} rate`}
-                        className="tabular"
-                      />
-                    </div>
-                    <div className="tabular w-24 pt-2.5 text-right text-sm font-medium">
-                      {formatMoney(
-                        lineAmount(Number(item.quantity) || 0, Number(item.rate) || 0),
-                        currency
-                      )}
-                    </div>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      aria-label={`Remove item ${index + 1}`}
-                      disabled={items.length === 1}
-                      onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
-                    >
-                      <Trash2 />
-                    </Button>
+
+                    {/*
+                      Optional service period. On an hourly line, picking both
+                      dates auto-fills the hours (weekdays × 8), which the user
+                      can still edit above.
+                    */}
+                    {item.unit === 'hour' ? (
+                      <div className="flex flex-wrap items-center gap-2 pl-0.5">
+                        <span className="text-xs text-ink-muted">Service period</span>
+                        <DateField
+                          value={item.startDate}
+                          onChange={(e) => updateItem(index, { startDate: e.target.value })}
+                          aria-label={`Item ${index + 1} start date`}
+                          className="w-40"
+                        />
+                        <span className="text-xs text-ink-muted">to</span>
+                        <DateField
+                          value={item.endDate}
+                          onChange={(e) => updateItem(index, { endDate: e.target.value })}
+                          aria-label={`Item ${index + 1} end date`}
+                          className="w-40"
+                        />
+                        {item.startDate && item.endDate ? (
+                          <span className="text-xs text-ink-muted">
+                            → {businessHoursBetween(item.startDate, item.endDate)} hrs (editable)
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -1046,14 +1135,15 @@ function InvoiceDialog({
                 subject,
                 paymentDetails,
                 billTo: { name: billToName, email: billToEmail, address: billToAddress },
-                // A new invoice from this page is a modern one; an existing one
-                // keeps whatever it was issued as (056).
-                layout: invoice ? (invoice.layout ?? 'classic') : 'modern',
+                // Live preview follows the format picked in the form.
+                layout,
                 items: items.map((item) => ({
                   description: item.description,
                   quantity: Number(item.quantity) || 0,
                   rate: Number(item.rate) || 0,
                   unit: item.unit,
+                  startDate: item.startDate || null,
+                  endDate: item.endDate || null,
                 })),
                 deductions: deductions.map((d) => ({
                   label: d.label,

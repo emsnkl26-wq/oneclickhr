@@ -88,6 +88,18 @@ export function periodLabel(year: number, month: number, period: number): string
   return name
 }
 
+/**
+ * Like `periodLabel` but names the semi-monthly periods by paystub number
+ * instead of date range — "1st paystub September 2026" / "2nd paystub
+ * September 2026" — which is how the payroll screen refers to them.
+ */
+export function periodStubLabel(year: number, month: number, period: number): string {
+  const name = `${MONTHS[month - 1] ?? ''} ${year}`
+  if (period === 1) return `1st paystub ${name}`
+  if (period === 2) return `2nd paystub ${name}`
+  return name
+}
+
 /** Has this period begun, as of `today` (`YYYY-MM-DD`)? Uploads for later ones are refused. */
 export function periodHasStarted(year: number, month: number, period: PayPeriod, today: string): boolean {
   return periodRange(year, month, period).start <= today
