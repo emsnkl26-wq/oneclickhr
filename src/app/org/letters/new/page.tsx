@@ -99,7 +99,7 @@ export default async function NewLetterPage({
     signatoryPhone: tenant?.signatory_phone ?? null,
   }
 
-  const types: GeneratedDocumentType[] = ['offer_letter', 'employment_agreement', 'internship_offer']
+  const types: GeneratedDocumentType[] = ['offer_letter', 'employment_agreement', 'experience_letter', 'internship_offer']
   const requestedType = (editing?.doc_type ?? params.type) as GeneratedDocumentType
   const initialType = types.includes(requestedType) ? requestedType : 'offer_letter'
 

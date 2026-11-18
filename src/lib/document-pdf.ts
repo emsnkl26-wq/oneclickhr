@@ -92,6 +92,22 @@ export interface InternshipOfferInput extends OfferLetterInput {
   companyAddress: string
 }
 
+export interface ExperienceLetterInput {
+  org: LetterheadOrg
+  date: string
+  employeeName: string
+  jobTitle: string
+  employmentType: string
+  startDate: string
+  lastWorkingDate: string
+  isCurrentEmployee: boolean
+  intro: string
+  clientText: string
+  responsibilities: string[]
+  closing: string
+  signatory: SignatureBlock
+}
+
 export interface AgreementSection {
   heading: string
   body: string
@@ -560,6 +576,56 @@ class DocWriter {
   }
 
   /**
+   * A bordered info box with label/value pairs arranged in a two-column grid.
+   * Used by the experience letter for the position-details summary.
+   */
+  infoBox(rows: Array<[string, string]>): void {
+    const lineH = this.lineHeight()
+    const rowHeight = lineH * 2 + 8
+    const gridRows = Math.ceil(rows.length / 2)
+    const totalHeight = gridRows * rowHeight + 16
+    this.ensure(totalHeight)
+
+    const pad = 12
+    const boxX = this.margin + 16
+    const boxW = this.contentWidth - 32
+    const startY = this.y
+
+    this.doc.setDrawColor(...RULE)
+    this.doc.setLineWidth(0.5)
+    // Outer border
+    this.doc.line(boxX, startY, boxX + boxW, startY)
+    this.doc.line(boxX, startY + totalHeight, boxX + boxW, startY + totalHeight)
+    this.doc.line(boxX, startY, boxX, startY + totalHeight)
+    this.doc.line(boxX + boxW, startY, boxX + boxW, startY + totalHeight)
+
+    const half = boxW / 2
+    let cursorY = startY + pad
+
+    for (let i = 0; i < rows.length; i += 2) {
+      for (let col = 0; col < 2; col += 1) {
+        const idx = i + col
+        if (idx >= rows.length) break
+        const [label, value] = rows[idx]
+        const colX = boxX + pad + col * half
+
+        this.doc.setFont(this.options.family, 'normal')
+        this.doc.setFontSize(7.5)
+        this.doc.setTextColor(...MUTED)
+        this.doc.text(label.toUpperCase(), colX, cursorY)
+
+        this.doc.setFont(this.options.family, 'bold')
+        this.doc.setFontSize(this.options.bodySize)
+        this.doc.setTextColor(...INK)
+        this.doc.text(value || '—', colX, cursorY + lineH)
+      }
+      cursorY += rowHeight
+    }
+
+    this.y = startY + totalHeight + 4
+  }
+
+  /**
    * A numbered clause of the agreement.
    *
    * The heading and its first two lines are kept together — a "12. ARBITRATION"
@@ -880,12 +946,90 @@ export async function renderEmploymentAgreement(input: AgreementInput): Promise<
   return doc.output('blob')
 }
 
+/** Template 4 — the experience & employment verification letter. */
+export async function renderExperienceLetter(input: ExperienceLetterInput): Promise<Blob> {
+  const doc = await newDoc()
+  const w = new DocWriter(doc, {
+    org: input.org,
+    family: 'helvetica',
+    bodySize: 10,
+    pageNumbers: true,
+  })
+
+  const title = input.isCurrentEmployee
+    ? 'EMPLOYMENT CONFIRMATION LETTER'
+    : 'EXPERIENCE & EMPLOYMENT VERIFICATION LETTER'
+
+  w.title(title)
+  w.space(6)
+  w.paragraph(`Date: ${input.date}`)
+  w.space(4)
+  w.heading('TO WHOM IT MAY CONCERN')
+  w.space(2)
+
+  w.paragraph(input.intro)
+  w.space(6)
+
+  // Info box — position, employment type, dates
+  const rows: Array<[string, string]> = [
+    ['Position', input.jobTitle],
+    ['Employment Type', input.employmentType],
+    ['Date of Joining', input.startDate],
+  ]
+  if (input.isCurrentEmployee) {
+    rows.push(['Current Status', 'Active / Ongoing'])
+  } else {
+    rows.push(['Last Working Date', input.lastWorkingDate])
+  }
+  w.infoBox(rows)
+  w.space(6)
+
+  if (input.clientText) {
+    w.paragraph(input.clientText)
+    w.space(2)
+  }
+
+  if (input.responsibilities.length) {
+    w.heading('KEY RESPONSIBILITIES')
+    w.bullets(input.responsibilities)
+  }
+
+  w.paragraph(input.closing)
+  w.space(16)
+
+  // Single-column signoff
+  w.paragraph('Sincerely,', { bold: true })
+  w.space(2)
+  w.signatureImage(input.signatory, w.margin, w.cursor + 40, 180)
+  w.space(44)
+
+  doc.setDrawColor(...INK)
+  doc.setLineWidth(0.5)
+  doc.line(w.margin, w.cursor, w.margin + 200, w.cursor)
+  w.space(4)
+
+  w.paragraph('Authorized Signature', { bold: false })
+  w.space(10)
+
+  w.paragraph(input.signatory.name, { bold: true })
+  if (input.signatory.title) {
+    w.paragraph(`${input.signatory.title} | ${input.org.name}`)
+  }
+  if (input.signatory.phone) {
+    w.paragraph(`Phone: ${input.signatory.phone}`)
+  }
+
+  w.finish()
+  return doc.output('blob')
+}
+
 /* ------------------------------------------------------------------ Facade */
 
 export type DocumentInput =
   | { type: 'offer_letter'; data: OfferLetterInput }
   | { type: 'internship_offer'; data: InternshipOfferInput }
   | { type: 'employment_agreement'; data: AgreementInput }
+  | { type: 'experience_letter'; data: ExperienceLetterInput }
 
 /** Render whichever template was chosen. One call site for the whole feature. */
 export async function renderDocument(input: DocumentInput): Promise<Blob> {
@@ -894,6 +1038,8 @@ export async function renderDocument(input: DocumentInput): Promise<Blob> {
       return renderOfferLetter(input.data)
     case 'internship_offer':
       return renderInternshipOffer(input.data)
+    case 'experience_letter':
+      return renderExperienceLetter(input.data)
     default:
       return renderEmploymentAgreement(input.data)
   }
@@ -907,10 +1053,11 @@ export function documentFileName(
 ): string {
   const slug = (text: string) =>
     text.trim().replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'document'
-  const kind = {
+  const kind: string = {
     offer_letter: 'Offer-Letter',
     employment_agreement: 'Employment-Agreement',
     internship_offer: 'Internship-Offer',
+    experience_letter: 'Experience-Letter',
   }[docType]
   return `${kind}-${slug(employeeName)}-${isoDate}.pdf`
 }

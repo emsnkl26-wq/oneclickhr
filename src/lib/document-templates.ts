@@ -16,6 +16,7 @@ export const DOCUMENT_TYPE_LABELS: Record<GeneratedDocumentType, string> = {
   offer_letter: 'Offer letter',
   employment_agreement: 'Employment agreement',
   internship_offer: 'Internship offer',
+  experience_letter: 'Experience letter',
 }
 
 export const DOCUMENT_TYPE_DESCRIPTIONS: Record<GeneratedDocumentType, string> = {
@@ -25,6 +26,8 @@ export const DOCUMENT_TYPE_DESCRIPTIONS: Record<GeneratedDocumentType, string> =
     'The full agreement — numbered clauses written for the role, signature blocks and page numbers.',
   internship_offer:
     'An internship or short-form offer with a training focus and an acknowledgement block.',
+  experience_letter:
+    'Employment verification — confirms the role, dates and responsibilities for a past or current employee.',
 }
 
 /** The values every template interpolates. Empty strings simply print nothing. */
@@ -186,6 +189,77 @@ export function defaultAgreementIntro(vars: TemplateVars): string {
     `employment as "${vars.jobTitle || 'Employee'}", a role responsible for ` +
     `${roleSummary(vars.jobTitle)}, on the following terms and conditions.`
   )
+}
+
+/* ------------------------------------------------- Experience letter text */
+
+export interface ExperienceLetterVars {
+  companyName: string
+  employeeName: string
+  jobTitle: string
+  employmentType: string
+  startDate: string
+  lastWorkingDate: string
+  isCurrentEmployee: boolean
+  clientProject: string
+}
+
+export function defaultExperienceIntro(vars: ExperienceLetterVars): string {
+  if (vars.isCurrentEmployee) {
+    return (
+      `This is to certify that ${vars.employeeName} has been working with ` +
+      `${vars.companyName} as a ${vars.jobTitle || 'Employee'} since ` +
+      `${vars.startDate || 'their date of joining'}. ` +
+      `${pronoun(vars.employeeName, 'They are')} currently continuing ` +
+      `${pronoun(vars.employeeName, 'their').toLowerCase()} ${(vars.employmentType || 'full-time').toLowerCase()} ` +
+      `engagement with the company.`
+    )
+  }
+  return (
+    `This is to certify that ${vars.employeeName} was employed by ` +
+    `${vars.companyName} as a ${vars.jobTitle || 'Employee'} on a ` +
+    `${(vars.employmentType || 'full-time').toLowerCase()} W-2 basis. ` +
+    `${pronoun(vars.employeeName, 'Their')} employment details are provided below.`
+  )
+}
+
+export function defaultExperienceClientText(vars: ExperienceLetterVars): string {
+  if (!vars.clientProject) return ''
+  if (vars.isCurrentEmployee) {
+    return (
+      `${pronoun(vars.employeeName, 'They are')} currently assigned to the ` +
+      `${vars.clientProject} client project and contributing to the development, ` +
+      `integration, testing, and maintenance of enterprise software applications.`
+    )
+  }
+  return (
+    `During ${pronoun(vars.employeeName, 'their').toLowerCase()} employment, ` +
+    `${pronoun(vars.employeeName, 'they were').toLowerCase()} assigned to the ` +
+    `${vars.clientProject} client project and contributed to the development, ` +
+    `integration, testing, and maintenance of enterprise software applications.`
+  )
+}
+
+export function defaultExperienceClosing(vars: ExperienceLetterVars): string {
+  if (vars.isCurrentEmployee) {
+    return (
+      `This letter is issued upon ${pronoun(vars.employeeName, 'their').toLowerCase()} request to ` +
+      `confirm ${pronoun(vars.employeeName, 'their').toLowerCase()} ongoing association ` +
+      `with ${vars.companyName}. It does not certify completion of employment or establish ` +
+      `an end date.`
+    )
+  }
+  return (
+    `This letter is issued upon ${pronoun(vars.employeeName, 'their').toLowerCase()} request to ` +
+    `confirm ${pronoun(vars.employeeName, 'their').toLowerCase()} employment and professional ` +
+    `experience with ${vars.companyName}. We wish ` +
+    `${pronoun(vars.employeeName, 'them').toLowerCase()} continued success in ` +
+    `${pronoun(vars.employeeName, 'their').toLowerCase()} future endeavors.`
+  )
+}
+
+function pronoun(_name: string, form: string): string {
+  return form
 }
 
 /**
@@ -420,7 +494,17 @@ export type AgreementSectionValue = ReturnType<typeof buildAgreementSections>[nu
 export function composeSalaryText(amount: string, cadence: string, symbol = '$'): string {
   const value = amount.trim()
   if (!value) return 'the agreed compensation'
-  const money = /^[\d.,]+$/.test(value) ? `${symbol}${value}` : value
+  let formatted = value
+  if (/^[\d.,]+$/.test(value)) {
+    const digits = value.replace(/,/g, '')
+    const num = Number(digits)
+    formatted = !Number.isNaN(num)
+      ? `${symbol}${num.toLocaleString('en-US')}`
+      : `${symbol}${value}`
+  } else {
+    formatted = value
+  }
+  const money = formatted
   switch (cadence) {
     case 'monthly':
       return `${money} per month, payable on or before the 15th of every month`

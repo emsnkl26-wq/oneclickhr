@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  FileText, FileSignature, GraduationCap, Eye, Download, AlertCircle,
+  FileText, FileSignature, Award, Eye, Download, AlertCircle,
   ChevronDown, RotateCcw, Info, UserCheck, Sparkles, Send,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -24,11 +24,12 @@ import {
   SALARY_CADENCES, buildAgreementSections, composeSalaryText, defaultResponsibilities,
   defaultOfferIntro, defaultOfferClosing, defaultInternshipIntro, defaultAgreementIntro,
   defaultStartDateText, defaultCompensationText, defaultEVerifyText, defaultContingencyText,
-  type AgreementSectionValue, type TemplateVars,
+  defaultExperienceIntro, defaultExperienceClientText, defaultExperienceClosing,
+  type AgreementSectionValue, type TemplateVars, type ExperienceLetterVars,
 } from '@/lib/document-templates'
 import { ROLE_GROUPS, ROLE_PRESETS, exactRolePreset, rolePresetFor } from '@/lib/role-presets'
 import { phonePlaceholderFor } from '@/lib/geo'
-import { currencyForCountry, currencySymbol } from '@/lib/currencies'
+import { currencyForCountry, currencySymbol, pdfSafeSymbol, pdfSafeText } from '@/lib/currencies'
 import {
   loadOrgLogo, renderDocument, documentFileName,
   type LetterheadOrg, type LogoAsset,
@@ -78,10 +79,14 @@ const ROLE_SECTION_KEYS = ['services', 'duties']
 
 type SectionPatch = Partial<Pick<AgreementSectionValue, 'heading' | 'body' | 'enabled'>>
 
-const TYPE_ICONS: Record<GeneratedDocumentType, React.ReactNode> = {
+const TEMPLATE_TYPES: GeneratedDocumentType[] = [
+  'offer_letter', 'employment_agreement', 'experience_letter',
+]
+
+const TYPE_ICONS: Partial<Record<GeneratedDocumentType, React.ReactNode>> = {
   offer_letter: <FileText className="size-4" />,
   employment_agreement: <FileSignature className="size-4" />,
-  internship_offer: <GraduationCap className="size-4" />,
+  experience_letter: <Award className="size-4" />,
 }
 
 /**
@@ -163,6 +168,13 @@ export function DocumentGenerator({
   const [visaType, setVisaType] = React.useState(savedText('visaType', 'H1B'))
   const [addressLines, setAddressLines] = React.useState(savedText('addressLines', ''))
 
+  // --- Experience letter fields --------------------------------------------
+  const [lastWorkingDate, setLastWorkingDate] = React.useState(savedText('lastWorkingDate', ''))
+  const [isCurrentEmployee, setIsCurrentEmployee] = React.useState(
+    saved.isCurrentEmployee === true
+  )
+  const [clientProject, setClientProject] = React.useState(savedText('clientProject', ''))
+
   // --- Content -------------------------------------------------------------
   // Only what somebody has rewritten by hand; everything else is derived below.
   // An edited letter restores its stored overrides; one saved before overrides
@@ -232,9 +244,9 @@ export function DocumentGenerator({
   // The salary's currency: the employee's own pay currency when the letter was
   // opened from their profile, else the one usual where the company is (₹ for an
   // Indian workspace), else $. Typing "USD 72,000" in the box still wins.
-  const salarySymbol = currencySymbol(
-    employee?.pay_currency || currencyForCountry(company.country) || 'USD'
-  )
+  const salaryCurrencyCode = employee?.pay_currency || currencyForCountry(company.country) || 'USD'
+  const salarySymbol = currencySymbol(salaryCurrencyCode)
+  const pdfSymbol = pdfSafeSymbol(salaryCurrencyCode)
 
   const templateVars: TemplateVars = React.useMemo(
     () => ({
@@ -259,6 +271,20 @@ export function DocumentGenerator({
       salaryAmount, salaryCadence, salarySymbol, workLocation, governingState, visaType,
       hoursPerWeek, signatoryName, signatoryTitle,
     ]
+  )
+
+  const experienceVars: ExperienceLetterVars = React.useMemo(
+    () => ({
+      companyName: company.name,
+      employeeName,
+      jobTitle,
+      employmentType,
+      startDate: formatDateLabel(startDate),
+      lastWorkingDate: formatDateLabel(lastWorkingDate),
+      isCurrentEmployee,
+      clientProject,
+    }),
+    [company.name, employeeName, jobTitle, employmentType, startDate, lastWorkingDate, isCurrentEmployee, clientProject]
   )
 
   /*
@@ -311,21 +337,34 @@ export function DocumentGenerator({
    * location. Cheap string building, so it simply runs on every change.
    */
   const automatic = React.useMemo<Record<TextKey, string>>(
-    () => ({
-      intro:
-        docType === 'internship_offer'
-          ? defaultInternshipIntro(templateVars)
-          : docType === 'employment_agreement'
-            ? defaultAgreementIntro(templateVars)
-            : defaultOfferIntro(templateVars),
-      startDateText: defaultStartDateText(templateVars),
-      compensationText: defaultCompensationText(templateVars),
-      responsibilities: defaultResponsibilities(templateVars.jobTitle).join('\n'),
-      eVerifyText: defaultEVerifyText(templateVars),
-      contingencyText: defaultContingencyText(),
-      closing: defaultOfferClosing(templateVars),
-    }),
-    [docType, templateVars]
+    () => {
+      if (docType === 'experience_letter') {
+        return {
+          intro: defaultExperienceIntro(experienceVars),
+          startDateText: '',
+          compensationText: '',
+          responsibilities: defaultResponsibilities(experienceVars.jobTitle).join('\n'),
+          eVerifyText: '',
+          contingencyText: defaultExperienceClientText(experienceVars),
+          closing: defaultExperienceClosing(experienceVars),
+        }
+      }
+      return {
+        intro:
+          docType === 'internship_offer'
+            ? defaultInternshipIntro(templateVars)
+            : docType === 'employment_agreement'
+              ? defaultAgreementIntro(templateVars)
+              : defaultOfferIntro(templateVars),
+        startDateText: defaultStartDateText(templateVars),
+        compensationText: defaultCompensationText(templateVars),
+        responsibilities: defaultResponsibilities(templateVars.jobTitle).join('\n'),
+        eVerifyText: defaultEVerifyText(templateVars),
+        contingencyText: defaultContingencyText(),
+        closing: defaultOfferClosing(templateVars),
+      }
+    },
+    [docType, templateVars, experienceVars]
   )
 
   const textOf = (key: TextKey) => overrides[key] ?? automatic[key]
@@ -420,6 +459,8 @@ export function DocumentGenerator({
         return `Employment Offer — ${employeeName || 'Employee'}`
       case 'internship_offer':
         return `Internship Offer${jobTitle ? ` – ${jobTitle}` : ''}`
+      case 'experience_letter':
+        return `Experience Letter – ${employeeName || 'Employee'}`
       default:
         return `Offer of Employment${jobTitle ? ` – ${jobTitle}` : ''}`
     }
@@ -459,6 +500,27 @@ export function DocumentGenerator({
       })
     }
 
+    if (docType === 'experience_letter') {
+      return renderDocument({
+        type: 'experience_letter',
+        data: {
+          org,
+          date: dateLabel,
+          employeeName,
+          jobTitle,
+          employmentType,
+          startDate: formatDateLabel(startDate),
+          lastWorkingDate: lastWorkingDate ? formatDateLabel(lastWorkingDate) : '',
+          isCurrentEmployee,
+          intro: pdfSafeText(intro),
+          clientText: pdfSafeText(contingencyText),
+          responsibilities: bullets,
+          closing: pdfSafeText(closing),
+          signatory,
+        },
+      })
+    }
+
     const shared = {
       org,
       date: dateLabel,
@@ -466,15 +528,15 @@ export function DocumentGenerator({
       jobTitle,
       employmentType,
       startDate: formatDateLabel(startDate),
-      salary: composeSalaryText(salaryAmount, salaryCadence, salarySymbol),
+      salary: composeSalaryText(salaryAmount, salaryCadence, pdfSymbol),
       workLocation,
-      intro,
-      startDateText,
-      compensationText,
+      intro: pdfSafeText(intro),
+      startDateText: pdfSafeText(startDateText),
+      compensationText: pdfSafeText(compensationText),
       responsibilities: bullets,
-      eVerifyText,
-      contingencyText,
-      closing,
+      eVerifyText: pdfSafeText(eVerifyText),
+      contingencyText: pdfSafeText(contingencyText),
+      closing: pdfSafeText(closing),
       acceptanceDeadline: acceptanceDeadline ? formatDateLabel(acceptanceDeadline) : '',
       signatory,
     }
@@ -488,6 +550,12 @@ export function DocumentGenerator({
     if (!employeeName.trim()) return 'Enter the name of the person this document is for.'
     if (docType !== 'employment_agreement' && !jobTitle.trim()) {
       return 'Enter the position title.'
+    }
+    if (docType === 'experience_letter' && !startDate) {
+      return 'Enter the date of joining.'
+    }
+    if (docType === 'experience_letter' && !isCurrentEmployee && !lastWorkingDate) {
+      return 'Enter the last working date, or mark the employee as currently active.'
     }
     return null
   }
@@ -555,7 +623,7 @@ export function DocumentGenerator({
         payload: {
           letterDate, jobTitle, employmentType, startDate, salaryAmount, salaryCadence,
           workLocation, hoursPerWeek, acceptanceDeadline, honorific, governingState, visaType,
-          addressLines,
+          addressLines, lastWorkingDate, isCurrentEmployee, clientProject,
           intro, startDateText, compensationText, responsibilities, eVerifyText, contingencyText,
           closing, signatoryName, signatoryTitle, signatoryPhone,
           // What was hand-written, so editing later restores those paragraphs as
@@ -607,6 +675,7 @@ export function DocumentGenerator({
   }
 
   const isAgreement = docType === 'employment_agreement'
+  const isExperience = docType === 'experience_letter'
 
   return (
     <div className="space-y-5">
@@ -639,7 +708,7 @@ export function DocumentGenerator({
             columns={3}
             value={docType}
             onChange={(value) => setDocType(value as GeneratedDocumentType)}
-            options={(Object.keys(DOCUMENT_TYPE_LABELS) as GeneratedDocumentType[]).map((type) => ({
+            options={TEMPLATE_TYPES.map((type) => ({
               value: type,
               label: DOCUMENT_TYPE_LABELS[type],
               description: DOCUMENT_TYPE_DESCRIPTIONS[type],
@@ -696,7 +765,7 @@ export function DocumentGenerator({
                 />
               </FormField>
               {isAgreement ? (
-                <FormField label="Salutation" hint="Printed as “Dear Mr. Smith,”.">
+                <FormField label="Salutation" hint={'Printed as "Dear Mr. Smith,".'}>
                   <Select value={honorific} onChange={(event) => setHonorific(event.target.value)}>
                     <option value="">No title</option>
                     <option value="Mr.">Mr.</option>
@@ -705,7 +774,7 @@ export function DocumentGenerator({
                     <option value="Dr.">Dr.</option>
                   </Select>
                 </FormField>
-              ) : (
+              ) : isExperience ? null : (
                 <FormField label="Reply by" hint="Optional acceptance deadline.">
                   <DateField
                     value={acceptanceDeadline}
@@ -794,7 +863,7 @@ export function DocumentGenerator({
                   ))}
                 </Select>
               </FormField>
-              <FormField label="Start date">
+              <FormField label={isExperience ? 'Date of joining' : 'Start date'} required={isExperience}>
                 <DateField
                   value={startDate}
                   onChange={(event) => setStartDate(event.target.value)}
@@ -802,7 +871,41 @@ export function DocumentGenerator({
               </FormField>
             </div>
 
-            {!isAgreement ? (
+            {isExperience ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField label="Last working date" required={!isCurrentEmployee}>
+                    <DateField
+                      value={lastWorkingDate}
+                      min={startDate}
+                      disabled={isCurrentEmployee}
+                      onChange={(event) => setLastWorkingDate(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="Still employed">
+                    <label className="mt-2 flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={isCurrentEmployee}
+                        onChange={(event) => {
+                          setIsCurrentEmployee(event.target.checked)
+                          if (event.target.checked) setLastWorkingDate('')
+                        }}
+                      />
+                      Currently active employee
+                    </label>
+                  </FormField>
+                </div>
+                <FormField label="Client / project" hint="Leave blank to omit the client paragraph.">
+                  <Input
+                    value={clientProject}
+                    onChange={(event) => setClientProject(event.target.value)}
+                    placeholder="Bank of America"
+                  />
+                </FormField>
+              </>
+            ) : null}
+
+            {!isAgreement && !isExperience ? (
               <FormField label="Hours per week" hint="Printed in the opening paragraph.">
                 <Input
                   value={hoursPerWeek}
@@ -813,40 +916,44 @@ export function DocumentGenerator({
               </FormField>
             ) : null}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Compensation" hint="Just the number — the wording is added.">
-                <Input
-                  value={salaryAmount}
-                  onChange={(event) => setSalaryAmount(event.target.value)}
-                  placeholder="72,800"
-                  inputMode="decimal"
-                />
-              </FormField>
-              <FormField label="Paid">
-                <Select
-                  value={salaryCadence}
-                  onChange={(event) => setSalaryCadence(event.target.value)}
-                >
-                  {SALARY_CADENCES.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </FormField>
-            </div>
+            {!isExperience ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField label="Compensation" hint="Just the number — the wording is added.">
+                    <Input
+                      value={salaryAmount}
+                      onChange={(event) => setSalaryAmount(event.target.value)}
+                      placeholder="72,800"
+                      inputMode="decimal"
+                    />
+                  </FormField>
+                  <FormField label="Paid">
+                    <Select
+                      value={salaryCadence}
+                      onChange={(event) => setSalaryCadence(event.target.value)}
+                    >
+                      {SALARY_CADENCES.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                </div>
 
-            <p className="rounded-lg bg-page px-3.5 py-2.5 text-[13px] text-ink-muted">
-              Reads as: {composeSalaryText(salaryAmount, salaryCadence, salarySymbol)}
-            </p>
+                <p className="rounded-lg bg-page px-3.5 py-2.5 text-[13px] text-ink-muted">
+                  Reads as: {composeSalaryText(salaryAmount, salaryCadence, salarySymbol)}
+                </p>
 
-            <FormField label="Work location">
-              <Input
-                value={workLocation}
-                onChange={(event) => setWorkLocation(event.target.value)}
-                placeholder="700 Universe Blvd, Juno Beach, Florida 33408"
-              />
-            </FormField>
+                <FormField label="Work location">
+                  <Input
+                    value={workLocation}
+                    onChange={(event) => setWorkLocation(event.target.value)}
+                    placeholder="700 Universe Blvd, Juno Beach, Florida 33408"
+                  />
+                </FormField>
+              </>
+            ) : null}
 
             {isAgreement ? (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -928,30 +1035,30 @@ export function DocumentGenerator({
               onRevert={() => revertText('intro')}
             />
 
-            <AutoTextField
-              label="Start date paragraph"
-              rows={2}
-              value={startDateText}
-              edited={overrides.startDateText !== undefined}
-              onChange={setText('startDateText')}
-              onRevert={() => revertText('startDateText')}
-            />
+            {!isExperience ? (
+              <>
+                <AutoTextField
+                  label="Start date paragraph"
+                  rows={2}
+                  value={startDateText}
+                  edited={overrides.startDateText !== undefined}
+                  onChange={setText('startDateText')}
+                  onRevert={() => revertText('startDateText')}
+                />
+
+                <AutoTextField
+                  label="Compensation paragraph"
+                  rows={3}
+                  value={compensationText}
+                  edited={overrides.compensationText !== undefined}
+                  onChange={setText('compensationText')}
+                  onRevert={() => revertText('compensationText')}
+                />
+              </>
+            ) : null}
 
             <AutoTextField
-              label="Compensation paragraph"
-              rows={3}
-              value={compensationText}
-              edited={overrides.compensationText !== undefined}
-              onChange={setText('compensationText')}
-              onRevert={() => revertText('compensationText')}
-            />
-
-            <AutoTextField
-              label={
-                docType === 'internship_offer'
-                  ? 'Training focus & responsibilities'
-                  : 'Job duties and responsibilities'
-              }
+              label={isExperience ? 'Key responsibilities' : 'Job duties and responsibilities'}
               hint="One bullet per line."
               rows={9}
               value={responsibilities}
@@ -960,25 +1067,39 @@ export function DocumentGenerator({
               onRevert={() => revertText('responsibilities')}
             />
 
-            <AutoTextField
-              label="E-Verify statement"
-              hint="Leave blank to omit it entirely."
-              rows={2}
-              value={eVerifyText}
-              edited={overrides.eVerifyText !== undefined}
-              onChange={setText('eVerifyText')}
-              onRevert={() => revertText('eVerifyText')}
-            />
+            {isExperience ? (
+              <AutoTextField
+                label="Client / project paragraph"
+                hint="Leave blank to omit it entirely."
+                rows={3}
+                value={contingencyText}
+                edited={overrides.contingencyText !== undefined}
+                onChange={setText('contingencyText')}
+                onRevert={() => revertText('contingencyText')}
+              />
+            ) : (
+              <>
+                <AutoTextField
+                  label="E-Verify statement"
+                  hint="Leave blank to omit it entirely."
+                  rows={2}
+                  value={eVerifyText}
+                  edited={overrides.eVerifyText !== undefined}
+                  onChange={setText('eVerifyText')}
+                  onRevert={() => revertText('eVerifyText')}
+                />
 
-            <AutoTextField
-              label="Contingency / at-will paragraph"
-              hint="Leave blank to omit it entirely."
-              rows={3}
-              value={contingencyText}
-              edited={overrides.contingencyText !== undefined}
-              onChange={setText('contingencyText')}
-              onRevert={() => revertText('contingencyText')}
-            />
+                <AutoTextField
+                  label="Contingency / at-will paragraph"
+                  hint="Leave blank to omit it entirely."
+                  rows={3}
+                  value={contingencyText}
+                  edited={overrides.contingencyText !== undefined}
+                  onChange={setText('contingencyText')}
+                  onRevert={() => revertText('contingencyText')}
+                />
+              </>
+            )}
 
             <AutoTextField
               label="Closing paragraph"

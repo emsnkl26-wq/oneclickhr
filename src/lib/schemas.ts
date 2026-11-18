@@ -1558,6 +1558,7 @@ export const GENERATED_DOCUMENT_TYPES = [
   'offer_letter',
   'employment_agreement',
   'internship_offer',
+  'experience_letter',
 ] as const
 
 /**

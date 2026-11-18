@@ -145,7 +145,7 @@ describe('toCsv', () => {
 describe('composeSalaryText', () => {
   it('adds a currency symbol to a bare number and spells out the cadence', () => {
     expect(composeSalaryText('72,800', 'annual')).toContain('$72,800 per annum')
-    expect(composeSalaryText('3000', 'monthly')).toContain('$3000 per month')
+    expect(composeSalaryText('3000', 'monthly')).toContain('$3,000 per month')
     expect(composeSalaryText('55', 'hourly')).toContain('$55 per hour')
   })
 

@@ -871,6 +871,7 @@ export type GeneratedDocumentType =
   | 'offer_letter'
   | 'employment_agreement'
   | 'internship_offer'
+  | 'experience_letter'
 
 export interface GeneratedDocument {
   id: string

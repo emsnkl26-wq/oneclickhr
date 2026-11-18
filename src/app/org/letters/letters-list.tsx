@@ -225,7 +225,7 @@ export function LettersList({
             { value: '', label: 'All' },
             { value: 'offer_letter', label: 'Offer letters' },
             { value: 'employment_agreement', label: 'Agreements' },
-            { value: 'internship_offer', label: 'Internships' },
+            { value: 'experience_letter', label: 'Experience' },
           ]}
         />
         <SearchField

@@ -52,6 +52,36 @@ export function currencySymbol(code: string | null | undefined): string {
   }
 }
 
+/**
+ * Latin-1-safe currency label for PDF rendering. jsPDF's built-in fonts cannot
+ * render characters outside Latin-1 (₹, ₱, ৳, etc.), so this returns the
+ * three-letter code for those currencies ("INR", "PHP") and the symbol for
+ * ones that fit in Latin-1 ("$", "€", "£").
+ */
+export function pdfSafeSymbol(code: string | null | undefined): string {
+  const upper = (code ?? '').toUpperCase()
+  const sym = currencySymbol(upper)
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x20-\xff]+$/.test(sym)) return sym
+  return upper || sym
+}
+
+const NON_LATIN1_SYMBOLS = CURRENCIES
+  .filter((c) => !/^[\x20-\xff]+$/.test(c.symbol))
+  .sort((a, b) => b.symbol.length - a.symbol.length)
+
+/**
+ * Replace non-Latin-1 currency symbols with their ISO code in arbitrary text.
+ * Used to sanitize user-editable prose before it reaches jsPDF.
+ */
+export function pdfSafeText(text: string): string {
+  let safe = text
+  for (const c of NON_LATIN1_SYMBOLS) {
+    if (safe.includes(c.symbol)) safe = safe.replaceAll(c.symbol, c.code + ' ')
+  }
+  return safe
+}
+
 /** "₹ INR — Indian Rupee": what a currency picker shows. */
 export function currencyLabel(code: string): string {
   const known = CURRENCIES.find((c) => c.code === code)

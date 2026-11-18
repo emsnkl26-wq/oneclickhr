@@ -50,7 +50,7 @@ export default async function LettersPage({
   const supabase = await createSupabaseServerClient()
   const params = await searchParams
 
-  const types: GeneratedDocumentType[] = ['offer_letter', 'employment_agreement', 'internship_offer']
+  const types: GeneratedDocumentType[] = ['offer_letter', 'employment_agreement', 'experience_letter', 'internship_offer']
   const docType = types.includes(params.type as GeneratedDocumentType) ? params.type! : ''
   const search = params.q?.trim() || ''
   const page = Math.max(1, parseInt(params.page ?? '', 10) || 1)
