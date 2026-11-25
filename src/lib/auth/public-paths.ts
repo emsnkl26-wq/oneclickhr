@@ -55,11 +55,15 @@ export const PUBLIC_HUMAN_PATHS = [
  *   • send-email-hook  — Standard Webhooks HMAC signature
  *   • cron             — CRON_SECRET bearer token
  *   • google/webhook   — channel token issued at subscription time
+ *   • public/enquiries — the marketing site's server forwards contact enquiries
+ *                        with the x-enquiry-secret header (ENQUIRY_INGEST_SECRET).
+ *                        Listed as this ONE route, not `/api/public`.
  */
 export const MACHINE_PATHS = [
   '/api/auth/send-email-hook',
   '/api/cron',
   '/api/integrations/google/webhook',
+  '/api/public/enquiries',
 ] as const
 
 export const PUBLIC_PATHS: readonly string[] = [...PUBLIC_HUMAN_PATHS, ...MACHINE_PATHS]

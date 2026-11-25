@@ -83,6 +83,13 @@ describe('middleware public paths', () => {
     }
   })
 
+  it('opens the marketing-site enquiry endpoint, and only that one route', () => {
+    expect(isPublicPath('/api/public/enquiries')).toBe(true)
+    for (const path of ['/api/public', '/api/public/other', '/api/public/enquiries-evil', '/api/publicx']) {
+      expect(isPublicPath(path), `${path} must NOT be public`).toBe(false)
+    }
+  })
+
   it('exposes no duplicates', () => {
     expect(new Set(PUBLIC_PATHS).size).toBe(PUBLIC_PATHS.length)
   })
@@ -92,6 +99,7 @@ describe('trailing-slash tolerance for machine endpoints', () => {
   it('maps a trailing-slash hook URL back to the real route', () => {
     expect(canonicalMachinePath('/api/auth/send-email-hook/')).toBe('/api/auth/send-email-hook')
     expect(canonicalMachinePath('/api/cron/')).toBe('/api/cron')
+    expect(canonicalMachinePath('/api/public/enquiries/')).toBe('/api/public/enquiries')
   })
 
   it('leaves everything else alone', () => {

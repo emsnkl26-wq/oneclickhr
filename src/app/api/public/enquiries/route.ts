@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withErrorHandler, parseBody, jsonOk, jsonError } from '@/lib/api'
@@ -24,14 +25,24 @@ const enquirySchema = z.object({
   message: z.string().trim().min(1).max(5000),
 })
 
+/** Constant-time compare; lengths are checked first because timingSafeEqual throws on a mismatch. */
+function secretsMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
 async function handlePOST(request: NextRequest) {
+  // Fails closed: an unset secret, a missing header and a wrong header all get
+  // the same 401, so an unconfigured server never accepts writes and the
+  // response does not reveal which case it was.
   const secret = process.env.ENQUIRY_INGEST_SECRET
   if (!secret) {
-    // Not configured: refuse rather than accept unauthenticated writes.
     console.error('[enquiries] ENQUIRY_INGEST_SECRET is not set; refusing ingest')
-    return jsonError('Enquiry ingest is not configured.', 503)
+    return jsonError('Not authorized.', 401)
   }
-  if (request.headers.get('x-enquiry-secret') !== secret) {
+  const provided = request.headers.get('x-enquiry-secret')
+  if (!provided || !secretsMatch(provided, secret)) {
     return jsonError('Not authorized.', 401)
   }
 
