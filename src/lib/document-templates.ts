@@ -494,17 +494,30 @@ export type AgreementSectionValue = ReturnType<typeof buildAgreementSections>[nu
 export function composeSalaryText(amount: string, cadence: string, symbol = '$'): string {
   const value = amount.trim()
   if (!value) return 'the agreed compensation'
-  let formatted = value
-  if (/^[\d.,]+$/.test(value)) {
-    const digits = value.replace(/,/g, '')
-    const num = Number(digits)
-    formatted = !Number.isNaN(num)
-      ? `${symbol}${num.toLocaleString('en-US')}`
-      : `${symbol}${value}`
-  } else {
-    formatted = value
-  }
-  const money = formatted
+
+  /*
+   * The field asks for "just the number", but what actually arrives is messier.
+   * Two cases, split on whether the person typed WORDS:
+   *
+   *   • If the value carries letters — "USD 72,800", "72,800 per year" — they
+   *     have stated their own wording (perhaps a currency code we would not pick
+   *     the symbol for), so it is left exactly as written.
+   *
+   *   • Otherwise it is meant to be a figure, however it was punctuated:
+   *     "120000", "$120000", "₹1800000", "1,20,000", "120 000". The old code
+   *     only grouped a string that was ENTIRELY digits and separators and
+   *     printed the rest verbatim — which is how a salary reached a signed
+   *     letter as a raw, un-grouped "$120000". So the digits are pulled out,
+   *     their grouping dropped, and the figure re-grouped with the currency in
+   *     front: always "$120,000"-style, never raw.
+   */
+  const hasWords = /[A-Za-z]/.test(value)
+  const numeric = value.replace(/[^\d.]/g, '')
+  const num = Number(numeric)
+  const money =
+    !hasWords && numeric !== '' && Number.isFinite(num)
+      ? `${symbol}${num.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+      : value
   switch (cadence) {
     case 'monthly':
       return `${money} per month, payable on or before the 15th of every month`

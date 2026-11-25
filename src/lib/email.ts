@@ -247,6 +247,60 @@ export async function sendEmployeeCredentials(args: CredentialEmailArgs): Promis
   })
 }
 
+export interface OnboardingReminderArgs {
+  to: string
+  fullName: string
+  orgName: string
+  brandColor?: string
+}
+
+/**
+ * A nudge to an INVITED employee who has an account but has not finished their
+ * onboarding (014). Unlike {@link sendEmployeeCredentials}, this carries NO
+ * password: the account already exists and the person may already have chosen
+ * their own password, so re-issuing one would lock them out of it. It only
+ * points them back at the portal and says what is still owed. If they have lost
+ * the original temporary password, the org re-issues it from the employee's
+ * page — a separate, deliberate action.
+ */
+export async function sendOnboardingReminder(args: OnboardingReminderArgs): Promise<SendResult> {
+  const loginUrl = `${appUrl()}${EMPLOYEE_LOGIN_PATH}`
+  const brand = brandColorOrDefault(args.brandColor)
+
+  const html = layout(
+    `
+    <h1 style="margin:0 0 14px;font-size:21px;font-weight:700;letter-spacing:-0.3px;">Finish setting up your ${esc(
+      args.orgName
+    )} account</h1>
+    <p style="margin:0 0 18px;">Hi ${esc(args.fullName || 'there')}, this is a reminder that your
+    onboarding at ${esc(args.orgName)} is not finished yet. Sign in to the employee portal and
+    complete your details — your address, work authorization, emergency contact and a few documents.
+    It takes about ten minutes, and you can save and come back to it. ${esc(
+      args.orgName
+    )} reviews what you submit.</p>
+
+    ${button(loginUrl, 'Sign in and finish onboarding', brand)}
+
+    <p style="margin:0;font-size:13px;color:#64748B;">
+      Sign in with the email and password you were given when your account was created. If you have
+      forgotten your password, ask your manager to re-issue it. If you did not expect this email,
+      please contact your manager.
+    </p>
+  `,
+    {
+      brandName: args.orgName,
+      brandColor: brand,
+      preheader: 'A reminder to complete your onboarding',
+    }
+  )
+
+  return sendEmail({
+    to: args.to,
+    subject: `Reminder: finish your onboarding at ${args.orgName}`,
+    html,
+  })
+}
+
 export interface VisaReminderArgs {
   to: string | string[]
   employeeName: string

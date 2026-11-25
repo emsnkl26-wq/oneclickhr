@@ -18,14 +18,14 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, ClipboardList, Clock, Trash2, UserCheck } from 'lucide-react'
+import { ArrowRight, ClipboardList, Clock, Mail, Trash2, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/patterns'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/primitives'
-import { apiDelete, ApiClientError } from '@/lib/fetcher'
+import { apiDelete, apiPost, ApiClientError } from '@/lib/fetcher'
 import { DeleteEmployeeDialog } from '@/components/profile/delete-employee-dialog'
 import { formatLocal } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -56,6 +56,24 @@ export function DraftList({ drafts, timezone }: { drafts: DraftRow[]; timezone: 
   // An onboarding that already has an account: deleting it deletes the employee.
   const [deleting, setDeleting] = React.useState<{ row: DraftRow; name: string } | null>(null)
   const [busy, setBusy] = React.useState(false)
+  // Which invited card is mid-resend, so only its button spins.
+  const [resending, setResending] = React.useState<string | null>(null)
+
+  async function resendInvite(draft: DraftRow) {
+    setResending(draft.id)
+    try {
+      const { email } = await apiPost<{ email: string }>(
+        `/api/org/onboarding/${draft.id}/resend`
+      )
+      toast.success(`Reminder sent to ${email}`)
+    } catch (err) {
+      toast.error(
+        err instanceof ApiClientError ? err.message : 'That reminder could not be sent'
+      )
+    } finally {
+      setResending(null)
+    }
+  }
 
   async function remove(draft: DraftRow) {
     setBusy(true)
@@ -167,16 +185,30 @@ export function DraftList({ drafts, timezone }: { drafts: DraftRow[]; timezone: 
                 {formatLocal(draft.updated_at, timezone, 'd MMM, HH:mm')}
               </p>
 
-              <Button
-                asChild
-                variant={submitted ? 'default' : 'secondary'}
-                className="mt-4 w-full"
-              >
-                <Link href={`/org/employees/onboard/${draft.id}`}>
-                  {submitted ? 'Review' : isDraft ? 'Resume' : 'Add details'}
-                  <ArrowRight />
-                </Link>
-              </Button>
+              <div className="mt-4 flex gap-2">
+                <Button
+                  asChild
+                  variant={submitted ? 'default' : 'secondary'}
+                  className="flex-1"
+                >
+                  <Link href={`/org/employees/onboard/${draft.id}`}>
+                    {submitted ? 'Review' : isDraft ? 'Resume' : 'Add details'}
+                    <ArrowRight />
+                  </Link>
+                </Button>
+                {status === 'invited' ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={resending === draft.id}
+                    onClick={() => resendInvite(draft)}
+                    title="Email a reminder to finish onboarding"
+                  >
+                    <Mail />
+                    Resend
+                  </Button>
+                ) : null}
+              </div>
             </li>
           )
         })}

@@ -140,10 +140,13 @@ type Doc = {
   setFontSize(size: number): void
   setTextColor(r: number, g: number, b: number): void
   setDrawColor(r: number, g: number, b: number): void
+  setFillColor(r: number, g: number, b: number): void
   setLineWidth(w: number): void
   text(text: string | string[], x: number, y: number, options?: Record<string, unknown>): void
   textWithLink(text: string, x: number, y: number, options: { url: string }): void
   line(x1: number, y1: number, x2: number, y2: number): void
+  rect(x: number, y: number, w: number, h: number, style?: string): void
+  circle(x: number, y: number, r: number, style?: string): void
   splitTextToSize(text: string, width: number): string[]
   getTextWidth(text: string): number
   addImage(
@@ -946,81 +949,324 @@ export async function renderEmploymentAgreement(input: AgreementInput): Promise<
   return doc.output('blob')
 }
 
-/** Template 4 — the experience & employment verification letter. */
+/**
+ * Template 4 — the experience & employment verification letter.
+ *
+ * Unlike the other three, this one does NOT go through `DocWriter`: it has its
+ * own masthead (a navy band over a thin red rule, the logo and company block
+ * beneath it), a tinted two-column fact panel, blue section headings, red list
+ * bullets and a running footer carrying the org's own name — a designed
+ * certificate rather than the plain business letter the offer templates are.
+ * There is deliberately no diagonal watermark and no "Powered by OneclickHR"
+ * line; a verification letter an employee hands to a bank or a visa officer
+ * should read as the organization's own document, nothing else on it.
+ */
+
+/** The letter's palette, kept together so a rule and a bullet cannot drift apart. */
+const EXP_NAVY: [number, number, number] = [15, 32, 56]
+const EXP_RED: [number, number, number] = [198, 61, 48]
+const EXP_BLUE: [number, number, number] = [31, 78, 121]
+const EXP_PANEL: [number, number, number] = [243, 245, 248]
+const EXP_PANEL_BORDER: [number, number, number] = [223, 227, 233]
+
 export async function renderExperienceLetter(input: ExperienceLetterInput): Promise<Blob> {
   const doc = await newDoc()
-  const w = new DocWriter(doc, {
-    org: input.org,
-    family: 'helvetica',
-    bodySize: 10,
-    pageNumbers: true,
-  })
+  const { org, signatory } = input
+  const family = 'helvetica'
+  const bodySize = 10
+  const lineH = bodySize * 1.5
 
+  const W = doc.internal.pageSize.getWidth()
+  const H = doc.internal.pageSize.getHeight()
+  const margin = 56
+  const contentW = W - margin * 2
+  const bottom = H - 64 // room for the footer rule and line
+  let y = 0
+
+  const ink = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2])
+
+  /** The navy band and its red underline, drawn flush to the top on every page. */
+  const topBand = () => {
+    doc.setFillColor(...EXP_NAVY)
+    doc.rect(0, 0, W, 11, 'F')
+    doc.setFillColor(...EXP_RED)
+    doc.rect(0, 11, W, 3, 'F')
+  }
+
+  /** A justified body paragraph; returns nothing, advances `y`. */
+  const paragraph = (text: string, opts: { bold?: boolean } = {}) => {
+    if (!text.trim()) return
+    doc.setFont(family, opts.bold ? 'bold' : 'normal')
+    doc.setFontSize(bodySize)
+    ink(INK)
+    const lines = doc.splitTextToSize(text.replace(/\s+/g, ' ').trim(), contentW)
+    for (let i = 0; i < lines.length; i += 1) {
+      ensure(lineH)
+      justified(lines[i], margin, contentW, i === lines.length - 1)
+      y += lineH
+    }
+    y += 5
+  }
+
+  /** One line with the slack spread between its words, except the last. */
+  const justified = (line: string, x: number, width: number, isLast: boolean) => {
+    const words = line.split(' ').filter(Boolean)
+    if (isLast || words.length < 2) {
+      doc.text(line, x, y)
+      return
+    }
+    const natural = doc.getTextWidth(line)
+    const extra = Math.max(0, width - natural) / (words.length - 1)
+    const space = doc.getTextWidth(' ')
+    let cx = x
+    for (const word of words) {
+      doc.text(word, cx, y)
+      cx += doc.getTextWidth(word) + space + extra
+    }
+  }
+
+  const footer = () => {
+    const total = doc.getNumberOfPages()
+    const fy = H - 40
+    for (let page = 1; page <= total; page += 1) {
+      doc.setPage(page)
+      doc.setDrawColor(...RULE)
+      doc.setLineWidth(0.6)
+      doc.line(margin, fy - 10, W - margin, fy - 10)
+      doc.setFont(family, 'normal')
+      doc.setFontSize(7.5)
+      ink(MUTED)
+      doc.text(org.name, margin, fy)
+      doc.text(`Employment Verification  •  Page ${page} of ${total}`, W - margin, fy, {
+        align: 'right',
+      })
+    }
+  }
+
+  const newPage = () => {
+    doc.addPage()
+    topBand()
+    y = 54
+  }
+
+  const ensure = (height: number) => {
+    if (y + height > bottom) newPage()
+  }
+
+  /* ---- Page 1 masthead ------------------------------------------------- */
+  topBand()
+  const top = 40
+  let textX = margin
+  let headBottom = top
+
+  if (org.logo) {
+    const size = 52
+    const ratio = org.logo.width / org.logo.height
+    const lw = ratio >= 1 ? size : size * ratio
+    const lh = ratio >= 1 ? size / ratio : size
+    doc.addImage(org.logo.dataUrl, org.logo.format, margin, top, lw, lh, undefined, 'FAST')
+    textX = margin + size + 16
+    headBottom = top + size
+  }
+
+  doc.setFont(family, 'bold')
+  doc.setFontSize(15)
+  ink(EXP_NAVY)
+  doc.text(org.name.toUpperCase(), textX, top + 15)
+
+  doc.setFont(family, 'normal')
+  doc.setFontSize(8.5)
+  ink(MUTED)
+  let ly = top + 29
+  for (const line of experienceLetterheadLines(org)) {
+    doc.text(line, textX, ly)
+    ly += 11
+  }
+
+  const ruleY = Math.max(ly - 2, headBottom) + 8
+  doc.setDrawColor(...RULE)
+  doc.setLineWidth(0.8)
+  doc.line(margin, ruleY, W - margin, ruleY)
+  y = ruleY + 30
+
+  /* ---- Title ----------------------------------------------------------- */
   const title = input.isCurrentEmployee
     ? 'EMPLOYMENT CONFIRMATION LETTER'
     : 'EXPERIENCE & EMPLOYMENT VERIFICATION LETTER'
+  doc.setFont(family, 'bold')
+  doc.setFontSize(14.5)
+  ink(EXP_BLUE)
+  doc.text(title, W / 2, y, { align: 'center' })
+  y += 30
 
-  w.title(title)
-  w.space(6)
-  w.paragraph(`Date: ${input.date}`)
-  w.space(4)
-  w.heading('TO WHOM IT MAY CONCERN')
-  w.space(2)
+  doc.setFont(family, 'normal')
+  doc.setFontSize(bodySize)
+  ink(MUTED)
+  doc.text(`Date: ${input.date}`, margin, y)
+  y += lineH + 6
 
-  w.paragraph(input.intro)
-  w.space(6)
+  doc.setFont(family, 'bold')
+  doc.setFontSize(bodySize)
+  ink(INK)
+  doc.text('TO WHOM IT MAY CONCERN', margin, y)
+  y += lineH + 4
 
-  // Info box — position, employment type, dates
+  paragraph(input.intro)
+  y += 6
+
+  /* ---- Tinted two-column fact panel ------------------------------------ */
   const rows: Array<[string, string]> = [
     ['Position', input.jobTitle],
     ['Employment Type', input.employmentType],
     ['Date of Joining', input.startDate],
+    input.isCurrentEmployee
+      ? ['Current Status', 'Active / Ongoing']
+      : ['Last Working Date', input.lastWorkingDate],
   ]
-  if (input.isCurrentEmployee) {
-    rows.push(['Current Status', 'Active / Ongoing'])
-  } else {
-    rows.push(['Last Working Date', input.lastWorkingDate])
+  const gridRows = Math.ceil(rows.length / 2)
+  const panelPad = 14
+  const panelH = gridRows * (lineH * 2 + 6) + panelPad
+  ensure(panelH + 10)
+  doc.setFillColor(...EXP_PANEL)
+  doc.setDrawColor(...EXP_PANEL_BORDER)
+  doc.setLineWidth(0.6)
+  doc.rect(margin, y, contentW, panelH, 'FD')
+  const half = contentW / 2
+  let cy = y + panelPad + 2
+  for (let i = 0; i < rows.length; i += 2) {
+    for (let col = 0; col < 2; col += 1) {
+      const row = rows[i + col]
+      if (!row) break
+      const colX = margin + panelPad + col * half
+      doc.setFont(family, 'normal')
+      doc.setFontSize(7.5)
+      ink(MUTED)
+      doc.text(row[0].toUpperCase(), colX, cy)
+      doc.setFont(family, 'bold')
+      doc.setFontSize(bodySize + 0.5)
+      ink(INK)
+      doc.text(row[1] || '—', colX, cy + lineH)
+    }
+    cy += lineH * 2 + 6
   }
-  w.infoBox(rows)
-  w.space(6)
+  y += panelH + 16
 
+  /* ---- Client paragraph ------------------------------------------------ */
   if (input.clientText) {
-    w.paragraph(input.clientText)
-    w.space(2)
+    paragraph(input.clientText)
+    y += 2
   }
 
+  /* ---- Responsibilities with red bullets ------------------------------- */
   if (input.responsibilities.length) {
-    w.heading('KEY RESPONSIBILITIES')
-    w.bullets(input.responsibilities)
+    ensure(lineH * 2)
+    doc.setFont(family, 'bold')
+    doc.setFontSize(bodySize + 1)
+    ink(EXP_BLUE)
+    doc.text('KEY RESPONSIBILITIES', margin, y)
+    y += lineH + 6
+
+    const indent = 18
+    const bulletW = contentW - indent
+    for (const item of input.responsibilities) {
+      const text = item.trim()
+      if (!text) continue
+      doc.setFont(family, 'normal')
+      doc.setFontSize(bodySize)
+      const lines = doc.splitTextToSize(text.replace(/\s+/g, ' '), bulletW)
+      ensure(lineH * lines.length)
+      // The red bullet, centred on the first line's cap height.
+      doc.setFillColor(...EXP_RED)
+      doc.circle(margin + 5, y - bodySize * 0.3, 1.9, 'F')
+      ink(INK)
+      doc.setFont(family, 'normal')
+      lines.forEach((line: string, idx: number) => {
+        doc.text(line, margin + indent, y + idx * lineH)
+      })
+      y += lineH * lines.length + 3
+    }
+    y += 4
   }
 
-  w.paragraph(input.closing)
-  w.space(16)
+  paragraph(input.closing)
+  y += 18
 
-  // Single-column signoff
-  w.paragraph('Sincerely,', { bold: true })
-  w.space(2)
-  w.signatureImage(input.signatory, w.margin, w.cursor + 40, 180)
-  w.space(44)
+  /* ---- Signature block ------------------------------------------------- */
+  ensure(110)
+  doc.setFont(family, 'bold')
+  doc.setFontSize(bodySize)
+  ink(INK)
+  doc.text('Sincerely,', margin, y)
+  y += lineH + 2
+
+  doc.setFont(family, 'bold')
+  doc.setFontSize(bodySize + 1)
+  doc.text(signatory.name, margin, y)
+  y += lineH
+
+  doc.setFont(family, 'normal')
+  doc.setFontSize(bodySize)
+  ink(MUTED)
+  if (signatory.title) {
+    doc.text(`${signatory.title} | ${org.name}`, margin, y)
+    y += lineH
+  }
+  if (signatory.phone) {
+    doc.text(signatory.phone, margin, y)
+    y += lineH
+  }
+
+  y += 6
+  // The signatory's signature image, resting just above the ruled line.
+  if (signatory.image) {
+    const img = signatory.image
+    const ratio = img.width / Math.max(img.height, 1)
+    let sh = 38
+    let sw = sh * ratio
+    if (sw > 200) {
+      sw = 200
+      sh = sw / ratio
+    }
+    doc.addImage(img.dataUrl, img.format, margin, y - sh, sw, sh, undefined, 'FAST')
+  } else {
+    y += 20
+  }
 
   doc.setDrawColor(...INK)
-  doc.setLineWidth(0.5)
-  doc.line(w.margin, w.cursor, w.margin + 200, w.cursor)
-  w.space(4)
+  doc.setLineWidth(0.6)
+  doc.line(margin, y + 2, margin + 200, y + 2)
+  y += 14
+  doc.setFont(family, 'normal')
+  doc.setFontSize(8)
+  ink(MUTED)
+  doc.text('Authorized Signature', margin, y)
 
-  w.paragraph('Authorized Signature', { bold: false })
-  w.space(10)
-
-  w.paragraph(input.signatory.name, { bold: true })
-  if (input.signatory.title) {
-    w.paragraph(`${input.signatory.title} | ${input.org.name}`)
-  }
-  if (input.signatory.phone) {
-    w.paragraph(`Phone: ${input.signatory.phone}`)
-  }
-
-  w.finish()
+  footer()
   return doc.output('blob')
+}
+
+/**
+ * The address / registration / contact lines under the company name, composed
+ * to read like the sample: the address, then EIN with the contact email, then
+ * the phone (and website). Whatever the org has not filled in is dropped.
+ */
+function experienceLetterheadLines(org: LetterheadOrg): string[] {
+  const lines = org.addressLines.map((line) => line.trim()).filter(Boolean)
+
+  const einLine = [
+    org.registrationNumber ? `EIN: ${org.registrationNumber}` : '',
+    org.email ?? '',
+  ]
+    .filter(Boolean)
+    .join('  |  ')
+  if (einLine) lines.push(einLine)
+
+  const contact = [org.phone ? `Phone: ${org.phone}` : '', org.website ?? '']
+    .filter(Boolean)
+    .join('  |  ')
+  if (contact) lines.push(contact)
+
+  return lines
 }
 
 /* ------------------------------------------------------------------ Facade */

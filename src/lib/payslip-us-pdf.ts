@@ -220,7 +220,9 @@ export async function renderUsPayslip(input: UsPayslipInput): Promise<Blob> {
   const totals = usTotals(details)
 
   /* ---- Masthead: company on the left, title and logo on the right -------- */
-  let y = 54
+  // The masthead text sits a little lower than a bare top margin so the logo
+  // stacked above it (see below) has room to be a comfortable, readable size.
+  let y = 66
 
   font(doc, 'helvetica', 'bold', 12)
   ink(doc, INK)
@@ -234,13 +236,20 @@ export async function renderUsPayslip(input: UsPayslipInput): Promise<Blob> {
   // The logo sits ABOVE the title rather than beside it. Beside it was what the
   // old layout did, and a wide logo and a long title then fought for the same
   // strip; stacked, neither can push the other anywhere.
+  //
+  // It is pinned to the top edge and fitted into a box that is generous enough
+  // to read clearly. The box bottom (8 + 42 = 50pt) stays clear of the title's
+  // cap height — the title baseline is at y (66), so its glyphs top out around
+  // 55pt, leaving a few points of breathing room whatever the logo's aspect.
   if (org.logo) {
-    const boxW = 96
-    const boxH = 34
+    const boxW = 112
+    const boxH = 42
     const ratio = org.logo.width / org.logo.height
     const w = ratio >= boxW / boxH ? boxW : boxH * ratio
     const h = ratio >= boxW / boxH ? boxW / ratio : boxH
-    doc.addImage(org.logo.dataUrl, org.logo.format, RIGHT - w, y - 42, w, h)
+    // Right-align within the box and bottom-align it to the box floor so a short
+    // logo still hugs the title instead of floating off the top edge.
+    doc.addImage(org.logo.dataUrl, org.logo.format, RIGHT - w, 8 + (boxH - h), w, h)
   }
 
   font(doc, 'helvetica', 'bold', 15)
@@ -470,7 +479,21 @@ export async function renderUsPayslip(input: UsPayslipInput): Promise<Blob> {
   right(doc, plain(totals.net), COLUMNS.ytd, y)
   y += 24
 
+  /* ---- The detachable voucher, pinned to the foot of the page ------------ */
+  // Pinned rather than flowed, so the perforation is in the same place on every
+  // slip regardless of how many earnings lines the period had.
+  // The perforation sits low enough to leave the notes above it room to breathe
+  // while the voucher below still clears the page foot by a comfortable margin.
+  const perf = PAGE.height - 165
+
   /* ---- Important notes --------------------------------------------------- */
+  // Notes flow naturally after the deposits, but are pulled up if a tall
+  // statement would otherwise push their last line into the "DETACH HERE"
+  // caption under the perforation. The block is title + three 10.5pt lines
+  // (~34pt); clamping the title to perf - 46 keeps the final line clear of the
+  // caption at perf - 4, and the clamp only ever moves the block up, never down
+  // into the deposits above.
+  y = Math.min(y, perf - 46)
   y = sectionTitle(doc, 'Important notes', y) + 13
   font(doc, 'helvetica', 'normal', 7.5)
   ink(doc, MUTED)
@@ -483,10 +506,6 @@ export async function renderUsPayslip(input: UsPayslipInput): Promise<Blob> {
     y += 10.5
   })
 
-  /* ---- The detachable voucher, pinned to the foot of the page ------------ */
-  // Pinned rather than flowed, so the perforation is in the same place on every
-  // slip regardless of how many earnings lines the period had.
-  const perf = PAGE.height - 196
   doc.setDrawColor(RULE[0], RULE[1], RULE[2])
   doc.setLineWidth(0.6)
   doc.setLineDashPattern([3, 3], 0)
@@ -495,6 +514,16 @@ export async function renderUsPayslip(input: UsPayslipInput): Promise<Blob> {
   font(doc, 'helvetica', 'normal', 6)
   ink(doc, MUTED)
   doc.text('DETACH HERE', M, perf - 4)
+
+  // The watermark is drawn FIRST, before any voucher text, so it sits BEHIND
+  // the deposit lines as a true background wash rather than painting over them.
+  // Its position is fixed to the perforation (not a running cursor) so it stays
+  // centred on the voucher block it is meant to back.
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(26)
+  doc.setTextColor(214, 214, 214)
+  const mark = 'THIS IS NOT A CHECK'
+  doc.text(mark, M + (WIDTH - doc.getTextWidth(mark)) / 2, perf + 104, { angle: 8 })
 
   let vy = perf + 22
   font(doc, 'helvetica', 'bold', 9.5)
@@ -532,15 +561,6 @@ export async function renderUsPayslip(input: UsPayslipInput): Promise<Blob> {
   doc.text(maskedAccount(details.accountLast4), COLUMNS.rate, vy)
   doc.text('XXXXXXXXX', COLUMNS.period - 40, vy)
   right(doc, plain(totals.net), COLUMNS.ytd, vy)
-
-  // The watermark, drawn LAST so it sits over the deposit line as on a real
-  // stub. Centred on the voucher rather than at a measured point, so it cannot
-  // drift off the block it is meant to cover.
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(26)
-  doc.setTextColor(196, 196, 196)
-  const mark = 'THIS IS NOT A CHECK'
-  doc.text(mark, M + (WIDTH - doc.getTextWidth(mark)) / 2, vy + 34, { angle: 8 })
 
   return doc.output('blob')
 }
